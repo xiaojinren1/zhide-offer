@@ -6,9 +6,30 @@
 
 ## 当前进度
 
-仓库当前用于四人团队协作，已收录需求方案与协作说明，尚未发布可运行应用。下述功能为计划交付范围，不代表已经完成。代码、启动步骤和实际验证结果将在集成后补充。
+当前版本已提供可运行的 FastAPI + React 工作台：文本、DOCX、文字 PDF 材料解析，目标 JD 输入，事实编辑与确认，定向简历生成及 Markdown 下载。真实 API 解析、简历生成和两次质检工具调用已用虚构材料验证；修改 JD 或经历会撤销确认并清除旧稿。
 
-最新方案：[黑客松需求与四人协作方案 v0.4](职得offer-黑客松需求与四人协作方案-v0.4.docx)。旧版 v0.3 保留供追溯，排期以 v0.4 为准。
+账户隔离、长期记忆、语音与图片输入、Word/PDF 导出和完整模拟面试评分仍待实现。当前是本机原型；下述功能表为最终计划，不代表全部完成。启动方式、验证记录与已知缺口见 [RUNBOOK.md](RUNBOOK.md)，今晚开发契约与接口约定见 [TONIGHT.md](TONIGHT.md)。
+
+## 本机启动
+
+Windows 环境需要 Python 3.12+、Node.js 22+ 和 PowerShell 7，首次运行：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
+npm.cmd --prefix frontend ci
+npm.cmd --prefix frontend run build
+```
+
+将 `backend/.env.example` 复制为 `backend/.env`，在本地填写 API key 和模型 ID；已有 `.env` 不要覆盖。然后运行：
+
+```powershell
+pwsh.exe -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
+```
+
+打开 http://127.0.0.1:8000 。更改配置后重启服务。详细说明见 [RUNBOOK.md](RUNBOOK.md)。
+
+最新需求参考：[黑客松需求与四人协作方案 v0.5](职得offer-黑客松需求与四人协作方案-v0.5.docx)。最新协作决定：10月30日晚由负责人独自准备1.5小时，10月31日09:30启动后按实际剩余工作分工。
 
 ## 用户流程
 
@@ -40,7 +61,7 @@
 
 ## 开发与提交时间
 
-2026 年 10 月 30 日晚约三小时完成公共骨架、文字生成与保存的最小流程，并验证语音及导出依赖。次日安排如下，均为北京时间：
+2026 年 10 月 30 日晚由负责人准备约 1.5 小时，先启动已有工程、完成文本材料与 JD 到事实确认及生成的本机流程，准备页面和交接说明；真实模型验证依赖本地 API key 配置。次日安排如下，均为北京时间：
 
 | 2026 年 10 月 31 日 | 目标 |
 | --- | --- |
@@ -66,6 +87,8 @@ cd zhide-offer
 队员将 GitHub 用户名发给负责人，接受协作者邀请后获得写入权限。建议各自使用任务分支，通过 Pull Request 交由负责人检查合并。具体任务边界与 Codex 交接方式见 [TEAM.md](TEAM.md)。
 
 开始任务前先同步代码、阅读最新版需求和接口约定。公共接口、依赖及共享文件由负责人统筹，遇到问题及时提供复现步骤与原始错误。
+
+提交标题统一为 `feat: 中文描述`，例如 `feat: 增加三题模拟面试与评分`。提交前请阅读 [AGENTS.md](AGENTS.md) 中的完整规范。
 
 ## 数据与凭据
 

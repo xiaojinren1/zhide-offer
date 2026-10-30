@@ -1,0 +1,127 @@
+"""E2 经历结构化：简历文件/文本 → 结构化经历库。
+
+冷启动决策（设计文档 5.3.1）：只做"上传现有简历自动解析"，不做表单录入。
+人工确认：抽取结果必须可编辑（user_confirmed 标记），防错。
+"""
+from __future__ import annotations
+
+import io
+import re
+from pathlib import Path
+
+from core.llm import chat_json
+from engine.models import Experience, ResumeProfile
+from engine.suspicion import parse_period
+from core.config import agent_rules
+
+_SYSTEM = """你是简历结构化抽取器。把用户简历原文解析成 JSON。
+只输出 JSON，字段如下：
+{
+  "name": "姓名（没有则为空串）",
+  "experiences": [
+    {
+      "kind": "project | internship | education",
+      "name": "项目/公司/学校名",
+      "role": "角色/职位",
+      "period": "原文时间串，如 2024.03-2024.09",
+      "actions": ["做的事，逐条"],
+      "results": ["结果/产出，逐条"],
+      "skills": ["该经历涉及的技能"]
+    }
+  ],
+  "skills": ["技能清单（简历中声明的全部技能）"],
+  "education": ["教育经历，逐条"]
+}
+规则：
+1. period 必须逐字保留原文的时间写法，不要改写格式。
+2. actions/results 忠于原文，可以合并半句话，但**不许新增原文没有的事实**。
+3. 原文没提到的字段给空数组/空串，不许编造。
+4. education 类的经历也放进 experiences（kind=education）。"""
+
+
+def extract_text(filename: str, content: bytes) -> str:
+    """从上传内容提取纯文本。支持 .txt/.md/.pdf/.docx。"""
+    suffix = Path(filename or "").suffix.lower()
+    if suffix in {".txt", ".md", ""}:
+        try:
+            return content.decode("utf-8")
+        except UnicodeDecodeError:
+            return content.decode("gbk", errors="replace")
+    if suffix == ".pdf":
+        try:
+            import pdfplumber
+
+            with pdfplumber.open(io.BytesIO(content)) as pdf:
+                return "\n".join((page.extract_text() or "") for page in pdf.pages)
+        except Exception as exc:  # pragma: no cover
+            raise ValueError(f"PDF 解析失败（请确认已安装 pdfplumber）：{exc}") from exc
+    if suffix == ".docx":
+        try:
+            import docx  # python-docx
+
+            doc = docx.Document(io.BytesIO(content))
+            return "\n".join([p.text for p in doc.paragraphs] + [" | ".join(c.text for c in row.cells) for table in doc.tables for row in table.rows])
+        except Exception as exc:  # pragma: no cover
+            raise ValueError(f"DOCX 解析失败（请确认已安装 python-docx）：{exc}") from exc
+    raise ValueError(f"不支持的文件类型：{suffix or '未知'}（支持 txt/md/pdf/docx）")
+
+
+def _fill_periods(experiences: list[Experience]) -> list[Experience]:
+    """用程序补全 start/end（E4 的时间线检测依赖它）。"""
+    for e in experiences:
+        start, end, _ok = parse_period(e.period or "")
+        e.start = start
+        e.end = end
+    return experiences
+
+
+def parse_resume(text: str) -> ResumeProfile:
+    """解析简历文本 → 结构化经历库。"""
+    if not text or not text.strip():
+        raise ValueError("简历内容为空")
+    data = chat_json(_SYSTEM + agent_rules(), f"简历原文：\n{text}")
+    experiences = [
+        Experience(
+            kind=str(x.get("kind") or "project").strip() or "project",
+            name=str(x.get("name") or "").strip(),
+            role=str(x.get("role") or "").strip(),
+            period=str(x.get("period") or "").strip(),
+            actions=[str(a).strip() for a in (x.get("actions") or []) if str(a).strip()],
+            results=[str(r).strip() for r in (x.get("results") or []) if str(r).strip()],
+            skills=[str(s).strip() for s in (x.get("skills") or []) if str(s).strip()],
+        )
+        for x in (data.get("experiences") or [])
+        if isinstance(x, dict)
+    ]
+    return ResumeProfile(
+        name=str(data.get("name") or "").strip(),
+        experiences=_fill_periods(experiences),
+        skills=[str(s).strip() for s in (data.get("skills") or []) if str(s).strip()],
+        education=[str(s).strip() for s in (data.get("education") or []) if str(s).strip()],
+        raw_text=text,
+        user_confirmed=False,
+    )
+
+
+def profile_from_dict(data: dict) -> ResumeProfile:
+    """前端人工确认后的结构回填（供 /api/quality 等复用，避免重复解析）。"""
+    experiences = [
+        Experience(
+            kind=str(x.get("kind") or "project"),
+            name=str(x.get("name") or ""),
+            role=str(x.get("role") or ""),
+            period=str(x.get("period") or ""),
+            actions=list(x.get("actions") or []),
+            results=list(x.get("results") or []),
+            skills=list(x.get("skills") or []),
+        )
+        for x in (data.get("experiences") or [])
+    ]
+    return ResumeProfile(
+        name=str(data.get("name") or ""),
+        experiences=_fill_periods(experiences),
+        skills=list(data.get("skills") or []),
+        education=list(data.get("education") or []),
+        raw_text=str(data.get("raw_text") or ""),
+        user_confirmed=data.get("user_confirmed") is True,
+    )

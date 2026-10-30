@@ -6,13 +6,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
 from fastapi.testclient import TestClient
 from main import app
 from engine.resume_parser import profile_from_dict
+from core.accounts import require_user
 
-class WorkbenchContract(unittest.TestCase):
+
+class AuthenticatedContract(unittest.TestCase):
+    """业务测试隔离认证依赖；真实 Cookie 和用户归属由 test_accounts 覆盖。"""
     def setUp(self):
+        previous = dict(app.dependency_overrides)
+        app.dependency_overrides[require_user] = lambda: {'id': 'contract-user', 'username': 'contract_user'}
+        self.addCleanup(lambda: (app.dependency_overrides.clear(), app.dependency_overrides.update(previous)))
+
+class WorkbenchContract(AuthenticatedContract):
+    def setUp(self):
+        super().setUp()
         configured = patch("api.resume.is_configured", return_value=True)
         configured.start()
         self.addCleanup(configured.stop)
-        self.client = TestClient(app)
+        self.client = TestClient(app, headers={'X-Requested-With': 'XMLHttpRequest'})
         self.profile = {'name':'演示同学','experiences':[{'name':'报名流程','actions':['整理需求'],'results':[],'skills':[]}], 'skills':[], 'education':[], 'user_confirmed':True}
 
     def test_confirmation_preserved(self):
@@ -54,7 +64,7 @@ class WorkbenchContract(unittest.TestCase):
                 response=self.client.post('/api/resume/generate',json={'jd_text':'产品经理','resume_profile':self.profile})
                 self.assertTrue(response.status_code==502 or response.json().get('ok') is False)
 
-class FileAndStorageContract(unittest.TestCase):
+class FileAndStorageContract(AuthenticatedContract):
     def test_unquantified_source_does_not_require_invented_metrics(self):
         from engine.models import ResumeProfile, Experience
         from engine.quality_check import check_markdown
@@ -88,7 +98,7 @@ class FileAndStorageContract(unittest.TestCase):
 
     def test_unconfigured_parse_explicit_error(self):
         with patch('api.resume.is_configured',return_value=False), patch('api.resume.parse_resume') as model:
-            response=TestClient(app).post('/api/resume/parse-text',json={'text':'示例经历'})
+            response=TestClient(app, headers={'X-Requested-With': 'XMLHttpRequest'}).post('/api/resume/parse-text',json={'text':'示例经历'})
             self.assertEqual(response.status_code,503)
             model.assert_not_called()
 

@@ -10,12 +10,14 @@ BACKEND_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = BACKEND_ROOT.parent
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from fastapi import FastAPI  # noqa: E402
+from fastapi import Depends, FastAPI, Request  # noqa: E402
+from fastapi.exceptions import RequestValidationError  # noqa: E402
+from fastapi.exception_handlers import request_validation_exception_handler  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
-from core import budget, events  # noqa: E402
+from core import accounts, budget, events  # noqa: E402
 from core.config import settings  # noqa: E402
 
 
@@ -30,19 +32,34 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="职得offer", version="0.1.0", lifespan=lifespan)
 
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError):
+    if request.url.path.startswith("/api/auth/"):
+        # 默认校验响应包含 input，账户入口禁止将提交的密码回显给浏览器。
+        return JSONResponse(status_code=422, content={
+            "detail": "用户名需为3–32位英文字母、数字或下划线；密码需为8–128个字符",
+        })
+    return await request_validation_exception_handler(request, exc)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Content-Type", "X-Requested-With"],
 )
 
 # ---- 必要路由直接注册；依赖错误必须阻止启动 ----
 
 
+from api.auth import router as auth_router  # noqa: E402
+
+app.include_router(auth_router)
+
 for module_path in ("api.diagnose", "api.resume", "api.quality", "api.interview", "api.profiles"):
     module = __import__(module_path, fromlist=["router"])
-    app.include_router(module.router)
+    app.include_router(module.router, dependencies=[Depends(accounts.require_user), Depends(accounts.require_csrf)])
 
 
 @app.get("/api/health")

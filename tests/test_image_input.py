@@ -66,6 +66,34 @@ class ImageInputContract(unittest.TestCase):
         args = model.call_args.args
         self.assertIn("data:image/png;base64,", args[2])
 
+    def test_parse_image_rejects_empty_model_result(self):
+        with patch(
+            "engine.resume_parser.chat_json_multimodal",
+            return_value={"name": "", "experiences": [{}], "skills": [], "education": []},
+        ):
+            with self.assertRaisesRegex(ValueError, "图片未识别到可用简历内容"):
+                parse_resume_image(png_bytes(), "resume.png")
+
+    def test_parse_image_accepts_content_without_name(self):
+        with patch(
+            "engine.resume_parser.chat_json_multimodal",
+            return_value={"name": "", "experiences": [{"name": "图片项目", "actions": ["整理需求"]}]},
+        ):
+            profile = parse_resume_image(png_bytes(), "resume.png")
+        self.assertEqual(profile.name, "")
+        self.assertEqual(profile.experiences[0].name, "图片项目")
+
+    def test_route_returns_error_for_empty_model_result(self):
+        with patch("api.resume.is_configured", return_value=True), patch(
+            "api.resume.parse_resume_image",
+            side_effect=ValueError("图片未识别到可用简历内容，请上传更清晰的图片或更换支持视觉输入的模型"),
+        ):
+            response = self.client.post("/api/resume/parse-image", files={"file": ("resume.png", png_bytes(), "image/png")})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["ok"], False)
+        self.assertIn("图片未识别到可用简历内容", response.json()["error"])
+        self.assertNotIn("profile", response.json())
+
     def test_route_requires_model_and_returns_profile(self):
         with patch("api.resume.is_configured", return_value=False), patch("api.resume.parse_resume_image") as parser:
             response = self.client.post("/api/resume/parse-image", files={"file": ("resume.png", png_bytes(), "image/png")})

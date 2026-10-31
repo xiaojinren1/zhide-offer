@@ -165,6 +165,8 @@ def parse_resume_image(content: bytes, filename: str | None = None) -> ResumePro
 
 def _profile_from_model_data(data: dict) -> ResumeProfile:
     """把文本/图片模型返回统一映射为 ResumeProfile。"""
+    if not isinstance(data, dict):
+        raise ValueError("图片未识别到可用简历内容，请上传更清晰的图片或更换支持视觉输入的模型")
     experiences = [
         Experience(
             kind=str(x.get("kind") or "project").strip() or "project",
@@ -178,11 +180,27 @@ def _profile_from_model_data(data: dict) -> ResumeProfile:
         for x in (data.get("experiences") or [])
         if isinstance(x, dict)
     ]
+    name = str(data.get("name") or "").strip()
+    skills = [str(s).strip() for s in (data.get("skills") or []) if str(s).strip()]
+    education = [str(s).strip() for s in (data.get("education") or []) if str(s).strip()]
+    usable_experiences = [
+        experience for experience in experiences
+        if any([
+            experience.name,
+            experience.role,
+            experience.period,
+            experience.actions,
+            experience.results,
+            experience.skills,
+        ])
+    ]
+    if not (name or skills or education or usable_experiences):
+        raise ValueError("图片未识别到可用简历内容，请上传更清晰的图片或更换支持视觉输入的模型")
     return ResumeProfile(
-        name=str(data.get("name") or "").strip(),
-        experiences=_fill_periods(experiences),
-        skills=[str(s).strip() for s in (data.get("skills") or []) if str(s).strip()],
-        education=[str(s).strip() for s in (data.get("education") or []) if str(s).strip()],
+        name=name,
+        experiences=_fill_periods(usable_experiences),
+        skills=skills,
+        education=education,
         raw_text="",
         user_confirmed=False,
     )

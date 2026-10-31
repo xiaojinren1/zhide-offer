@@ -85,6 +85,8 @@ npm.cmd --prefix frontend run build
 
 登录有效期七天，刷新恢复账户身份。工作台编辑后自动保存，显示已保存后可刷新恢复；退出前会先完成待保存编辑，保存失败会保留页面供重试。切换账户清空页面中的旧账户数据，重新加载当前账户的已保存工作台。当前仍仅绑定本机地址，未做部署。
 
+登录页提供“忘记密码”入口。目前账户未绑定邮箱、手机号或恢复码，页面只提供管理员核验说明，不允许仅凭用户名直接重置密码；待确定恢复凭据后再接入自助重置接口。
+
 业务接口均要求登录。脚本调用时先向 `/api/auth/register` 或 `/api/auth/login` 发送 `{username,password}`，保存服务端 Cookie，后续随请求携带；所有写请求需带 `X-Requested-With: XMLHttpRequest`。前端统一使用 `src/lib/api.ts`，已处理 Cookie 和请求头。跨域开发仅允许 `http://127.0.0.1:5173` 与 `http://localhost:5173`。
 
 账户测试使用临时数据库：`.\.venv\Scripts\python.exe tests/test_accounts.py`。本轮账户不依赖额外数据库服务，不调用外部模型。

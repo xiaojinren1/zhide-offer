@@ -8,6 +8,7 @@ export default function AuthPage({ onAuthenticated, notice = '' }: {
   onAuthenticated: (user: AccountUser) => void; notice?: string
 }) {
   const [registering, setRegistering] = useState(false)
+  const [forgotPassword, setForgotPassword] = useState(false)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
@@ -41,6 +42,29 @@ export default function AuthPage({ onAuthenticated, notice = '' }: {
     }
   }
 
+  if (forgotPassword) {
+    return <main className="auth-shell">
+      <div className="auth-layout">
+        <section className="auth-intro">
+          <div className="brand"><OwlLogo /><span>职得<span className="brand-offer">offer</span></span></div>
+          <span className="eyebrow">ACCOUNT RECOVERY</span>
+          <h1>找回你的<br />求职空间。</h1>
+          <p>账户资料和求职材料都属于个人空间，恢复操作需要经过管理员核验。</p>
+          <div className="auth-promise"><UiIcon name="shield" /><span>不会仅凭用户名直接修改密码</span></div>
+        </section>
+        <section className="auth-card" aria-labelledby="auth-title">
+          <span className="section-kicker">PASSWORD RECOVERY</span>
+          <h2 id="auth-title">忘记密码</h2>
+          <p className="auth-description">当前账户还没有绑定邮箱、手机号或恢复码。请联系团队管理员核验身份并重置密码。</p>
+          <p className="auth-notice" role="status">为保护账户安全，输入用户名不会直接修改密码，也不会暴露账户是否存在。</p>
+          <button type="button" className="primary-button full auth-submit" onClick={() => { setForgotPassword(false); setError('') }}>返回登录</button>
+          <p className="auth-switch">还没有账户？<button type="button" onClick={() => { setForgotPassword(false); setRegistering(true); setError('') }}>创建账户</button></p>
+        </section>
+      </div>
+      <footer className="auth-footer">职得offer · 让每一段真实经历被看见</footer>
+    </main>
+  }
+
   return <main className="auth-shell">
     <div className="auth-layout">
       <section className="auth-intro">
@@ -68,6 +92,7 @@ export default function AuthPage({ onAuthenticated, notice = '' }: {
           </fieldset>
         </form>
         <p className="auth-switch">{registering ? '已有账户？' : '第一次使用？'}<button type="button" disabled={busy} onClick={() => { setRegistering(!registering); setPassword(''); setConfirmation(''); setError('') }}>{registering ? '直接登录' : '创建账户'}</button></p>
+        {!registering && <p className="auth-switch auth-recovery-link"><button type="button" disabled={busy} onClick={() => { setForgotPassword(true); setError('') }}>忘记密码？</button></p>}
         <p className="auth-retention">登录状态可保留 7 天。工作台自动保存至当前账户，离开前请确认已保存。</p>
       </section>
     </div>

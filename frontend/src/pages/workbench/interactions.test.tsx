@@ -19,7 +19,7 @@ vi.mock('react', async (importOriginal) => ({
   },
   useEffect: () => {},
 }))
-vi.mock('../../lib/api', () => ({ api: { parseResumeText: vi.fn(), parseResumeFile: vi.fn(), generateResume: vi.fn(), diagnose: vi.fn(), saveProfile: vi.fn() } }))
+vi.mock('../../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../../lib/api')>(), api: { parseResumeText: vi.fn(), parseResumeFile: vi.fn(), generateResume: vi.fn(), diagnose: vi.fn(), saveProfile: vi.fn() } }))
 import { api } from '../../lib/api'
 import WorkbenchPage from '../WorkbenchPage'
 import DiagnosePage from '../DiagnosePage'
@@ -213,6 +213,56 @@ describe('工作台真实事件回调（Mock API）', () => {
     await settle()
     expect(api.saveProfile).toHaveBeenCalledWith('虚构同学', expect.objectContaining({ user_confirmed: true }))
     expect(text(render())).toContain('经历已保存到个人记忆')
+  })
+  it.each(['success', 'failure'])('修改事实并重新确认后忽略旧保存的 %s 响应，再保存可恢复', async (result) => {
+    let finish!: (value: any) => void
+    let fail!: (reason: Error) => void
+    vi.mocked(api.saveProfile).mockImplementationOnce(() => new Promise((resolve, reject) => { finish = resolve; fail = reject }))
+    const save = button(render(), '保存到个人记忆')
+    save.props.onClick(); save.props.onClick()
+    expect(api.saveProfile).toHaveBeenCalledTimes(1)
+    expect(button(render(), '保存中').props.disabled).toBe(true)
+    input(render(), 'aria-label', '经历1成果').props.onChange({ target: { value: '新的真实成果' } })
+    input(render(), 'type', 'checkbox').props.onChange({ target: { checked: true } })
+    render()
+    if (result === 'success') finish({ ok: true })
+    else fail(new Error('旧版本保存失败'))
+    await settle()
+    expect(text(render())).not.toContain('经历已保存到个人记忆')
+    expect(text(render())).not.toContain('旧版本保存失败')
+    expect(button(render(), '保存到个人记忆').props.disabled).toBe(false)
+    button(render(), '保存到个人记忆').props.onClick(); await settle()
+    expect(api.saveProfile).toHaveBeenLastCalledWith('虚构同学', expect.objectContaining({ experiences: [expect.objectContaining({ results: ['新的真实成果'] })] }))
+    expect(text(render())).toContain('经历已保存到个人记忆')
+  })
+  it('保存成功后外部恢复其他事实立即隐藏旧成功提示，恢复原事实也不复用', async () => {
+    button(render(), '保存到个人记忆').props.onClick(); await settle()
+    expect(text(render())).toContain('经历已保存到个人记忆')
+    const original = props.profile
+    props.profile = { ...fixture(), name: '恢复版本' }
+    expect(text(render())).not.toContain('经历已保存到个人记忆')
+    props.profile = original
+    expect(text(render())).not.toContain('经历已保存到个人记忆')
+  })
+  it('保存失败显示当前错误并解锁，显式重试成功', async () => {
+    vi.mocked(api.saveProfile).mockRejectedValueOnce(new Error('保存失败，请重试'))
+    button(render(), '保存到个人记忆').props.onClick(); await settle()
+    expect(text(render())).toContain('保存失败，请重试')
+    expect(button(render(), '保存到个人记忆').props.disabled).toBe(false)
+    button(render(), '保存到个人记忆').props.onClick(); await settle()
+    expect(text(render())).toContain('经历已保存到个人记忆')
+    expect(text(render())).not.toContain('保存失败，请重试')
+  })
+  it('请求中切换事实后又恢复原内容，也不能显示旧保存提示', async () => {
+    let finish!: (value: any) => void
+    vi.mocked(api.saveProfile).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+    button(render(), '保存到个人记忆').props.onClick()
+    const original = props.profile
+    props.profile = { ...fixture(), name: '其他版本' }; render()
+    props.profile = original; render()
+    finish({ ok: true }); await settle()
+    expect(text(render())).not.toContain('经历已保存到个人记忆')
+    expect(button(render(), '保存到个人记忆').props.disabled).toBe(false)
   })
   it.each(['jd', 'fact', 'source'])('修改 %s 会清空旧稿并撤销确认', (kind) => {
     props.markdown = '# 旧稿'

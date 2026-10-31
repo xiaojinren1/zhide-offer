@@ -24,7 +24,14 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
   const [retryAction, setRetryAction] = useState<'parse' | 'generate' | null>(null)
   const [waiting, setWaiting] = useState(false)
   const [memoryBusy, setMemoryBusy] = useState(false)
-  const [memoryMessage, setMemoryMessage] = useState('')
+  const [memoryMessage, setMemoryMessage] = useState<{ version: number; text: string } | null>(null)
+  const memoryLock = useRef(false)
+  const memorySnapshot = JSON.stringify([profile, sourceName])
+  const memoryVersion = useRef({ snapshot: memorySnapshot, version: 0 })
+  if (memoryVersion.current.snapshot !== memorySnapshot) {
+    memoryVersion.current = { snapshot: memorySnapshot, version: memoryVersion.current.version + 1 }
+  }
+  const visibleMemoryMessage = memoryMessage?.version === memoryVersion.current.version ? memoryMessage.text : ''
   const [manuallyEdited, setManuallyEdited] = useState(false)
   const requestLock = useRef(false)
   const lastFile = useRef<File | undefined>(undefined)
@@ -70,16 +77,20 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
     } catch (reason) { setError(operationError(reason)) }
   }
   const saveMemory = async () => {
-    if (busy || requestLock.current || memoryBusy || !profile || !profile.user_confirmed || issues.length > 0) return
-    setMemoryBusy(true); setMemoryMessage('')
+    if (busy || requestLock.current || memoryLock.current || !profile || !profile.user_confirmed || issues.length > 0) return
+    memoryLock.current = true
+    const version = memoryVersion.current.version
+    const isCurrent = () => mounted.current && memoryVersion.current.version === version
+    setMemoryBusy(true); setMemoryMessage(null)
     try {
       const result = await api.saveProfile(profile.name || sourceName || '未命名经历库', { ...profile, user_confirmed: true })
       if (!result.ok) throw new Error(result.error || '保存经历库失败，请重试。')
-      setMemoryMessage('经历已保存到个人记忆，可从左侧“个人记忆”查看。')
+      if (isCurrent()) setMemoryMessage({ version, text: '经历已保存到个人记忆，可从左侧“个人记忆”查看。' })
     } catch (cause) {
-      setMemoryMessage(apiErrorMessage(cause))
+      if (isCurrent()) setMemoryMessage({ version, text: apiErrorMessage(cause) })
     } finally {
-      setMemoryBusy(false)
+      memoryLock.current = false
+      if (mounted.current) setMemoryBusy(false)
     }
   }
   const editExperience = (index: number, patch: Partial<Experience>) => {
@@ -163,8 +174,8 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
           <label className="field-label" htmlFor="education">教育背景 · 每行一条</label><textarea id="education" rows={2} value={profile.education.join('\n')} onChange={(e) => editProfile({ ...profile, education: e.target.value.split('\n') })} />
           <details className="source-details"><summary>查看与修正原始材料</summary><textarea aria-label="原始材料" rows={5} value={sourceText} onChange={(e) => { setSourceText(e.target.value); setSourceName(''); lastFile.current = undefined; editProfile({ ...profile, raw_text: e.target.value }) }} /><p className="wb-hint">修改会同步材料区、撤销确认并清空旧稿，但不会自动改写上述事实。请人工核对，或回到第 1 步重新整理。</p></details>
           {issues.length > 0 && <div id="wb-fact-issues" className="warning-note" role="status"><strong>确认前请补充</strong><ul>{issues.map((issue) => <li key={issue}>{issue}</li>)}</ul></div>}
-          <label className="confirmation-check"><input type="checkbox" aria-describedby={issues.length ? 'wb-fact-issues' : undefined} disabled={issues.length > 0 && !profile.user_confirmed} checked={!!profile.user_confirmed && !issues.length} onChange={(e) => { confirmFacts(e.target.checked); setMemoryMessage('') }} /><span>我已核对以上内容，确认可用于本次简历生成。</span></label>
-          {profile.user_confirmed && !issues.length && <div className="memory-save-row"><button type="button" className="secondary-button" disabled={busy || memoryBusy} onClick={() => void saveMemory()}>{memoryBusy ? '保存中…' : '保存到个人记忆'}</button>{memoryMessage && <span className="field-hint" role="status">{memoryMessage}</span>}</div>}
+          <label className="confirmation-check"><input type="checkbox" aria-describedby={issues.length ? 'wb-fact-issues' : undefined} disabled={issues.length > 0 && !profile.user_confirmed} checked={!!profile.user_confirmed && !issues.length} onChange={(e) => { confirmFacts(e.target.checked); setMemoryMessage(null) }} /><span>我已核对以上内容，确认可用于本次简历生成。</span></label>
+          {profile.user_confirmed && !issues.length && <div className="memory-save-row"><button type="button" className="secondary-button" disabled={busy || memoryBusy} onClick={() => void saveMemory()}>{memoryBusy ? '保存中…' : '保存到个人记忆'}</button>{visibleMemoryMessage && <span className="field-hint" role="status">{visibleMemoryMessage}</span>}</div>}
         </fieldset>}
         <div className="fact-note"><UiIcon name="shield" /><span>没有依据的经历与成果数字，不写入简历。修改事实或岗位 JD 后，需要重新确认。</span></div>
       </section>

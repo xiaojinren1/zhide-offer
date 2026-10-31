@@ -95,3 +95,13 @@ cd zhide-offer
 API key 仅保存在服务端本地配置中，不提交到仓库，不发送到浏览器。真实简历、用户材料、录音、账户数据、运行日志和本地数据文件不入库；演示使用无真实敏感信息的样例。语音转写成功后删除原始录音，保留文本的规则按需求方案实现并验收。
 
 仓库公开不等于应用中的用户材料公开。后续代码提交前应检查改动文件与敏感信息，最终材料应明确已完成范围、已知缺口和验证结果。
+
+## 角色 D：个人记忆与导出模块（待 A 接入）
+
+已提供 `MemoryPage`（查看、载入、确认删除）、Markdown 下载和受登录保护的 Word 导出模块。为避免覆盖队友公共文件，本轮未修改 App 导航、api.ts、工作台或 main.py；默认应用仍显示原占位页，Word 路由尚未注册。负责人按 [D 接入说明](frontend/src/pages/memory/BEHAVIOR.md) 完成两处接入后再作整链路验收。PDF 暂不支持。
+
+- [虚构材料](tests/fixtures/role-d/materials.md)、[虚构 JD](tests/fixtures/role-d/jd.md)、[格式演示简历](tests/fixtures/role-d/resume.md) 可用于演示，不能作为真实个人履历使用。
+- [D 验收记录与演示步骤](frontend/src/pages/memory/ACCEPTANCE.md) 区分模块测试、待接入项目和未验证项。
+- 前端回归：`npm.cmd --prefix frontend test`；类型检查：`frontend/node_modules/.bin/tsc.cmd --project frontend/tsconfig.json`；生产构建：`npm.cmd --prefix frontend run build`。
+- 后端专项：`python -m unittest tests.test_export tests.test_accounts tests.test_persistence tests.test_workbench_contract -v`，使用临时数据库，不调用模型。
+- 环境提示：本轮使用 Python 3.10 通过测试。仓库固定的 Pydantic 2.10.4 / pydantic-core 2.27.2 在默认 Python 3.14 上安装失败；首次启动建议先使用 Python 3.12，而不是无上限地选择最新 Python。

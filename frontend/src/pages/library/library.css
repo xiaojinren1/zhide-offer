@@ -1,5 +1,5 @@
-.library-page{display:grid;gap:20px}.library-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}.library-page button,.library-review button{margin:6px 8px 6px 0}.library-card{overflow-wrap:anywhere}.library-card h3,.library-card h4{margin:10px 0}.library-review fieldset{border:0;padding:0}.library-review label{display:block;margin:12px 0}.library-review select{display:block;width:100%;max-width:600px;padding:8px;margin-top:6px}.library-review .library-card{border:1px solid #d6dce4;border-radius:12px;padding:16px;margin:16px 0}.library-diff{border-top:1px solid #e5e7eb;padding:10px 0}.library-page pre{white-space:pre-wrap;max-height:350px;overflow:auto;font-size:13px}.library-archive{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px 0;border-bottom:1px solid #e5e7eb}.library-page fieldset{border:0;padding:0}
-.library-grid{align-items:start}
+.library-page{display:grid;gap:20px}.library-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.library-page button,.library-review button{margin:6px 8px 6px 0}.library-card{overflow-wrap:anywhere}.library-card h3,.library-card h4{margin:10px 0}.library-review fieldset{border:0;padding:0}.library-review label{display:block;margin:12px 0}.library-review select{display:block;width:100%;max-width:600px;padding:8px;margin-top:6px}.library-review .library-card{border:1px solid #d6dce4;border-radius:12px;padding:16px;margin:16px 0}.library-diff{border-top:1px solid #e5e7eb;padding:10px 0}.library-page pre{white-space:pre-wrap;max-height:350px;overflow:auto;font-size:13px}.library-archive{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px 0;border-bottom:1px solid #e5e7eb}.library-page fieldset{border:0;padding:0}
+.library-grid{align-items:start}.library-column{display:flex;flex-direction:column;gap:16px;min-width:0}.library-column>.library-card{margin:0}
 .library-card>label{display:flex;align-items:center;gap:8px;font-size:14px;color:#526681;margin-bottom:12px}
 .library-card-disclosure>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:16px;cursor:pointer;border-radius:8px;padding:8px 0}
 .library-card-disclosure>summary::-webkit-details-marker{display:none}
@@ -18,4 +18,4 @@
 .library-card-history>summary:before{content:'＋';margin-right:6px}
 .library-card-history[open]>summary:before{content:'−'}
 .library-card-history>details{margin-top:12px}
-@media(max-width:480px){.library-grid{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:640px){.library-grid{display:flex;flex-direction:column;gap:16px}.library-column{display:contents}.library-grid .library-card{width:100%;box-sizing:border-box}}

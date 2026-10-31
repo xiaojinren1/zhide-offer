@@ -68,7 +68,7 @@ export default function AuthPage({ onAuthenticated, notice = '' }: {
           </fieldset>
         </form>
         <p className="auth-switch">{registering ? '已有账户？' : '第一次使用？'}<button type="button" disabled={busy} onClick={() => { setRegistering(!registering); setPassword(''); setConfirmation(''); setError('') }}>{registering ? '直接登录' : '创建账户'}</button></p>
-        <p className="auth-retention">登录状态可保留 7 天。当前工作台尚未自动保存，刷新或退出前请下载需要保留的简历。</p>
+        <p className="auth-retention">登录状态可保留 7 天。工作台自动保存至当前账户，离开前请确认已保存。</p>
       </section>
     </div>
     <footer className="auth-footer">职得offer · 让每一段真实经历被看见</footer>

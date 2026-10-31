@@ -4,6 +4,8 @@ import { api } from '../lib/api'
 import type { Experience, ResumeProfile } from '../lib/types'
 import { UiIcon } from '../components/Brand'
 interface Props {
+  sourceText: string; setSourceText: (text: string) => void
+  sourceName: string; setSourceName: (name: string) => void
   profile: ResumeProfile | null; onProfileChange: (profile: ResumeProfile | null) => void
   jdText: string; onJdChange: (text: string) => void
   markdown: string; onMarkdownChange: (text: string) => void
@@ -16,9 +18,7 @@ function errorText(error: unknown) {
   if (axios.isAxiosError(error)) return String(error.response?.data?.error || error.response?.data?.detail || error.message)
   return error instanceof Error ? error.message : String(error)
 }
-export default function WorkbenchPage({ profile, onProfileChange, jdText, onJdChange, markdown, onMarkdownChange, jdKeywords, busy, onBusyChange, onInterview }: Props) {
-  const [sourceText, setSourceText] = useState('')
-  const [sourceName, setSourceName] = useState('')
+export default function WorkbenchPage({ sourceText, setSourceText, sourceName, setSourceName, profile, onProfileChange, jdText, onJdChange, markdown, onMarkdownChange, jdKeywords, busy, onBusyChange, onInterview }: Props) {
   const [activity, setActivity] = useState('')
   const [error, setError] = useState('')
   const [numberWarnings, setNumberWarnings] = useState<string[]>([])

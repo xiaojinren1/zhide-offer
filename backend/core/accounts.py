@@ -42,6 +42,20 @@ CREATE TABLE IF NOT EXISTS profiles (
     profile_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS profiles_user ON profiles(user_id);
+CREATE TABLE IF NOT EXISTS workspaces (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL,
+    saved_at TEXT NOT NULL,
+    state_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS interview_records (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    saved_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS interview_records_user ON interview_records(user_id);
 """
 
 

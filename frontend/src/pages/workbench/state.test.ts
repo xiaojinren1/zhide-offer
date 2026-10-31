@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { AxiosError, AxiosHeaders } from 'axios'
 import type { ResumeProfile } from '../../lib/types'
-import { changedFacts, confirmedProfile, emptyExperience, factIssues, fileError, generatedMarkdown, generationBlock, manualProfile, MAX_FILE_BYTES, operationError, parsedProfile, progress } from './state'
+import { changedFacts, confirmedProfile, emptyExperience, factIssues, fileError, generatedMarkdown, generationBlock, generationReview, manualProfile, MAX_FILE_BYTES, operationError, parsedProfile, progress } from './state'
 
 const profile: ResumeProfile = { name: '虚构同学', experiences: [{ kind: 'project', name: '校园项目', role: '成员', period: '2025.03—2025.06', actions: ['整理需求'], results: ['完成文档'], skills: ['需求分析'] }], skills: [], education: [], user_confirmed: true }
 
@@ -32,6 +32,19 @@ describe('工作台状态与输入', () => {
     expect(result.skills).toEqual(['协作'])
     expect(result.experiences[0]).toMatchObject({ name: '项目', source_text: '原文依据', actions: ['行动'] })
     expect(source.experiences[0].actions).toEqual([' 行动 ', ''])
+  })
+  it('教育经历无行动和成果也可确认，不删除教育或编造内容', () => {
+    const education = { ...emptyExperience(), kind: 'education', name: '虚构大学', role: '本科' }
+    const source = { ...profile, user_confirmed: false, education: ['虚构大学 本科'], experiences: [education, ...profile.experiences] }
+    expect(factIssues(source)).toEqual([])
+    const confirmed = confirmedProfile(source)
+    expect(confirmed.experiences[0]).toEqual(education)
+    expect(confirmed.education).toEqual(source.education)
+    expect(generationBlock(confirmed, '岗位')).toBe('')
+    expect(factIssues({ ...source, experiences: [{ ...education, name: ' ' }] })).toEqual(['第 1 段经历：请填写经历名称。'])
+  })
+  it.each(['project', 'internship', 'work', 'unknown'])('%s 经历仍必须有真实行动或成果', (kind) => {
+    expect(factIssues({ ...profile, experiences: [{ ...emptyExperience(), kind, name: '虚构经历' }] })).toEqual(['第 1 段经历：请至少填写一项行动或真实成果。'])
   })
   it('按四步显示进度', () => {
     expect(progress(null, '', '').step).toBe(1)
@@ -75,6 +88,39 @@ describe('工作台状态与输入', () => {
     expect(() => generatedMarkdown({ ok: false, error: '生成失败' })).toThrow('生成失败')
     expect(generatedMarkdown({ ok: true, markdown: '# 虚构同学' })).toBe('# 虚构同学')
     expect(() => generatedMarkdown({ ok: true, markdown: {} as string })).toThrow('简历正文')
+  })
+})
+
+describe('生成稿质检提示', () => {
+  const clean = { self_check: { passed: true, issues_remaining: 0, high_remaining: 0 }, traceability_passed: true }
+  it('读取真实联调中的未通过状态和数量', () => {
+    const review = generationReview({ self_check: { passed: false, issues_remaining: 5, high_remaining: 1 }, traceability_passed: true })
+    expect(review.warning).toBe(true)
+    expect(review.title).toContain('质检未通过')
+    expect(review.detail).toContain('剩余 5 项问题，其中高风险 1 项')
+  })
+  it('矛盾的 passed=true 不能掩盖高风险或剩余问题', () => {
+    expect(generationReview({ ...clean, self_check: { passed: true, issues_remaining: 2, high_remaining: 1 } }).title).toContain('未通过')
+    expect(generationReview({ ...clean, self_check: { passed: true, issues_remaining: 2, high_remaining: 0 } }).warning).toBe(true)
+  })
+  it.each([null, {}, { self_check: 'invalid' }, { self_check: { passed: 'true' } },
+    { ...clean, self_check: { passed: true, issues_remaining: -1, high_remaining: 0 } },
+    { ...clean, self_check: { passed: true, issues_remaining: 0, high_remaining: '0' } },
+    { ...clean, self_check: { passed: true, issues_remaining: NaN, high_remaining: 0 } },
+    { self_check: clean.self_check },
+  ])('缺失或异常元数据不伪装通过：%j', (value) => {
+    expect(generationReview(value)).toMatchObject({ warning: true, title: '质检状态未知 · 草稿待核对' })
+  })
+  it('未通过标记在缺失数量时仍然显示', () => {
+    expect(generationReview({ self_check: { passed: false } }).detail).toContain('质检未通过')
+  })
+  it('数字追溯失败或存在警告时独立提示', () => {
+    expect(generationReview({ ...clean, traceability_passed: false }).detail).toContain('数字追溯检查未通过')
+    expect(generationReview({ ...clean, untraceable: ['无依据的数字'] }).warning).toBe(true)
+  })
+  it('自动检查无问题也不等于事实认证', () => {
+    expect(generationReview(clean)).toMatchObject({ warning: false })
+    expect(generationReview(clean).detail).toContain('不代表事实已被认证')
   })
 })
 

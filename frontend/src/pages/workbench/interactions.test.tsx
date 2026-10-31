@@ -59,6 +59,40 @@ beforeEach(() => {
 })
 
 describe('工作台真实事件回调（Mock API）', () => {
+  it('保留解析出的教育卡，无需补写成果即可确认和生成', async () => {
+    props.profile = { ...fixture(), user_confirmed: false, experiences: [{ kind: 'education', name: '虚构大学', role: '本科', period: '2022—2026', actions: [], results: [], skills: [] }, ...fixture().experiences] }
+    expect(input(render(), 'type', 'checkbox').props.disabled).toBe(false)
+    expect(text(render())).toContain('教育经历不强制填写行动或成果')
+    input(render(), 'type', 'checkbox').props.onChange({ target: { checked: true } })
+    button(render(), '根据已确认事实生成简历').props.onClick(); await settle()
+    expect(api.generateResume).toHaveBeenCalledWith(props.jdText, expect.objectContaining({ experiences: expect.arrayContaining([expect.objectContaining({ kind: 'education', actions: [], results: [] })]) }), [])
+  })
+  it('展示后端质检失败而非无条件绿色成功', async () => {
+    vi.mocked(api.generateResume).mockResolvedValueOnce({ ok: true, markdown: '# 待核对稿件', traceability_passed: true, self_check: { passed: false, issues_remaining: 5, high_remaining: 1 } } as any)
+    button(render(), '根据已确认事实生成简历').props.onClick(); await settle()
+    expect(props.markdown).toBe('# 待核对稿件')
+    expect(text(render())).toContain('质检未通过 · 草稿待核对')
+    expect(text(render())).toContain('剩余 5 项问题，其中高风险 1 项')
+    expect(nodes(render()).some(n => n.props?.className === 'wb-success')).toBe(false)
+  })
+  it('自动检查完成仍提示逐句核对，编辑后不沿用通过状态', async () => {
+    vi.mocked(api.generateResume).mockResolvedValueOnce({ ok: true, markdown: '# 初稿', traceability_passed: true, self_check: { passed: true, issues_remaining: 0, high_remaining: 0 } } as any)
+    button(render(), '根据已确认事实生成简历').props.onClick(); await settle()
+    expect(text(render())).toContain('自动检查完成 · 仍需事实核对')
+    button(render(), '编辑').props.onClick()
+    input(render(), 'aria-label', '编辑简历 Markdown').props.onChange({ target: { value: '# 编辑稿' } })
+    expect(text(render())).not.toContain('自动检查完成 · 仍需事实核对')
+    expect(text(render())).toContain('质检状态未知')
+  })
+  it('恢复的稿件不复用其他输入的数字与质检警告', async () => {
+    vi.mocked(api.generateResume).mockResolvedValueOnce({ ok: true, markdown: '# 原稿', untraceable: ['原稿数字警告'], self_check: { passed: false, issues_remaining: 5, high_remaining: 1 } } as any)
+    button(render(), '根据已确认事实生成简历').props.onClick(); await settle()
+    expect(text(render())).toContain('原稿数字警告')
+    props.markdown = '# 恢复的稿件'; props.sourceText = '恢复的材料'
+    expect(text(render())).not.toContain('原稿数字警告')
+    expect(text(render())).not.toContain('剩余 5 项问题')
+    expect(text(render())).toContain('质检状态未知')
+  })
   it('不调用解析 API 也能手工填写、确认并生成', async () => {
     props.profile = null; props.sourceText = '原始虚构经历'
     button(render(), '直接手工填写事实').props.onClick()
@@ -266,6 +300,30 @@ describe('工作台真实事件回调（Mock API）', () => {
 })
 
 describe('岗位匹配输入保护', () => {
+  it.each([
+    null,
+    { ok: true, coverage: .5, items: [null], missing_hard: [] },
+    { ok: true, coverage: 1, items: [{ requirement: '', status: 'covered', evidence: '' }], missing_hard: [] },
+    { ok: true, coverage: 80, items: [{ requirement: '需求分析', status: 'covered', evidence: '虚构证据' }], missing_hard: [] },
+  ])('异常报告不渲染、不保存且可手动重试 %#', async response => {
+    const valid = { ok: true, coverage: 0, items: [{ requirement: 'SQL', status: 'missing', evidence: '', note: '' }], missing_hard: ['SQL'] }
+    vi.mocked(api.diagnose).mockResolvedValueOnce(valid as any).mockResolvedValueOnce(response as any).mockResolvedValueOnce({ ...valid, coverage: 1 } as any)
+    const done = vi.fn()
+    const view = () => { hooks.cursor = 0; return DiagnosePage({ jdText: '岗位', setJdText: vi.fn(), profile: fixture(), onDone: done }) }
+    button(view(), '开始诊断').props.onClick(); await settle()
+    expect(text(view())).toContain('0%')
+    button(view(), '重新诊断').props.onClick()
+    expect(text(view())).not.toContain('匹配覆盖率')
+    await settle()
+    expect(nodes(view()).some(n => n.props?.role === 'alert')).toBe(true)
+    expect(text(view())).not.toContain('匹配覆盖率')
+    expect(done).toHaveBeenCalledTimes(1)
+    expect(button(view(), '重试诊断').props.disabled).toBe(false)
+    button(view(), '重试诊断').props.onClick(); await settle()
+    expect(text(view())).toContain('100%')
+    expect(done).toHaveBeenCalledTimes(2)
+    expect(nodes(view()).some(n => n.props?.role === 'alert')).toBe(false)
+  })
   it('输入变化后丢弃迟到的旧报告', async () => {
     let finish!: (value: any) => void
     vi.mocked(api.diagnose).mockImplementation(() => new Promise((resolve) => { finish = resolve }))

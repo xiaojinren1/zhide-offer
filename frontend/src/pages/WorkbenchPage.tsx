@@ -3,7 +3,8 @@ import { api, apiErrorMessage } from '../lib/api'
 import type { Experience, ResumeProfile } from '../lib/types'
 import { UiIcon } from '../components/Brand'
 import ResumePreview from './workbench/ResumePreview'
-import { changedFacts, confirmedProfile, emptyExperience, factIssues, FILE_ACCEPT, fileError, generatedMarkdown, generationBlock, manualProfile, operationError, parsedProfile, progress } from './workbench/state'
+import { changedFacts, confirmedProfile, emptyExperience, factIssues, FILE_ACCEPT, fileError, generatedMarkdown, generationBlock, generationReview, manualProfile, operationError, parsedProfile, progress } from './workbench/state'
+import type { GenerationReview } from './workbench/state'
 import './workbench/workbench.css'
 interface Props {
   sourceText: string; setSourceText: (text: string) => void
@@ -18,7 +19,7 @@ const SAMPLE_JD = '产品经理（示例岗位）\n工作职责：收集用户�
 export default function WorkbenchPage({ sourceText, setSourceText, sourceName, setSourceName, profile, onProfileChange, jdText, onJdChange, markdown, onMarkdownChange, jdKeywords, busy, onBusyChange, onInterview }: Props) {
   const [activity, setActivity] = useState('')
   const [error, setError] = useState('')
-  const [numberWarnings, setNumberWarnings] = useState<string[]>([])
+  const [generationCheck, setGenerationCheck] = useState<{ snapshot: string; review: GenerationReview; numbers: string[] } | null>(null)
   const [previewMode, setPreviewMode] = useState<'preview' | 'edit'>('preview')
   const [retryAction, setRetryAction] = useState<'parse' | 'generate' | null>(null)
   const [waiting, setWaiting] = useState(false)
@@ -43,7 +44,10 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
   const current = progress(profile, jdText, markdown)
   const blocked = generationBlock(profile, jdText)
   const issues = profile ? factIssues(profile) : []
-  const resetOutput = () => { setNumberWarnings([]); setError(''); setRetryAction(null); setManuallyEdited(false) }
+  const activeCheck = generationCheck?.snapshot === snapshot && !manuallyEdited ? generationCheck : null
+  const review = activeCheck?.review || generationReview(null)
+  const numberWarnings = activeCheck?.numbers || []
+  const resetOutput = () => { setGenerationCheck(null); setError(''); setRetryAction(null); setManuallyEdited(false) }
   const invalidateDraft = () => { onMarkdownChange(''); resetOutput() }
   const editProfile = (value: ResumeProfile) => { onProfileChange(changedFacts(value)); invalidateDraft() }
   const editJd = (text: string) => {
@@ -111,7 +115,10 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
     try {
       const result = await api.generateResume(jdText, profile, jdKeywords)
       if (!mounted.current || latestInput.current !== expected) return
-      onMarkdownChange(generatedMarkdown(result)); setNumberWarnings(Array.isArray(result.untraceable) ? result.untraceable.filter((item) => typeof item === 'string') : []); setPreviewMode('preview')
+      const nextMarkdown = generatedMarkdown(result)
+      onMarkdownChange(nextMarkdown)
+      setGenerationCheck({ snapshot: JSON.stringify([sourceText, sourceName, profile, jdText, nextMarkdown, jdKeywords]), review: generationReview(result), numbers: Array.isArray(result.untraceable) ? result.untraceable.filter((item) => typeof item === 'string') : [] })
+      setPreviewMode('preview')
     } catch (err) { if (mounted.current && latestInput.current === expected) { setError(operationError(err)); setRetryAction('generate') } }
     finally { requestLock.current = false; if (mounted.current) { onBusyChange(false); setActivity(''); setWaiting(false) } }
   }
@@ -120,11 +127,11 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
     const a = document.createElement('a'); a.href = url; a.download = `${profile?.name || '职得offer'}-定向简历.md`; a.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
   const editMarkdown = (text: string) => {
-    onMarkdownChange(text); setNumberWarnings([]); setManuallyEdited(true)
+    onMarkdownChange(text); setGenerationCheck(null); setManuallyEdited(true)
   }
   return <div className="role-b-workbench" aria-busy={busy}>
     <ol className="stepper" aria-label="求职准备进度">{['材料输入', '确认事实', '岗位 JD', '简历预览'].map((name, i) => <li key={name} aria-current={current.step === i + 1 ? 'step' : undefined} className={current.step === i + 1 ? 'current' : current.step > i + 1 ? 'complete' : ''}><a href={`#wb-step-${i + 1}`}><span className="step-number">{current.step > i + 1 ? <UiIcon name="check" /> : i + 1}</span><span>{name}</span></a>{i < 3 && <span className="step-line" />}</li>)}</ol>
-    <div className="wb-status" role="status"><strong>当前：{current.label}</strong><p>{blocked || (markdown.trim() ? '简历已生成，请逐句核对后下载。' : '事实与岗位已就绪，可以生成简历。')}</p></div>
+    <div className="wb-status" role="status"><strong>当前：{markdown.trim() && !blocked && review.warning ? '草稿待核对' : current.label}</strong><p>{blocked || (markdown.trim() ? '简历已生成草稿，请查看质检提示并逐句核对后使用。' : '事实与岗位已就绪，可以生成简历。')}</p></div>
     <p className="wb-hint">离开前请确认页面上方显示工作台已保存；原始上传文件不会留存。演示材料完全虚构，请替换为自己的真实经历。</p>
     {error && <div className="error-banner" role="alert"><strong>这一步没有完成</strong><span>{error}</span>{retryAction && <button className="secondary-button" disabled={busy} onClick={() => retryAction === 'parse' ? void parse(lastFile.current) : void generate()}>重试{retryAction === 'parse' ? '整理材料' : '生成简历'}</button>}<button className="wb-dismiss" onClick={() => setError('')} aria-label="关闭错误提示">×</button></div>}
     {busy && <div className="activity-banner" role="status"><span className="spinner" />{activity || '正在处理…'}<span className="muted">{waiting ? '模型仍在处理，请勿重复提交；若超时会显示重试入口。' : '完成后可继续编辑，请勿刷新页面。'}</span></div>}
@@ -144,6 +151,7 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
           <label className="field-label" htmlFor="person-name">姓名</label><input id="person-name" value={profile.name} onChange={(e) => editProfile({ ...profile, name: e.target.value })} placeholder="填写姓名" />
           {profile.experiences.map((exp, index) => <details className="experience-card" key={index} open><summary><span><span className="experience-number">{String(index + 1).padStart(2, '0')}</span>{exp.name || '待补充的经历'}</span><span>⌄</span></summary><div className="experience-fields">
             <div className="two-fields"><label>经历名称<input aria-label={`经历${index + 1}名称`} value={exp.name} onChange={(e) => editExperience(index, { name: e.target.value })} /></label><label>类型<select aria-label={`经历${index + 1}类型`} value={exp.kind} onChange={(e) => editExperience(index, { kind: e.target.value })}><option value="project">项目</option><option value="internship">工作 / 实习</option><option value="education">教育</option>{!['project', 'internship', 'education'].includes(exp.kind) && <option value={exp.kind}>{exp.kind}</option>}</select></label></div>
+            {exp.kind === 'education' && <p className="wb-hint">教育经历不强制填写行动或成果；只保留真实信息，无需为了确认补写内容。</p>}
             <div className="two-fields"><label>角色<input aria-label={`经历${index + 1}角色`} value={exp.role} onChange={(e) => editExperience(index, { role: e.target.value })} /></label><label>时间<input aria-label={`经历${index + 1}时间`} value={exp.period} onChange={(e) => editExperience(index, { period: e.target.value })} placeholder="如 2025.03—2025.06" /></label></div>
             <label>我做了什么 · 每行一条<textarea aria-label={`经历${index + 1}行动`} rows={3} value={exp.actions.join('\n')} onChange={(e) => editExperience(index, { actions: e.target.value.split('\n') })} /></label>
             <label>真实成果 · 每行一条<textarea aria-label={`经历${index + 1}成果`} rows={2} value={exp.results.join('\n')} onChange={(e) => editExperience(index, { results: e.target.value.split('\n') })} placeholder="没有依据的数字，不必填写" /></label>
@@ -161,9 +169,10 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
         <div className="fact-note"><UiIcon name="shield" /><span>没有依据的经历与成果数字，不写入简历。修改事实或岗位 JD 后，需要重新确认。</span></div>
       </section>
       <section id="wb-step-3" tabIndex={-1} className="panel wb-jd-panel"><div className="panel-heading"><div><span className="section-kicker">03 / TARGET ROLE</span><h2>目标岗位 JD</h2></div><span className={`tag ${jdText.trim() ? 'green' : 'amber'}`}>{jdText.trim() ? '已填写' : '待填写'}</span></div><fieldset disabled={busy}><label className="field-label" htmlFor="jd-text">岗位职责与任职要求 <span>不限岗位</span></label><textarea id="jd-text" className="jd-text" value={jdText} onChange={(e) => editJd(e.target.value)} placeholder="粘贴完整岗位职责和任职要求，让每次生成都针对具体岗位。" /><p className="wb-hint">可提前填写。修改 JD 会撤销事实确认并清空旧简历，请回到第 2 步重新确认。</p></fieldset></section>
-      <section id="wb-step-4" tabIndex={-1} className="panel preview-panel"><div className="panel-heading"><div><span className="section-kicker">04 / YOUR NEXT OFFER</span><h2>定向简历预览</h2></div><span className="tag blue">{markdown ? '已生成' : '待生成'}</span></div><p className="panel-description">让与岗位相关的经历，先被看见。</p>
+      <section id="wb-step-4" tabIndex={-1} className="panel preview-panel"><div className="panel-heading"><div><span className="section-kicker">04 / YOUR NEXT OFFER</span><h2>定向简历预览</h2></div><span className={`tag ${markdown && review.warning ? 'amber' : 'blue'}`}>{markdown ? '草稿待核对' : '待生成'}</span></div><p className="panel-description">让与岗位相关的经历，先被看见。</p>
         <button className="primary-button full generate-button" disabled={busy || Boolean(blocked)} onClick={() => void generate()}><UiIcon name="spark" />{activity === '正在生成并检查简历…' ? activity : markdown ? '重新生成简历' : '根据已确认事实生成简历'}</button><p className="wb-hint">{blocked || (markdown ? '重新生成将替换当前稿件，包括手动修改；如需保留请先下载。' : '只改写与排序，不新增经历事实。')}</p>
-        {markdown && (blocked ? <p className="warning-note" role="status">以下是保留的草稿，尚不能作为当前已确认结果。请补全事实与岗位、重新确认后生成。</p> : <p className="wb-success" role="status">简历已生成，可预览、编辑并下载 Markdown。</p>)}
+        {markdown && (blocked ? <p className="warning-note" role="status">以下是保留的草稿，尚不能作为当前已确认结果。请补全事实与岗位、重新确认后生成。</p> : <p className={review.warning ? 'warning-note' : 'wb-success'} role="status">简历已生成草稿，可预览和编辑；请核对下方检查信息后再下载使用。</p>)}
+        {markdown && <div className="wb-review warning-note" role="status" aria-label="生成稿检查状态"><strong>{review.title}</strong><p>{review.detail}</p><p>请逐句核对职责、动作、上线/落地、成果和数字。原材料未说明的内容不能因 AI 润色就当成事实；自动检查及数字检查通过也不等于事实认证。</p></div>}
         {markdown ? <><div className="preview-toolbar"><div className="segmented"><button className={previewMode === 'preview' ? 'selected' : ''} disabled={busy} onClick={() => setPreviewMode('preview')}>预览</button><button className={previewMode === 'edit' ? 'selected' : ''} disabled={busy} onClick={() => setPreviewMode('edit')}>编辑</button></div><span className="muted">Markdown</span></div>{previewMode === 'preview' ? <ResumePreview markdown={markdown} /> : <textarea className="markdown-editor" aria-label="编辑简历 Markdown" disabled={busy} value={markdown} onChange={(e) => editMarkdown(e.target.value)} />}
           {manuallyEdited && <p className="warning-note">稿件已手动修改，原数字检查不再代表当前内容，请重新核对所有事实和数字。</p>}
           {numberWarnings.length > 0 && <div className="warning-note" role="status"><strong>数字检查：以下内容缺少材料依据</strong><ul>{numberWarnings.map((item, i) => <li key={i}>{item}</li>)}</ul></div>}<p className="field-hint">初稿及手动修改均需人工核对，数字检查不等于事实认证。</p><button className="secondary-button full" disabled={busy || !markdown.trim()} onClick={download}><UiIcon name="download" />下载 Markdown 简历</button></> : <div className="preview-empty"><div className="paper-skeleton"><span className="skeleton-name" /><span className="skeleton-sub" /><div className="skeleton-divider" /><span className="skeleton-title" /><span /><span /><span className="short" /><div className="skeleton-divider" /><span className="skeleton-title" /><span /><span className="short" /></div><h3>你的下一份简历，从这里开始</h3><p>确认经历并填写岗位后，生成结果会显示在这里。</p></div>}

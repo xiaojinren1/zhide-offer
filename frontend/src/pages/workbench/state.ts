@@ -17,7 +17,7 @@ export function factIssues(profile: ResumeProfile): string[] {
   return profile.experiences.flatMap((experience, index) => {
     const issues: string[] = []
     if (!experience.name.trim()) issues.push(`第 ${index + 1} 段经历：请填写经历名称。`)
-    if (![...experience.actions, ...experience.results].some((line) => line.trim())) issues.push(`第 ${index + 1} 段经历：请至少填写一项行动或真实成果。`)
+    if (experience.kind !== 'education' && ![...experience.actions, ...experience.results].some((line) => line.trim())) issues.push(`第 ${index + 1} 段经历：请至少填写一项行动或真实成果。`)
     return issues
   })
 }
@@ -88,6 +88,32 @@ export function parsedProfile(result: { ok: boolean; error?: string; profile?: R
 export function generatedMarkdown(result: { ok: boolean; error?: string; markdown?: string }): string {
   if (!result.ok || typeof result.markdown !== 'string' || !result.markdown.trim()) throw new Error(result.error || '模型未返回简历正文，请重新生成。')
   return result.markdown
+}
+
+export interface GenerationReview {
+  title: string
+  detail: string
+  warning: boolean
+}
+
+// Local read-only view of existing response metadata; no shared API/storage changes.
+export function generationReview(result: unknown): GenerationReview {
+  const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+  const response = record(result)
+  const check = record(response.self_check)
+  const count = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+  const issues = check.issues_remaining
+  const high = check.high_remaining
+  const countsValid = count(issues) && count(high) && high <= issues
+  const notes: string[] = []
+  const failed = check.passed === false || (count(high) && high > 0)
+  if (failed) notes.push(countsValid ? `本稿质检未通过：剩余 ${issues} 项问题，其中高风险 ${high} 项。` : '本稿质检未通过，未收到完整的问题数量。')
+  else if (countsValid && issues > 0) notes.push(`本稿仍有 ${issues} 项质检提示，其中高风险 ${high} 项。`)
+  const numbersFailed = response.traceability_passed === false || (Array.isArray(response.untraceable) && response.untraceable.some((item) => typeof item === 'string' && item.trim()))
+  if (numbersFailed) notes.push('数字追溯检查未通过，请核对材料依据；不要直接使用无依据的数字。')
+  if (notes.length) return { title: failed ? '质检未通过 · 草稿待核对' : '草稿存在检查提示', detail: notes.join(' '), warning: true }
+  if (check.passed !== true || !countsValid || response.traceability_passed !== true) return { title: '质检状态未知 · 草稿待核对', detail: '未收到与当前稿件对应的完整质检信息，可能是恢复的草稿或旧接口返回。请逐句核对后再使用。', warning: true }
+  return { title: '自动检查完成 · 仍需事实核对', detail: '本轮自动检查未报告问题，但不代表事实已被认证；请逐句对照原始材料。', warning: false }
 }
 
 export function changedFacts(profile: ResumeProfile): ResumeProfile {

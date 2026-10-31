@@ -129,10 +129,10 @@ export const api = {
       profiles?: Array<{ id: string; name: string; saved_at: string; experience_count: number }>
     }>,
   loadProfile: (id: string) =>
-    http.get(`/profiles/${id}`).then((r) => r.data) as Promise<{
+    http.get(`/profiles/${encodeURIComponent(id)}`).then((r) => r.data) as Promise<{
       ok: boolean; error?: string; profile?: ResumeProfile
       meta?: { id: string; name: string; saved_at: string }
     }>,
   deleteProfile: (id: string) =>
-    http.delete(`/profiles/${id}`).then((r) => r.data) as Promise<{ ok: boolean; error?: string }>,
+    http.delete(`/profiles/${encodeURIComponent(id)}`).then((r) => r.data) as Promise<{ ok: boolean; error?: string }>,
 }

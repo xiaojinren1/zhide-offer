@@ -28,6 +28,8 @@ type WorkspaceState = {
 
 成功返回 `{ok:true, id, saved_at}`。`GET /api/interview-records` 返回 `{ok:true, records:[{id,title,saved_at}]}`，按时间倒序。`GET /api/interview-records/{id}` 返回 `{ok:true, record:{id,title,saved_at,jd_text,questions,answers,question_scores,overall_feedback}}`。`DELETE /api/interview-records/{id}` 删除成功返回 `{ok:true}`。未知或其他账户记录统一 404。
 
+前端将记录 ID 放入 URL 路径时必须使用 `encodeURIComponent`，确保 ID 始终作为单一路径段传输。保存请求中的 `expected_user_id` 必须来自本轮开始时的账户身份。
+
 单条面试记录序列化 JSON 的 UTF-8 大小限制为 1 MiB，标题最多 200 字符；超出记录大小返回 413，结构或标题不合法返回 422。记录存储在本机已有 SQLite 数据库，不依赖外部模型。暂不保留原始录音，不提供跨账户访问。
 
 ## 文件分工与交接

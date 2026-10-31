@@ -5,6 +5,8 @@ import { UiIcon } from '../components/Brand'
 import ResumePreview from './workbench/ResumePreview'
 import { changedFacts, confirmedProfile, emptyExperience, factIssues, FILE_ACCEPT, fileError, generatedMarkdown, generationBlock, generationReview, manualProfile, operationError, parsedProfile, progress } from './workbench/state'
 import type { GenerationReview } from './workbench/state'
+import { tailoringReport } from '../lib/tailoring'
+import type { TailoringReport } from '../lib/tailoring'
 import './workbench/workbench.css'
 interface Props {
   sourceText: string; setSourceText: (text: string) => void
@@ -19,7 +21,7 @@ const SAMPLE_JD = '产品经理（示例岗位）\n工作职责：收集用户�
 export default function WorkbenchPage({ sourceText, setSourceText, sourceName, setSourceName, profile, onProfileChange, jdText, onJdChange, markdown, onMarkdownChange, jdKeywords, busy, onBusyChange, onInterview }: Props) {
   const [activity, setActivity] = useState('')
   const [error, setError] = useState('')
-  const [generationCheck, setGenerationCheck] = useState<{ snapshot: string; review: GenerationReview; numbers: string[] } | null>(null)
+  const [generationCheck, setGenerationCheck] = useState<{ snapshot: string; review: GenerationReview; numbers: string[]; tailoring: TailoringReport | null } | null>(null)
   const [previewMode, setPreviewMode] = useState<'preview' | 'edit'>('preview')
   const [retryAction, setRetryAction] = useState<'parse' | 'generate' | null>(null)
   const [waiting, setWaiting] = useState(false)
@@ -55,6 +57,9 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
   const activeCheck = generationCheck?.snapshot === snapshot && !manuallyEdited ? generationCheck : null
   const review = activeCheck?.review || generationReview(null)
   const numberWarnings = activeCheck?.numbers || []
+  const tailoring = activeCheck?.tailoring
+  const tailoringNeedsReview = !tailoring || tailoring.unsupported_claims.length > 0
+    || tailoring.requirements.some((item) => item.status === 'supported' && !item.output_excerpt)
   const resetOutput = () => { setGenerationCheck(null); setError(''); setRetryAction(null); setManuallyEdited(false) }
   const invalidateDraft = () => { onMarkdownChange(''); resetOutput() }
   const editProfile = (value: ResumeProfile) => { onProfileChange(changedFacts(value)); invalidateDraft() }
@@ -131,7 +136,7 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
       if (!mounted.current || latestInput.current !== expected) return
       const nextMarkdown = generatedMarkdown(result)
       onMarkdownChange(nextMarkdown)
-      setGenerationCheck({ snapshot: JSON.stringify([sourceText, sourceName, profile, jdText, nextMarkdown, jdKeywords]), review: generationReview(result), numbers: Array.isArray(result.untraceable) ? result.untraceable.filter((item) => typeof item === 'string') : [] })
+      setGenerationCheck({ snapshot: JSON.stringify([sourceText, sourceName, profile, jdText, nextMarkdown, jdKeywords]), review: generationReview(result), numbers: Array.isArray(result.untraceable) ? result.untraceable.filter((item) => typeof item === 'string') : [], tailoring: tailoringReport(result.tailoring, profile, jdText, nextMarkdown) })
       setPreviewMode('preview')
     } catch (err) { if (mounted.current && latestInput.current === expected) { setError(operationError(err)); setRetryAction('generate') } }
     finally { requestLock.current = false; if (mounted.current) { onBusyChange(false); setActivity(''); setWaiting(false) } }
@@ -196,8 +201,20 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
       <section id="wb-step-3" hidden={activeStep !== 3} aria-hidden={activeStep !== 3} tabIndex={-1} className="panel wb-jd-panel"><div className="panel-heading"><div><span className="section-kicker">03 / TARGET ROLE</span><h2>目标岗位 JD</h2></div><span className={`tag ${jdText.trim() ? 'green' : 'amber'}`}>{jdText.trim() ? '已填写' : '待填写'}</span></div><fieldset disabled={busy}><label className="field-label" htmlFor="jd-text">岗位职责与任职要求 <span>不限岗位</span></label><textarea id="jd-text" className="jd-text" value={jdText} onChange={(e) => editJd(e.target.value)} placeholder="粘贴完整岗位职责和任职要求，让每次生成都针对具体岗位。" /><p className="wb-hint">可提前填写。修改 JD 会撤销确认并清空旧简历，请回到第 2 步重新确认。</p></fieldset>{stepActions(3)}</section>
       <section id="wb-step-4" hidden={activeStep !== 4} aria-hidden={activeStep !== 4} tabIndex={-1} className="panel preview-panel"><div className="panel-heading"><div><span className="section-kicker">04 / YOUR NEXT OFFER</span><h2>定向简历预览</h2></div><span className={`tag ${markdown && review.warning ? 'amber' : 'blue'}`}>{markdown ? '草稿待核对' : '待生成'}</span></div><p className="panel-description">让与岗位相关的经历，先被看见。</p>
         <button className="primary-button full generate-button" disabled={busy || Boolean(blocked)} onClick={() => void generate()}><UiIcon name="spark" />{activity === '正在生成并检查简历…' ? activity : markdown ? '重新生成简历' : '根据已确认事实生成简历'}</button><p className="wb-hint">{blocked || (markdown ? '重新生成将替换当前稿件，包括手动修改；如需保留请先下载。' : '只改写与排序，不新增经历事实。')}</p>
-        {markdown && (blocked ? <p className="warning-note" role="status">以下是保留的草稿，尚不能作为当前已确认结果。请补全事实与岗位、重新确认后生成。</p> : <p className={review.warning ? 'warning-note' : 'wb-success'} role="status">简历已生成草稿，可预览和编辑；请核对下方检查信息后再下载使用。</p>)}
+        {markdown && (blocked ? <p className="warning-note" role="status">以下是保留的草稿，尚不能作为当前已确认结果。请补全事实与岗位、重新确认后生成。</p> : <p className={review.warning || tailoringNeedsReview ? 'warning-note' : 'wb-success'} role="status">简历已生成草稿，可预览和编辑；请核对下方检查信息后再下载使用。</p>)}
         {markdown && <div className="wb-review warning-note" role="status" aria-label="生成稿检查状态"><strong>{review.title}</strong><p>{review.detail}</p><p>请逐句核对职责、动作、上线/落地、成果和数字。原材料未说明的内容不能因 AI 润色就当成事实；自动检查及数字检查通过也不等于事实认证。</p></div>}
+        {markdown && <section className="wb-tailoring" aria-label="岗位定制依据"><h3>这份简历如何针对岗位调整</h3>{tailoring ? <>
+          <p>本次规划经历顺序：{tailoring.selected_experiences.map((item) => item.name).join(' → ')}</p>
+          <p className="wb-hint">已逐条核对 JD 原文条目（含标题和背景）。{tailoring.revision_count === 1 ? '已自动定向修订 1 次并重新复核；仍有警告的内容请人工修改，不代表已通过。' : '未触发自动定向修订。'}</p>
+          <p className="wb-hint">{tailoring.review_note}“有相关依据”可能只是部分支持，不等于满足整条要求。</p>
+          {tailoring.requirements.map((item) => <details key={item.id} open={item.priority === 'core'}><summary>{item.priority === 'core' ? '核心' : '补充'} · {item.requirement} — {item.status === 'gap' ? '缺少事实依据' : item.status === 'omitted' ? '相关经历未选入' : item.output_excerpt ? '有相关依据与正文摘录' : '有依据但正文未体现'}</summary>
+            {item.evidence.length ? <ul>{item.evidence.map((fact) => <li key={fact.id}>{fact.experience_name}：{fact.text}</li>)}</ul> : <p>现有已确认事实不能支撑；仅在你确实做过时补充材料，不会自动补写能力。</p>}
+            {item.output_excerpt && <p>本稿摘录：<q>{item.output_excerpt}</q></p>}
+            {item.status === 'supported' && !item.output_excerpt && <p className="warning-note">模型复核未找到对应表达，请核对或重新生成，不能仅视作定制完成。</p>}
+            {item.status === 'omitted' && <p>受经历数量限制，本次没有选入对应经历；可精简无关经历后重新确认生成。</p>}
+          </details>)}
+          {tailoring.unsupported_claims.length > 0 && <div className="warning-note" role="status"><strong>以下表述可能超出事实，请勿直接使用</strong><ul>{tailoring.unsupported_claims.map((claim, i) => <li key={i}><q>{claim.quote}</q>：{claim.reason}</li>)}</ul></div>}
+        </> : <p className="warning-note">定制依据待核对：未收到与当前材料、JD 和稿件对应的完整报告。编辑或恢复的草稿不沿用旧报告，请重新生成或人工逐项核对。</p>}</section>}
         {markdown ? <><div className="preview-toolbar"><div className="segmented"><button className={previewMode === 'preview' ? 'selected' : ''} disabled={busy} onClick={() => setPreviewMode('preview')}>预览</button><button className={previewMode === 'edit' ? 'selected' : ''} disabled={busy} onClick={() => setPreviewMode('edit')}>编辑</button></div><span className="muted">Markdown</span></div>{previewMode === 'preview' ? <ResumePreview markdown={markdown} /> : <textarea className="markdown-editor" aria-label="编辑简历 Markdown" disabled={busy} value={markdown} onChange={(e) => editMarkdown(e.target.value)} />}
           {manuallyEdited && <p className="warning-note">稿件已手动修改，原数字检查不再代表当前内容，请重新核对所有事实和数字。</p>}
           {numberWarnings.length > 0 && <div className="warning-note" role="status"><strong>数字检查：以下内容缺少材料依据</strong><ul>{numberWarnings.map((item, i) => <li key={i}>{item}</li>)}</ul></div>}<p className="field-hint">初稿及手动修改均需人工核对，数字检查不等于事实认证。</p><button className="secondary-button full" disabled={busy || !markdown.trim()} onClick={download}><UiIcon name="download" />下载 Markdown 简历</button></> : <div className="preview-empty"><div className="paper-skeleton"><span className="skeleton-name" /><span className="skeleton-sub" /><div className="skeleton-divider" /><span className="skeleton-title" /><span /><span /><span className="short" /><div className="skeleton-divider" /><span className="skeleton-title" /><span /><span className="short" /></div><h3>你的下一份简历，从这里开始</h3><p>确认经历并填写岗位后，生成结果会显示在这里。</p></div>}

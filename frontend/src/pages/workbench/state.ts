@@ -113,7 +113,7 @@ export function generationReview(result: unknown): GenerationReview {
   if (numbersFailed) notes.push('数字追溯检查未通过，请核对材料依据；不要直接使用无依据的数字。')
   if (notes.length) return { title: failed ? '质检未通过 · 草稿待核对' : '草稿存在检查提示', detail: notes.join(' '), warning: true }
   if (check.passed !== true || !countsValid || response.traceability_passed !== true) return { title: '质检状态未知 · 草稿待核对', detail: '未收到与当前稿件对应的完整质检信息，可能是恢复的草稿或旧接口返回。请逐句核对后再使用。', warning: true }
-  return { title: '自动检查完成 · 仍需事实核对', detail: '本轮自动检查未报告问题，但不代表事实已被认证；请逐句对照原始材料。', warning: false }
+  return { title: '自动检查完成 · 仍需事实核对', detail: '本轮规则与数字检查未报告问题；岗位定制复核请另看下方报告，不代表事实已被认证。请逐句对照原始材料。', warning: false }
 }
 
 export function changedFacts(profile: ResumeProfile): ResumeProfile {

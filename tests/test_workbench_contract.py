@@ -22,6 +22,18 @@ class WorkbenchContract(AuthenticatedContract):
         configured = patch("api.resume.is_configured", return_value=True)
         configured.start()
         self.addCleanup(configured.stop)
+        # 新增规划/复核阶段也必须 Mock，契约测试不能访问真实模型。
+        def tailoring_json(_system, user, **_kwargs):
+            import json
+            payload = json.loads(user)
+            if 'jd' in payload:
+                return {'requirements': [{'quote': unit, 'priority': 'core', 'evidence_ids': ['e1.actions.1']} for unit in payload['units']]}
+            if 'review' in payload:
+                return {'markdown': '# 演示同学\n整理报名需求'}
+            return {'items': [{'id': row['id'], 'quote': ''} for row in payload['plan']['requirements']], 'unsupported_claims': []}
+        planner = patch('engine.tailoring.chat_json', side_effect=tailoring_json)
+        planner.start()
+        self.addCleanup(planner.stop)
         self.client = TestClient(app, headers={'X-Requested-With': 'XMLHttpRequest'})
         self.profile = {'name':'演示同学','experiences':[{'name':'报名流程','actions':['整理需求'],'results':[],'skills':[]}], 'skills':[], 'education':[], 'user_confirmed':True}
 

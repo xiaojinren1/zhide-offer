@@ -60,6 +60,60 @@ beforeEach(() => {
 })
 
 describe('工作台真实事件回调（Mock API）', () => {
+  const tailored = () => ({ version: 1, selected_experiences: [{ id: 'e1', name: '校园项目' }],
+    requirements: [{ id: 'r1', requirement: '整理反馈', priority: 'core', status: 'supported',
+      evidence: [{ id: 'e1.actions.1', text: '整理反馈', experience_id: 'e1', experience_name: '校园项目', field: 'actions' }], output_excerpt: '整理反馈' },
+      { id: 'r2', requirement: '熟悉 Java', priority: 'support', status: 'gap', evidence: [], output_excerpt: '' }],
+    unsupported_claims: [], review_note: '模型复核不是事实认证。' })
+  it('展示岗位要求、真实依据、正文摘录和缺口，编辑后隐藏旧定制报告', async () => {
+    props.jdText = '整理反馈，熟悉 Java'
+    vi.mocked(api.generateResume).mockResolvedValueOnce({ ok: true, markdown: '# 虚构同学\n整理反馈', tailoring: tailored() } as any)
+    button(render(), '根据已确认事实生成简历').props.onClick(); await settle()
+    const page = text(render())
+    expect(page).toContain('这份简历如何针对岗位调整')
+    expect(page).toContain('有相关依据与正文摘录')
+    expect(page).toContain('本稿摘录：整理反馈')
+    expect(page).toContain('Java — 缺少事实依据')
+    button(render(), '编辑').props.onClick()
+    input(render(), 'aria-label', '编辑简历 Markdown').props.onChange({ target: { value: '# 修改稿' } })
+    expect(text(render())).toContain('定制依据待核对')
+    expect(text(render())).not.toContain('本稿摘录：整理反馈')
+  })
+  it('有事实但通用润色未体现时明确提示，不当作定制完成', async () => {
+    props.jdText = '整理反馈，熟悉 Java'
+    const report = tailored(); report.requirements[0].output_excerpt = ''
+    vi.mocked(api.generateResume).mockResolvedValueOnce({ ok: true, markdown: '# 普通润色', tailoring: report } as any)
+    button(render(), '根据已确认事实生成简历').props.onClick(); await settle()
+    expect(text(render())).toContain('有依据但正文未体现')
+    expect(text(render())).toContain('不能仅视作定制完成')
+  })
+  it('自动修订后展示次数，仍未体现的要求继续警告', async () => {
+    props.jdText = '整理反馈，熟悉 Java'
+    const report = { ...tailored(), revision_count: 1 }; report.requirements[0].output_excerpt = ''
+    vi.mocked(api.generateResume).mockResolvedValueOnce({ ok: true, markdown: '# 普通润色', tailoring: report } as any)
+    button(render(), '根据已确认事实生成简历').props.onClick(); await settle()
+    expect(text(render())).toContain('已自动定向修订 1 次并重新复核')
+    expect(text(render())).toContain('有依据但正文未体现')
+    expect(text(render())).toContain('不代表已通过')
+  })
+  it('缺失或坏报告不阻止查看草稿，但不能展示旧的定制依据', async () => {
+    props.jdText = '整理反馈，熟悉 Java'
+    const report = tailored(); report.requirements[0].evidence[0].text = '虚构行动'
+    vi.mocked(api.generateResume).mockResolvedValueOnce({ ok: true, markdown: '# 草稿', tailoring: report } as any)
+    button(render(), '根据已确认事实生成简历').props.onClick(); await settle()
+    expect(props.markdown).toBe('# 草稿')
+    expect(text(render())).toContain('定制依据待核对')
+    expect(text(render())).not.toContain('虚构行动')
+  })
+  it('恢复其他稿件不复用原定制报告', async () => {
+    props.jdText = '整理反馈，熟悉 Java'
+    vi.mocked(api.generateResume).mockResolvedValueOnce({ ok: true, markdown: '# 虚构同学\n整理反馈', tailoring: tailored() } as any)
+    button(render(), '根据已确认事实生成简历').props.onClick(); await settle()
+    expect(text(render())).toContain('本稿摘录：整理反馈')
+    props.markdown = '# 恢复稿'
+    expect(text(render())).toContain('定制依据待核对')
+    expect(text(render())).not.toContain('本稿摘录：整理反馈')
+  })
   it('保留解析出的教育卡，无需补写成果即可确认和生成', async () => {
     props.profile = { ...fixture(), user_confirmed: false, experiences: [{ kind: 'education', name: '虚构大学', role: '本科', period: '2022—2026', actions: [], results: [], skills: [] }, ...fixture().experiences] }
     expect(input(render(), 'type', 'checkbox').props.disabled).toBe(false)

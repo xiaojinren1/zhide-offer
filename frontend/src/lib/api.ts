@@ -4,6 +4,7 @@ import type {
   InterviewQuestion, InterviewScore, MatchReport, ParsedJD, QualityReport, ResumeProfile, Suspicion,
 } from './types'
 import type { InterviewRecord, InterviewRecordInput, WorkspaceResponse, WorkspaceState } from './workspace'
+import type { TailoringReport } from './tailoring'
 
 export type AccountUser = { id: string; username: string; avatar_url?: string | null }
 export const SESSION_EXPIRED_EVENT = 'zhide:session-expired'
@@ -131,6 +132,7 @@ export const api = {
     http.post('/resume/generate', { jd_text, resume_profile, jd_keywords }).then((r) => r.data) as Promise<{
       ok: boolean; error?: string; markdown?: string
       untraceable?: string[]; traceability_passed?: boolean
+      tailoring?: TailoringReport
       slimming?: { total: number; used: number; dropped: string[] }
     }>,
   reviseResume: (jd_text: string, resume_profile: ResumeProfile, resume_markdown: string, suggestions: Array<{ id: string; type: string; location: string; detail: string; suggestion: string; severity: string }>) =>

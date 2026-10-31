@@ -168,6 +168,10 @@ class ModelErrors(unittest.TestCase):
 
 class ModelApiErrors(unittest.TestCase):
     def setUp(self):
+        # 本组只检验下游既有模型错误的 HTTP 映射；新增规划在专门测试中覆盖。
+        planner = patch('api.resume.plan_tailoring', return_value=({'requirements': []}, [], []))
+        planner.start()
+        self.addCleanup(planner.stop)
         previous = dict(app.dependency_overrides)
         app.dependency_overrides[require_user] = lambda: {"id": "mock-user", "username": "mock_user"}
         self.addCleanup(lambda: (app.dependency_overrides.clear(), app.dependency_overrides.update(previous)))

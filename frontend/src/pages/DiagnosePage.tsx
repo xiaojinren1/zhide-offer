@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
 import type { ResumeProfile } from '../lib/types'
 import { operationError } from './workbench/state'
+import { validateDiagnosis, type ValidatedDiagnosis } from './workbench/diagnose'
 import './workbench/workbench.css'
 
 interface Props {
@@ -23,7 +24,7 @@ const STATUS_LABEL: Record<string, string> = {
 export default function DiagnosePage({ jdText, setJdText, profile, onDone }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [report, setReport] = useState<Awaited<ReturnType<typeof api.diagnose>> | null>(null)
+  const [report, setReport] = useState<ValidatedDiagnosis | null>(null)
   const [reportInput, setReportInput] = useState('')
   const snapshot = JSON.stringify([jdText, profile])
   const latestInput = useRef(snapshot)
@@ -44,9 +45,8 @@ export default function DiagnosePage({ jdText, setJdText, profile, onDone }: Pro
     try {
       const r = await api.diagnose(jdText, profile)
       if (!mounted.current || latestInput.current !== input) return
-      if (!r.ok) throw new Error(r.error || '诊断失败，请重试。')
-      if (!Number.isFinite(r.coverage) || !Array.isArray(r.items) || !r.items.length || !Array.isArray(r.missing_hard)) throw new Error('没有收到完整匹配结果，请补充岗位要求后重试。')
-      setReport(r); setReportInput(input); onDone(jdText, r.jd?.keywords || [])
+      const validated = validateDiagnosis(r)
+      setReport(validated); setReportInput(input); onDone(jdText, validated.keywords)
     } catch (e) { if (mounted.current && latestInput.current === input) setError(operationError(e)) }
     finally { requestLock.current = false; if (mounted.current) setBusy(false) }
   }
@@ -75,7 +75,7 @@ export default function DiagnosePage({ jdText, setJdText, profile, onDone }: Pro
         <div className="space-y-4">
           <div className="flex items-center gap-6 bg-white border border-gray-200 rounded-xl p-4">
             <div>
-              <div className="text-3xl font-medium text-teal-700">{Math.round(Math.min(1, Math.max(0, visibleReport.coverage)) * 100)}%</div>
+              <div className="text-3xl font-medium text-teal-700">{Math.round(visibleReport.coverage * 100)}%</div>
               <div className="text-xs text-gray-500 mt-0.5">匹配覆盖率</div>
             </div>
             <div className="text-sm text-gray-600">

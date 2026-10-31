@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, apiErrorMessage, ACCOUNT_CHANGED_EVENT, SESSION_EXPIRED_EVENT } from '../lib/api'
-import { downloadMarkdown, downloadWord } from '../lib/export'
+import { downloadMarkdown, downloadPdf, downloadWord } from '../lib/export'
 import type { ResumeProfile } from '../lib/types'
 import { emptyWorkspace, isWorkspaceState } from '../lib/workspace'
 import './memory/memory.css'
@@ -112,7 +112,7 @@ export default function MemoryPage({ userId, onLoad, markdown = '', resumeName =
     catch (err) { setError(apiErrorMessage(err)) }
   }
 
-  async function exportResume(format: 'md' | 'docx') {
+  async function exportResume(format: 'md' | 'docx' | 'pdf') {
     if (blocked || lock.current) return
     lock.current = true
     const ticket = epoch.current
@@ -120,7 +120,8 @@ export default function MemoryPage({ userId, onLoad, markdown = '', resumeName =
     exportController.current = new AbortController()
     try {
       if (format === 'md') downloadMarkdown(markdown, resumeName)
-      else await downloadWord(markdown, resumeName, exportController.current.signal)
+      else if (format === 'docx') await downloadWord(markdown, resumeName, exportController.current.signal)
+      else await downloadPdf(markdown, resumeName, exportController.current.signal)
       if (ticket === epoch.current) setMessage('已发起下载，请在浏览器下载列表中查看。')
     } catch (err) { if (ticket === epoch.current) setError(apiErrorMessage(err)) }
     finally { if (ticket === epoch.current) { lock.current = false; setBusy(false) } }
@@ -150,6 +151,6 @@ export default function MemoryPage({ userId, onLoad, markdown = '', resumeName =
       </section>
     </div>
     {pending && <section className="panel memory-delete" aria-label="删除确认"><h3>确认删除“{pending.name || '未命名经历库'}”？</h3><p>此操作不可撤销。已载入的工作台及面试记录不会删除。</p><div className="memory-actions"><button className="memory-danger" disabled={blocked} onClick={() => void remove()}>确认永久删除</button><button className="secondary-button" disabled={blocked} onClick={() => setPending(null)}>取消删除</button></div></section>}
-    <section className="panel memory-export"><h3>导出当前简历</h3><p>导出工作台当前生成或编辑的正文，而非经历库原始材料。请逐句核对后用于投递。</p><div className="memory-actions"><button className="secondary-button" disabled={blocked || !markdown.trim()} onClick={() => void exportResume('md')}>下载 Markdown</button><button className="primary-button" disabled={blocked || !markdown.trim()} onClick={() => void exportResume('docx')}>下载 Word</button></div>{!markdown.trim() && <p className="muted">暂无简历正文，请先在工作台生成。</p>}<p className="muted">支持 Markdown 和 Word 导出；复杂表格和图片保留文本，PDF 暂不支持。</p></section>
+    <section className="panel memory-export"><h3>导出当前简历</h3><p>导出工作台当前生成或编辑的正文，而非经历库原始材料。请逐句核对后用于投递。</p><div className="memory-actions"><button className="secondary-button" disabled={blocked || !markdown.trim()} onClick={() => void exportResume('md')}>下载 Markdown</button><button className="secondary-button" disabled={blocked || !markdown.trim()} onClick={() => void exportResume('docx')}>下载 Word</button><button className="primary-button" disabled={blocked || !markdown.trim()} onClick={() => void exportResume('pdf')}>下载 PDF</button></div>{!markdown.trim() && <p className="muted">暂无简历正文，请先在工作台生成。</p>}<p className="muted">支持 Markdown、Word 和 PDF 导出；复杂表格和图片保留文本，不抓取外链。</p></section>
   </div>
 }

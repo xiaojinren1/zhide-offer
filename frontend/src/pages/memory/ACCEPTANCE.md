@@ -6,7 +6,7 @@
 
 - MemoryPage：列表、详情、载入确认、确认删除、失败重试、空态；载入产生独立副本并撤销确认。严格校验旧资料结构，账户切换/卸载忽略迟到响应。
 - Markdown：当前正文原样下载，文件名清理、空稿阻止、下载地址释放。
-- Word：新增 POST /api/export/docx，返回 A4 DOCX；中文字体、标题、段落、列表与常用行内格式。登录/CSRF、空稿、大小、非法 XML 字符、退出后拒绝、附件响应头及无远程关系均有测试。
+- Word：新增 POST /api/export/docx，返回 A4 DOCX；中文字体、标题、段落、列表与常用行内格式。PDF：新增 POST /api/export/pdf，返回 A4 PDF；复用登录/CSRF、空稿、大小、非法字符、退出后拒绝、附件响应头及无远程关系契约，并检查中文字体缺失时的明确错误。
 - 前端 `npm.cmd --prefix frontend test`：6 个测试文件、67 项通过（其中 D 新增 13 项）。页面测试执行实际处理器，未替代浏览器验收。
 - `frontend/node_modules/.bin/tsc.cmd --project frontend/tsconfig.json`：通过，包含尚未接入 App 的 MemoryPage。
 - `npm.cmd --prefix frontend run build`：通过；默认入口尚未引用 D 页面，因此该构建不代表页面导航已接通。
@@ -20,7 +20,7 @@
 
 - 未做真实浏览器的桌面/窄屏布局、主导航、下载、刷新后页面恢复及两账户整链路演示。
 - DOCX 已由 python-docx 重读并检查 ZIP/OOXML；未用 Word/LibreOffice 渲染检查分页、字体替换或最终视觉效果，不能宣称排版已验收。
-- 不支持 PDF；复杂 Markdown 表格、图片、HTML 为文本处理。Word 不抓取链接或图片，不保存生成文件。
+- 复杂 Markdown 表格、图片、HTML 为文本处理。Word/PDF 不抓取链接或图片，不保存生成文件。PDF 依赖部署环境可用的中文字体。
 - 全量 unittest discovery 并未全绿：旧 tests/test_tool_loop.py 以无登录方式调用 profiles，5 条旧断言与现账户契约冲突，并在导入时 sys.exit。其余旧脚本也含导入即执行逻辑，不应将专项回归称作全量通过。未修改他人模块；建议 A 迁移该脚本到临时数据库、带 Cookie/CSRF 的新契约。
 - 默认 Python 3.14 无法安装仓库固定的 pydantic-core 2.27.2；本轮在已安装的 Python 3.10 隔离环境完成测试。建议团队使用 Python 3.12 统一环境。
 

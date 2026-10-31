@@ -32,7 +32,7 @@ export function confirmedProfile(profile: ResumeProfile): ResumeProfile {
 }
 
 export function fileError(file: Pick<File, 'name' | 'size'>): string {
-  if (!/\.(txt|md|docx|pdf)$/i.test(file.name)) return '暂不支持此格式。请上传 TXT、Markdown、DOCX 或文字 PDF；图片、旧版 DOC 和扫描 PDF 的 OCR 尚未接入。'
+  if (!/\.(txt|md|docx|pdf)$/i.test(file.name)) return '暂不支持此格式。请上传 TXT、Markdown、DOCX 或文字 PDF；图片、旧版 DOC 和扫描 PDF 的 OCR 尚未接入。简历 PDF 可在个人记忆页导出。'
   if (file.size === 0) return '文件为空，请选择包含文字的材料。'
   if (file.size > MAX_FILE_BYTES) return '文件超过 10 MB，请精简材料后重试。'
   return ''

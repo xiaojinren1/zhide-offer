@@ -6,10 +6,11 @@
 from __future__ import annotations
 
 import io
+import base64
 import re
 from pathlib import Path
 
-from core.llm import chat_json
+from core.llm import chat_json, chat_json_multimodal
 from engine.models import Experience, ResumeProfile
 from engine.suspicion import parse_period
 from core.config import agent_rules
@@ -37,6 +38,51 @@ _SYSTEM = """你是简历结构化抽取器。把用户简历原文解析成 JSO
 2. actions/results 忠于原文，可以合并半句话，但**不许新增原文没有的事实**。
 3. 原文没提到的字段给空数组/空串，不许编造。
 4. education 类的经历也放进 experiences（kind=education）。"""
+
+_IMAGE_SYSTEM = _SYSTEM + """
+
+你还需要从用户上传的简历截图或照片中读取文字。只根据图片中清晰可见的内容填写字段；
+无法辨认的内容留空，不要猜测、补写或根据常识推断。图片中的表格、分栏和项目符号要尽量按原意整理。
+"""
+
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MAX_IMAGE_PIXELS = 20_000_000
+_IMAGE_MIMES = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
+
+
+def validate_image(content: bytes, filename: str | None = None) -> tuple[str, int, int]:
+    """校验并识别图片格式、尺寸；不保存原始图片。"""
+    if not content:
+        raise ValueError("图片文件为空，请重新选择图片")
+    if len(content) > MAX_IMAGE_BYTES:
+        raise ValueError("图片超过 10 MB，请压缩图片后重试")
+    try:
+        from PIL import Image, UnidentifiedImageError
+        from PIL.Image import DecompressionBombError, DecompressionBombWarning
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DecompressionBombWarning)
+            with Image.open(io.BytesIO(content)) as image:
+                image_format = str(image.format or "").upper()
+                if image_format not in _IMAGE_MIMES:
+                    raise ValueError("暂不支持此图片格式，请上传 JPG、PNG 或 WebP")
+                width, height = image.size
+                if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
+                    raise ValueError("图片像素过大，请压缩图片后重试")
+                image.verify()
+        return _IMAGE_MIMES[image_format], width, height
+    except ValueError:
+        raise
+    except (UnidentifiedImageError, DecompressionBombError, OSError) as exc:
+        raise ValueError("图片无法读取，请上传清晰且未损坏的 JPG、PNG 或 WebP") from exc
+
+
+def image_data_uri(content: bytes, filename: str | None = None) -> str:
+    """将已校验图片转为仅用于本次模型请求的 data URI。"""
+    mime, _width, _height = validate_image(content, filename)
+    encoded = base64.b64encode(content).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
 
 
 def extract_text(filename: str, content: bytes) -> str:
@@ -99,6 +145,45 @@ def parse_resume(text: str) -> ResumeProfile:
         skills=[str(s).strip() for s in (data.get("skills") or []) if str(s).strip()],
         education=[str(s).strip() for s in (data.get("education") or []) if str(s).strip()],
         raw_text=text,
+        user_confirmed=False,
+    )
+
+
+def parse_resume_image(content: bytes, filename: str | None = None) -> ResumeProfile:
+    """解析简历图片，返回与文本解析一致的未确认 ResumeProfile。"""
+    data_uri = image_data_uri(content, filename)
+    data = chat_json_multimodal(
+        _IMAGE_SYSTEM + agent_rules(),
+        "请读取这张简历图片并按约定只输出 JSON。看不清的字段留空。",
+        data_uri,
+    )
+    profile = _profile_from_model_data(data)
+    profile.raw_text = f"[图片材料：{filename or '未命名图片'}]"
+    profile.user_confirmed = False
+    return profile
+
+
+def _profile_from_model_data(data: dict) -> ResumeProfile:
+    """把文本/图片模型返回统一映射为 ResumeProfile。"""
+    experiences = [
+        Experience(
+            kind=str(x.get("kind") or "project").strip() or "project",
+            name=str(x.get("name") or "").strip(),
+            role=str(x.get("role") or "").strip(),
+            period=str(x.get("period") or "").strip(),
+            actions=[str(a).strip() for a in (x.get("actions") or []) if str(a).strip()],
+            results=[str(r).strip() for r in (x.get("results") or []) if str(r).strip()],
+            skills=[str(s).strip() for s in (x.get("skills") or []) if str(s).strip()],
+        )
+        for x in (data.get("experiences") or [])
+        if isinstance(x, dict)
+    ]
+    return ResumeProfile(
+        name=str(data.get("name") or "").strip(),
+        experiences=_fill_periods(experiences),
+        skills=[str(s).strip() for s in (data.get("skills") or []) if str(s).strip()],
+        education=[str(s).strip() for s in (data.get("education") or []) if str(s).strip()],
+        raw_text="",
         user_confirmed=False,
     )
 

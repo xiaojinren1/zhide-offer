@@ -217,6 +217,22 @@ def _estimate_tokens(text: str) -> int:
     return max(1, len(text or "") // 3)
 
 
+def _content_for_token_estimate(content: Any) -> str:
+    """将多模态消息压缩为可计量的文本，不把 base64 图片当作正文 token。"""
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            kind = item.get("type")
+            if kind == "text":
+                parts.append(str(item.get("text") or ""))
+            elif kind == "image_url":
+                parts.append("[image]")
+        return " ".join(parts)
+    return str(content or "")
+
+
 def _post_messages(
     provider: dict,
     messages: list[dict],
@@ -278,7 +294,7 @@ def _post_messages(
         completion_tokens = int(usage.get("completion_tokens") or 0)
     except (ValueError, TypeError) as exc:
         raise LLMError("invalid model response", status_code=502) from exc
-    in_text = " ".join(str(m.get("content") or "") for m in messages)
+    in_text = " ".join(_content_for_token_estimate(m.get("content")) for m in messages)
     pt = prompt_tokens or _estimate_tokens(in_text)
     ct = completion_tokens or _estimate_tokens(str(msg.get("content") or ""))
     budget.record(pt, ct)
@@ -356,6 +372,55 @@ def chat_json(
         try:
             return parse_object(str(msg2.get("content") or ""))
         except ValueError as exc:
+            raise LLMError("model did not return a valid JSON object", status_code=502) from exc
+
+
+def chat_json_multimodal(
+    system: str,
+    user: str,
+    image_data_uri: str,
+    *,
+    temperature: float = 0.2,
+    model: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+) -> dict:
+    """以 OpenAI-compatible image_url 消息调用视觉模型并返回 JSON 对象。"""
+    if not image_data_uri.startswith("data:image/"):
+        raise ValueError("image_data_uri must be a data:image URI")
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": [
+            {"type": "text", "text": user},
+            {"type": "image_url", "image_url": {"url": image_data_uri}},
+        ]},
+    ]
+    msg = _run_with_providers(
+        lambda p: _post_messages(p, messages, temperature=temperature, json_mode=True),
+        model=model, api_key=api_key, base_url=base_url,
+    )
+    content = str(msg.get("content") or "")
+
+    def parse_object(value: str) -> dict:
+        data = json.loads(value)
+        if not isinstance(data, dict):
+            raise ValueError("model JSON must be an object")
+        return data
+
+    try:
+        return parse_object(content)
+    except (ValueError, json.JSONDecodeError):
+        retry_messages = messages + [
+            {"role": "assistant", "content": content},
+            {"role": "user", "content": "[SYSTEM] 上次返回不是合法 JSON，请只输出 JSON，不要 markdown 代码块。"},
+        ]
+        msg2 = _run_with_providers(
+            lambda p: _post_messages(p, retry_messages, temperature=0.0, json_mode=True),
+            model=model, api_key=api_key, base_url=base_url,
+        )
+        try:
+            return parse_object(str(msg2.get("content") or ""))
+        except (ValueError, json.JSONDecodeError) as exc:
             raise LLMError("model did not return a valid JSON object", status_code=502) from exc
 
 

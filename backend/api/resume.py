@@ -16,7 +16,7 @@ from core import events
 from core.llm import LLMError, chat, chat_with_tools, is_configured
 from core.tools import TOOL_SPECS, build_executor
 from engine.quality_check import check_markdown, untraceable_numbers
-from engine.resume_parser import extract_text, parse_resume, profile_from_dict
+from engine.resume_parser import extract_text, parse_resume, parse_resume_image, profile_from_dict, validate_image
 from core.config import agent_rules
 
 router = APIRouter(prefix="/api/resume", tags=["resume"])
@@ -149,6 +149,27 @@ def parse_resume_text(payload: dict):
         events.emit_error("resume_parse", exc)
         return {"ok": False, "error": str(exc)}
     return {"ok": True, "profile": profile.to_dict(), "raw_text": text}
+
+
+@router.post("/parse-image")
+async def parse_resume_image_file(file: UploadFile = File(...)):
+    """上传 JPG/PNG/WebP 简历图片，交给视觉模型结构化并等待人工确认。"""
+    content = await file.read()
+    try:
+        validate_image(content, file.filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not is_configured():
+        raise HTTPException(status_code=503, detail="请在 backend/.env 配置应用 API key 后再解析图片")
+    try:
+        profile = parse_resume_image(content, file.filename)
+    except LLMError:
+        raise
+    except Exception as exc:
+        events.emit_error("resume_image_parse", exc)
+        return {"ok": False, "error": str(exc)}
+    events.emit("resume_image_parsed", experiences=len(profile.experiences))
+    return {"ok": True, "profile": profile.to_dict(), "raw_text": profile.raw_text}
 
 
 @router.post("/generate")

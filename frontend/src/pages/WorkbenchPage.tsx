@@ -108,7 +108,9 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
     const expected = JSON.stringify([sourceText, '', null, jdText, '', jdKeywords])
     latestInput.current = expected
     try {
-      const result = file ? await api.parseResumeFile(file) : await api.parseResumeText(sourceText)
+      const result = file
+        ? (/\.(png|jpe?g|webp)$/i.test(file.name) ? await api.parseResumeImage(file) : await api.parseResumeFile(file))
+        : await api.parseResumeText(sourceText)
       if (!mounted.current || latestInput.current !== expected) return
       const parsed = parsedProfile(result)
       onProfileChange(parsed)
@@ -148,8 +150,8 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
     {busy && <div className="activity-banner" role="status"><span className="spinner" />{activity || '正在处理…'}<span className="muted">{waiting ? '模型仍在处理，请勿重复提交；若超时会显示重试入口。' : '完成后可继续编辑，请勿刷新页面。'}</span></div>}
     <div className="workbench-grid">
       <section id="wb-step-1" tabIndex={-1} className="panel materials-panel"><div className="panel-heading"><div><span className="section-kicker">01 / MATERIALS</span><h2>求职材料</h2></div><UiIcon name="folder" /></div><fieldset disabled={busy}>
-        <label className="upload-zone"><input aria-label="上传求职材料" type="file" accept={FILE_ACCEPT} onChange={(e) => { const file = e.target.files?.[0]; if (file) void parse(file); e.target.value = '' }} /><span className="upload-icon"><UiIcon name="upload" /></span><strong>上传简历或经历材料</strong><span>DOCX · 文字 PDF · TXT · Markdown</span></label>
-        <p className="wb-hint">单文件不超过 10 MB。暂不支持图片、语音、旧版 DOC 和扫描 PDF 的 OCR；可先转为文字再粘贴。</p>
+        <label className="upload-zone"><input aria-label="上传求职材料" type="file" accept={FILE_ACCEPT} onChange={(e) => { const file = e.target.files?.[0]; if (file) void parse(file); e.target.value = '' }} /><span className="upload-icon"><UiIcon name="upload" /></span><strong>上传简历或经历材料</strong><span>DOCX · 文字 PDF · TXT · Markdown · JPG/PNG/WebP</span></label>
+        <p className="wb-hint">单文件不超过 10 MB。图片会交给视觉模型整理，结果仍需你逐项确认；语音、旧版 DOC 和扫描 PDF 的 OCR 尚未接入。</p>
         {sourceName && <div className="source-chip"><UiIcon name="file" /><span>{sourceName}</span><span className="tag blue">已整理</span></div>}
         <div className="field-heading"><label htmlFor="source-text">或粘贴你的经历</label><button className="text-button" onClick={() => { editSource(SAMPLE); onJdChange(SAMPLE_JD) }}>填入演示材料</button></div>
         <textarea id="source-text" className="source-text" value={sourceText} placeholder="项目、实习、工作或校园经历都可以。先写清你做过什么，无需提前润色。" onChange={(e) => editSource(e.target.value)} />

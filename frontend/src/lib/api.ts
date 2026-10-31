@@ -102,6 +102,14 @@ export const api = {
     }>
   },
 
+  parseResumeImage: (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return http.post('/resume/parse-image', fd).then((r) => r.data) as Promise<{
+      ok: boolean; error?: string; profile?: ResumeProfile; raw_text?: string
+    }>
+  },
+
   parseResumeText: (text: string) =>
     http.post('/resume/parse-text', { text }).then((r) => r.data) as Promise<{
       ok: boolean; error?: string; profile?: ResumeProfile; raw_text?: string

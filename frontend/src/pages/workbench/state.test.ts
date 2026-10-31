@@ -66,8 +66,11 @@ describe('工作台状态与输入', () => {
   it.each(['TXT', 'md', 'docx', 'pdf'])('接受 %s', (ext) => {
     expect(fileError({ name: `材料.${ext}`, size: 10 })).toBe('')
   })
+  it.each(['png', 'jpg', 'jpeg', 'webp'])('接受图片 %s', (ext) => {
+    expect(fileError({ name: `材料.${ext}`, size: 10 })).toBe('')
+  })
   it('拒绝不支持、空文件和超大文件', () => {
-    expect(fileError({ name: '材料.png', size: 1 })).toContain('暂不支持')
+    expect(fileError({ name: '材料.gif', size: 1 })).toContain('暂不支持')
     expect(fileError({ name: '材料.doc', size: 1 })).toContain('暂不支持')
     expect(fileError({ name: '材料.txt', size: 0 })).toContain('为空')
     expect(fileError({ name: '材料.pdf', size: MAX_FILE_BYTES + 1 })).toContain('10 MB')

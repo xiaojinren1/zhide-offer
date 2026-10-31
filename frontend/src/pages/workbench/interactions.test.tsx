@@ -19,7 +19,7 @@ vi.mock('react', async (importOriginal) => ({
   },
   useEffect: () => {},
 }))
-vi.mock('../../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../../lib/api')>(), api: { parseResumeText: vi.fn(), parseResumeFile: vi.fn(), generateResume: vi.fn(), diagnose: vi.fn(), saveProfile: vi.fn() } }))
+vi.mock('../../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../../lib/api')>(), api: { parseResumeText: vi.fn(), parseResumeFile: vi.fn(), parseResumeImage: vi.fn(), generateResume: vi.fn(), diagnose: vi.fn(), saveProfile: vi.fn() } }))
 import { api } from '../../lib/api'
 import WorkbenchPage from '../WorkbenchPage'
 import DiagnosePage from '../DiagnosePage'
@@ -54,6 +54,7 @@ beforeEach(() => {
     onProfileChange: (value) => { props.profile = value }, onJdChange: (value) => { props.jdText = value },
     onMarkdownChange: (value) => { props.markdown = value }, onBusyChange: (value) => { props.busy = value }, onInterview: vi.fn() }
   vi.mocked(api.parseResumeText).mockResolvedValue({ ok: true, profile: fixture(), raw_text: '虚构经历' })
+  vi.mocked(api.parseResumeImage).mockResolvedValue({ ok: true, profile: fixture(), raw_text: '[图片材料：resume.png]' })
   vi.mocked(api.generateResume).mockResolvedValue({ ok: true, markdown: '# 虚构同学' })
   vi.mocked(api.saveProfile).mockResolvedValue({ ok: true, id: 'saved-id', saved_at: '2026-10-31 12:00:00' })
 })
@@ -300,9 +301,17 @@ describe('工作台真实事件回调（Mock API）', () => {
     expect(props.profile?.user_confirmed).toBe(false)
   })
   it('拒绝不支持的文件，不向后端上传', () => {
-    input(render(), 'type', 'file').props.onChange({ target: { files: [{ name: '材料.png', size: 10 }], value: '材料.png' } })
+    input(render(), 'type', 'file').props.onChange({ target: { files: [{ name: '材料.gif', size: 10 }], value: '材料.gif' } })
     expect(api.parseResumeFile).not.toHaveBeenCalled()
+    expect(api.parseResumeImage).not.toHaveBeenCalled()
     expect(text(render())).toContain('暂不支持此格式')
+  })
+  it('图片交给视觉解析接口并保留事实确认流程', async () => {
+    input(render(), 'type', 'file').props.onChange({ target: { files: [{ name: 'resume.png', size: 10 }], value: 'resume.png' } })
+    await settle()
+    expect(api.parseResumeImage).toHaveBeenCalled()
+    expect(api.parseResumeFile).not.toHaveBeenCalled()
+    expect(props.profile?.user_confirmed).toBe(false)
   })
   it('重复点击只发出一个请求，空正文不算成功', async () => {
     vi.mocked(api.generateResume).mockResolvedValueOnce({ ok: true, markdown: ' ' })

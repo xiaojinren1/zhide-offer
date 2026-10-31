@@ -1,9 +1,4 @@
-"""应用配置与 .env 加载（从 ARC 老框架 main.py 的 _load_dotenv() 整函数复用）。
-
-GOSIM 教训（v20l 真根因）：平台不会替你 source .env，且依赖错误的 repo_root
-计算会去上一级目录找文件。这里从"脚本实际所在目录"加载，平台已设的环境变量
-优先（override=False），python-dotenv 不可用时降级为手写解析器。
-"""
+"""加载服务端配置，进程环境优先；显式配置文件错误必须阻止启动。"""
 from __future__ import annotations
 
 import os
@@ -16,45 +11,36 @@ PROJECT_ROOT = BACKEND_ROOT.parent
 
 
 def _load_dotenv() -> None:
-    """Robustly load the project .env so MODEL / api_key / base_url take effect."""
-    candidates = []
+    """指定文件时只加载该文件，否则沿用本地配置查找顺序。"""
     _custom = os.environ.get("JOBAGENT_ENV_FILE", "").strip()
     if _custom:
-        candidates.append(Path(_custom))
-    candidates += [
-        BACKEND_ROOT / ".env",
-        Path(os.getcwd()) / ".env",
-        PROJECT_ROOT / ".env",
-    ]
-    env_path = next((p for p in candidates if p.is_file()), None)
-    if not env_path:
-        return
-    try:
-        from dotenv import load_dotenv
+        env_path = Path(_custom)
+    else:
+        candidates = [
+            BACKEND_ROOT / ".env",
+            Path(os.getcwd()) / ".env",
+            PROJECT_ROOT / ".env",
+        ]
+        env_path = next((p for p in candidates if p.is_file()), None)
+        if env_path is None:
+            return
+    from dotenv import load_dotenv
 
-        load_dotenv(str(env_path), override=False)
-        return
-    except Exception:
-        pass
-    # Minimal parser: only fill keys not already present in the environment.
-    try:
-        with open(env_path, "r", encoding="utf-8") as fh:
-            for _line in fh:
-                _line = _line.strip()
-                if not _line or _line.startswith("#") or "=" not in _line:
-                    continue
-                _k, _, _v = _line.partition("=")
-                _k, _v = _k.strip(), _v.strip()
-                if _k and _k not in os.environ:
-                    os.environ[_k] = _v
-    except Exception:
-        pass
+    # 自己打开文件，使缺失、目录误配和权限错误明确传播；不自动改读其他文件。
+    with env_path.open("r", encoding="utf-8") as stream:
+        load_dotenv(stream=stream, override=False)
 
 
 @lru_cache(maxsize=1)
 def settings() -> dict:
     """Resolve runtime settings once. Env vars always win over .env."""
     _load_dotenv()
+    try:
+        port = int(os.environ.get("JOBAGENT_PORT") or 8000)
+    except ValueError as exc:
+        raise ValueError("JOBAGENT_PORT 必须为 1–65535 的整数") from exc
+    if not 1 <= port <= 65535:
+        raise ValueError("JOBAGENT_PORT 必须为 1–65535 的整数")
     return {
         "model": (os.environ.get("MODEL") or os.environ.get("model") or "deepseek-v4-flash").strip(),
         "api_key": (
@@ -67,7 +53,8 @@ def settings() -> dict:
             or os.environ.get("base_url")
             or "https://api.openai-next.com/v1"
         ).strip(),
-        "port": int(os.environ.get("JOBAGENT_PORT") or 8000),
+        "host": (os.environ.get("JOBAGENT_HOST") or "127.0.0.1").strip(),
+        "port": port,
         # token 预算上限：0 = 不限（只计量）。沿用 ARC v20m 的决策。
         "token_budget": int(os.environ.get("JOBAGENT_TOKEN_BUDGET") or 0),
         "events_path": os.environ.get("JOBAGENT_EVENTS_PATH") or str(PROJECT_ROOT / "data" / "events.jsonl"),

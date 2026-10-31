@@ -137,7 +137,10 @@ def main() -> None:
         import uvicorn
 
         cfg = settings()
-        uvicorn.run(app, host="127.0.0.1", port=cfg["port"], log_level="info")
+        uvicorn.run(
+            app, host=cfg["host"], port=cfg["port"], log_level="info",
+            proxy_headers=True, forwarded_allow_ips="127.0.0.1",
+        )
     except Exception as exc:
         events.emit_error("server_start", exc)
         print(f"[jobagent] server failed to start: {exc}", file=sys.stderr)

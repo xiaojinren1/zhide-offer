@@ -1,0 +1,17 @@
+[Unit]
+Description=职得offer
+After=network.target
+
+[Service]
+Type=simple
+User=jobagent
+Group=jobagent
+WorkingDirectory=/opt/jobagent
+Environment=JOBAGENT_ENV_FILE=/etc/jobagent/jobagent.env
+ExecStart=/opt/jobagent/.venv/bin/python /opt/jobagent/backend/main.py
+Restart=on-failure
+RestartSec=5
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

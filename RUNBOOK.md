@@ -1,5 +1,7 @@
 # 职得offer：本机启动与今晚交接
 
+服务器部署、私有密钥配置、Nginx 与 systemd 模板见 [DEPLOY.md](DEPLOY.md)。服务器真实配置与本地 `.env` 均不入库。
+
 ## 当前阶段
 保留 FastAPI + React + TypeScript 工程。今晚先交付本机工作台骨架，明天按实测情况分工。需求以 TONIGHT.md 及 v0.5 方案为参考，最终已交付范围以本文件的验证记录为准。
 

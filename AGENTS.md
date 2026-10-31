@@ -1,5 +1,7 @@
 # 职得offer 项目协作规范
 
+服务器部署以 [DEPLOY.md](DEPLOY.md) 为准，真实密钥仅保存在服务器私有配置文件；仓库只存无密钥模板。显式 `JOBAGENT_ENV_FILE` 无效时必须启动失败，禁止静默回退到其他配置。更新后重新构建并重启，保留并备份 `data/`；健康检查不代替真实模型验收。
+
 ## 开始开发
 
 先阅读 [README.md](README.md)、[RUNBOOK.md](RUNBOOK.md)、[TONIGHT.md](TONIGHT.md) 和 [TEAM.md](TEAM.md)，按负责人分配的文件范围开发，不覆盖他人改动。开始开发前先执行 `git pull --ff-only origin main` 拉取远端最新代码，并检查工作区是否有未提交改动；不要在旧代码副本上继续开发。全局授权与安全要求仍然适用；本文件不自动授权创建分支、推送或部署。

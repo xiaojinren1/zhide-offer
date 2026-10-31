@@ -13,7 +13,8 @@ from fastapi.testclient import TestClient
 from docx import Document
 from docx.oxml.ns import qn
 from docx.shared import Cm
-from api.export import MIME
+from api.export import MIME, MIME_PDF
+
 from core import accounts
 from main import app
 
@@ -77,6 +78,26 @@ class ExportContract(unittest.TestCase):
                 self.assertTrue(style.paragraph_format.keep_with_next)
                 self.assertTrue(style.paragraph_format.keep_together)
                 self.assertEqual(style.element.rPr.rFonts.get(qn("w:eastAsia")), "Microsoft YaHei")
+
+    def test_actual_pdf_has_pdf_signature_and_no_saved_file(self):
+        self.register()
+        response = self.client.post("/api/export/pdf", json=self.payload)
+        self.assertEqual(response.status_code, 200, response.text if response.status_code != 200 else "")
+        self.assertEqual(response.headers["content-type"], MIME_PDF)
+        self.assertEqual(response.headers["cache-control"], "no-store")
+        self.assertIn("filename*=UTF-8''", response.headers["content-disposition"])
+        self.assertTrue(response.content.startswith(b"%PDF-"))
+        self.assertGreater(len(response.content), 1000)
+        self.assertEqual(list(self.root.glob("*.pdf")), [])
+
+    def test_pdf_reuses_auth_and_input_contract(self):
+        self.assertEqual(self.client.post("/api/export/pdf", json=self.payload).status_code, 401)
+        self.register()
+        for value in ("", "x" * 100001, "bad\x00text", "bad\ud800text", "bad\ufffftext"):
+            with self.subTest(value=repr(value[:12])):
+                response = self.client.post("/api/export/pdf", content=json.dumps({"markdown": value}), headers={"Content-Type": "application/json"})
+                self.assertEqual(response.status_code, 422)
+
 
     def test_blank_oversized_and_invalid_xml_are_rejected(self):
         self.register()

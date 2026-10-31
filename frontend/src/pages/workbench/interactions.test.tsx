@@ -19,10 +19,11 @@ vi.mock('react', async (importOriginal) => ({
   },
   useEffect: () => {},
 }))
-vi.mock('../../lib/api', () => ({ api: { parseResumeText: vi.fn(), parseResumeFile: vi.fn(), generateResume: vi.fn(), diagnose: vi.fn(), saveProfile: vi.fn() } }))
+vi.mock('../../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../../lib/api')>(), api: { parseResumeText: vi.fn(), parseResumeFile: vi.fn(), parseResumeImage: vi.fn(), generateResume: vi.fn(), diagnose: vi.fn(), saveProfile: vi.fn() } }))
 import { api } from '../../lib/api'
 import WorkbenchPage from '../WorkbenchPage'
 import DiagnosePage from '../DiagnosePage'
+import ImportReview from '../library/ImportReview'
 
 const fixture = (): ResumeProfile => ({ name: '虚构同学', experiences: [{ kind: 'project', name: '校园项目', role: '成员', period: '', actions: ['整理反馈'], results: ['输出文档'], skills: [] }], skills: [], education: [], user_confirmed: true })
 let props: Parameters<typeof WorkbenchPage>[0]
@@ -54,6 +55,7 @@ beforeEach(() => {
     onProfileChange: (value) => { props.profile = value }, onJdChange: (value) => { props.jdText = value },
     onMarkdownChange: (value) => { props.markdown = value }, onBusyChange: (value) => { props.busy = value }, onInterview: vi.fn() }
   vi.mocked(api.parseResumeText).mockResolvedValue({ ok: true, profile: fixture(), raw_text: '虚构经历' })
+  vi.mocked(api.parseResumeImage).mockResolvedValue({ ok: true, profile: fixture(), raw_text: '[图片材料：resume.png]' })
   vi.mocked(api.generateResume).mockResolvedValue({ ok: true, markdown: '# 虚构同学' })
   vi.mocked(api.saveProfile).mockResolvedValue({ ok: true, id: 'saved-id', saved_at: '2026-10-31 12:00:00' })
 })
@@ -62,7 +64,7 @@ describe('工作台真实事件回调（Mock API）', () => {
   it('保留解析出的教育卡，无需补写成果即可确认和生成', async () => {
     props.profile = { ...fixture(), user_confirmed: false, experiences: [{ kind: 'education', name: '虚构大学', role: '本科', period: '2022—2026', actions: [], results: [], skills: [] }, ...fixture().experiences] }
     expect(input(render(), 'type', 'checkbox').props.disabled).toBe(false)
-    expect(text(render())).toContain('教育经历不强制填写行动或成果')
+    expect(text(render())).toContain('教育仅记录学校、专业学历和起止时间')
     input(render(), 'type', 'checkbox').props.onChange({ target: { checked: true } })
     button(render(), '根据已确认事实生成简历').props.onClick(); await settle()
     expect(api.generateResume).toHaveBeenCalledWith(props.jdText, expect.objectContaining({ experiences: expect.arrayContaining([expect.objectContaining({ kind: 'education', actions: [], results: [] })]) }), [])
@@ -208,11 +210,28 @@ describe('工作台真实事件回调（Mock API）', () => {
     generate.props.onClick()
     expect(api.generateResume).not.toHaveBeenCalled()
   })
-  it('确认事实后可以保存到个人记忆', async () => {
-    button(render(), '保存到个人记忆').props.onClick()
-    await settle()
-    expect(api.saveProfile).toHaveBeenCalledWith('虚构同学', expect.objectContaining({ user_confirmed: true }))
-    expect(text(render())).toContain('经历已保存到个人记忆')
+  it('解析后接入查重预览，事实未确认时禁止导入', () => {
+    props.userId='test-account'; props.profile={...fixture(),user_confirmed:false}
+    const review=nodes(render()).find(n=>n.type===ImportReview)
+    expect(review.props.material.expected_user_id).toBe('test-account')
+    expect(review.props.disabled).toBe(true)
+    expect(api.saveProfile).not.toHaveBeenCalled()
+  })
+  it('确认后使用当前材料的独立查重预览，修改材料更换预览', () => {
+    props.userId='test-account'
+    const first=nodes(render()).find(n=>n.type===ImportReview)
+    expect(first.props.disabled).toBe(false)
+    input(render(),'aria-label','经历1成果').props.onChange({target:{value:'新的成果'}})
+    const second=nodes(render()).find(n=>n.type===ImportReview)
+    expect(second.key).not.toBe(first.key)
+    expect(second.props.disabled).toBe(true)
+    expect(second.props.material.profile.experiences[0].results).toEqual(['新的成果'])
+  })
+  it('教育卡不显示行动、成果或技能描述输入', () => {
+    props.profile={...fixture(),experiences:[{kind:'education',name:'学校',role:'本科',period:'2022—2026',actions:[],results:[],skills:[]}]}
+    expect(input(render(),'aria-label','经历1行动')).toBeUndefined()
+    expect(input(render(),'aria-label','经历1成果')).toBeUndefined()
+    expect(input(render(),'aria-label','经历1技能')).toBeUndefined()
   })
   it.each(['jd', 'fact', 'source'])('修改 %s 会清空旧稿并撤销确认', (kind) => {
     props.markdown = '# 旧稿'
@@ -250,9 +269,17 @@ describe('工作台真实事件回调（Mock API）', () => {
     expect(props.profile?.user_confirmed).toBe(false)
   })
   it('拒绝不支持的文件，不向后端上传', () => {
-    input(render(), 'type', 'file').props.onChange({ target: { files: [{ name: '材料.png', size: 10 }], value: '材料.png' } })
+    input(render(), 'type', 'file').props.onChange({ target: { files: [{ name: '材料.gif', size: 10 }], value: '材料.gif' } })
     expect(api.parseResumeFile).not.toHaveBeenCalled()
+    expect(api.parseResumeImage).not.toHaveBeenCalled()
     expect(text(render())).toContain('暂不支持此格式')
+  })
+  it('图片交给视觉解析接口并保留事实确认流程', async () => {
+    input(render(), 'type', 'file').props.onChange({ target: { files: [{ name: 'resume.png', size: 10 }], value: 'resume.png' } })
+    await settle()
+    expect(api.parseResumeImage).toHaveBeenCalled()
+    expect(api.parseResumeFile).not.toHaveBeenCalled()
+    expect(props.profile?.user_confirmed).toBe(false)
   })
   it('重复点击只发出一个请求，空正文不算成功', async () => {
     vi.mocked(api.generateResume).mockResolvedValueOnce({ ok: true, markdown: ' ' })

@@ -1,0 +1,34 @@
+import { useEffect, useRef, useState } from 'react'
+import { api, libraryApi, apiErrorMessage } from '../lib/api'
+import { downloadMarkdown, downloadPdf, downloadWord } from '../lib/export'
+import { assembled } from '../lib/library'
+import type { Bank, Material } from '../lib/library'
+import type { ResumeProfile } from '../lib/types'
+import ImportReview from './library/ImportReview'
+import './library/library.css'
+interface Props {userId:string; currentProfile:ResumeProfile|null; markdown:string; resumeName:string; disabled?:boolean;hasUnsaved?:boolean;onLoad:(profile:ResumeProfile,meta:{name:string})=>void}
+export default function LibraryPage({userId,currentProfile,markdown,resumeName,disabled,onLoad}:Props){
+ const [bank,setBank]=useState<Bank|null>(null),[error,setError]=useState(''),[selected,setSelected]=useState<string[]>([]),[material,setMaterial]=useState<Material|null>(null),[trash,setTrash]=useState(false),[loadConfirm,setLoadConfirm]=useState(false),[busy,setBusy]=useState(false),[archive,setArchive]=useState<ResumeProfile|null>(null)
+ const epoch=useRef(0), lock=useRef(false), mounted=useRef(true), controller=useRef<AbortController|null>(null)
+ const refresh=async()=>{const token=++epoch.current;try{const b=await libraryApi.list();if(epoch.current===token){setBank(b);setSelected(old=>old.filter(id=>b.cards.some(c=>c.id===id&&!c.deleted)));setError('')}}catch(e){if(epoch.current===token)setError(apiErrorMessage(e))}}
+ useEffect(()=>{mounted.current=true;void refresh();return()=>{mounted.current=false;++epoch.current;controller.current?.abort()}},[userId])
+ const act=async(id:string,action:'delete'|'restore'|'revert',version?:number)=>{if(!bank||disabled||lock.current)return;lock.current=true;setBusy(true);const token=epoch.current;try{await libraryApi.action(id,userId,bank.revision,action,version);if(token===epoch.current)await refresh()}catch(e){if(token===epoch.current)setError(apiErrorMessage(e))}finally{lock.current=false;if(mounted.current)setBusy(false)}}
+ const legacy=async(id:string)=>{const token=epoch.current;try{const r=await api.loadProfile(id);if(token===epoch.current&&r.profile)setArchive(r.profile)}catch(e){if(token===epoch.current)setError(apiErrorMessage(e))}}
+ const done=()=>{void refresh()}
+ const download=async(format:string)=>{if(disabled||lock.current)return;lock.current=true;setBusy(true);controller.current=new AbortController();try{if(format==='md')downloadMarkdown(markdown,resumeName);else if(format==='pdf')await downloadPdf(markdown,resumeName,controller.current.signal);else await downloadWord(markdown,resumeName,controller.current.signal)}catch(e){if(mounted.current)setError(apiErrorMessage(e))}finally{lock.current=false;if(mounted.current)setBusy(false)}}
+ return <div className="library-page"><section className="panel"><h2>个人经历库</h2><p>一个项目一张卡片。上传材料后在工作台核对，再查重入库；已有事实不会因重复上传而多存一份。</p>{error&&<p role="alert">{error}<button onClick={()=>void refresh()}>刷新经历库</button></p>}
+ <fieldset disabled={disabled||busy}><button className="secondary-button" onClick={()=>{setTrash(!trash);setLoadConfirm(false)}}>{trash?'返回经历卡片':'回收站'}</button>{currentProfile&&<button className="secondary-button" onClick={()=>setMaterial({expected_user_id:userId,profile:currentProfile,source_name:resumeName})}>整理工作台材料</button>}
+ {!trash&&<button className="primary-button" disabled={!selected.length} onClick={()=>setLoadConfirm(true)}>将所选 {selected.length} 张卡片载入工作台</button>}
+ {loadConfirm&&<div className="warning-note" role="dialog" aria-label="确认载入卡片"><p>所选卡片将替换工作台材料并清空当前简历稿，保留目标岗位 JD。载入后需要重新确认事实。</p><button onClick={()=>{if(bank)onLoad(assembled(bank.cards.filter(c=>selected.includes(c.id)&&!c.deleted),currentProfile?.name||''),{name:'经历库所选卡片'})}}>确认替换并载入</button><button onClick={()=>setLoadConfirm(false)}>取消</button></div>}
+ </fieldset></section>
+ {material&&<section className="panel"><button type="button" onClick={()=>setMaterial(null)}>关闭导入预览</button><ImportReview key={JSON.stringify(material)} material={material} disabled={disabled||(!material.legacy_id&&!material.profile?.user_confirmed)} onDone={done}/></section>}
+ {bank&&['education','project','internship','other'].map(kind=>{const cards=bank.cards.filter(c=>c.deleted===trash&&(kind==='other'?!['education','project','internship'].includes(c.kind):c.kind===kind));return cards.length>0&&<section key={kind}><h3>{({education:'教育经历',project:'项目经历',internship:'工作 / 实习',other:'其他经历'})[kind]}</h3><div className="library-grid">{cards.map(card=><article className="panel library-card" key={card.id}>
+ {!trash&&<label><input type="checkbox" disabled={disabled||busy} checked={selected.includes(card.id)} onChange={e=>{setSelected(old=>e.target.checked?[...old,card.id]:old.filter(id=>id!==card.id));setLoadConfirm(false)}}/>选择此卡片</label>}<h3>{card.name}</h3><p>{card.role} · {card.period||'时间未填写'}</p>{card.kind!=='education'&&<><ul>{card.actions.map((x,i)=><li key={i}>{x}</li>)}</ul><ul>{card.results.map((x,i)=><li key={i}>{x}</li>)}</ul><p>{card.skills.join(' · ')}</p></>}
+ <button disabled={disabled||busy} onClick={()=>void act(card.id,trash?'restore':'delete')}>{trash?'恢复卡片':'移入回收站'}</button>
+ <details><summary>来源与修改历史（{card.history.length}）</summary>{card.source_ids.map(id=>{const source=bank.sources.find(s=>s.id===id);return source&&<details key={id}><summary>{source.name} · {source.at}</summary><pre>{source.profile.raw_text||'该材料未提供文字原文，以下为解析事实。'}</pre><pre>{JSON.stringify(source.profile,null,2)}</pre></details>})}{card.history.map((v,i)=><details key={i}><summary>版本 {i+1} · {v.at}{v.deleted?' · 已移入回收站':''}</summary><pre>{JSON.stringify(v.facts,null,2)}</pre><button disabled={disabled||busy||trash} onClick={()=>void act(card.id,'revert',i)}>采用此版本的事实</button></details>)}</details>
+ </article>)}</div></section>})}
+ {bank&&!bank.cards.some(c=>c.deleted===trash)&&<p className="panel">{trash?'回收站为空。':'尚无经历卡片。请在工作台整理材料，或从下方历史材料确认导入。'}</p>}
+ {!!bank?.legacy.length&&<section className="panel"><h3>历史材料</h3><p>旧版保存的完整材料仍保留。逐份预览查重后整理为卡片；不会删除原记录。</p>{bank.legacy.map(l=><div className="library-archive" key={l.id}><span>{l.name} · {l.saved_at} {bank.migrated.includes(l.id)?'（已整理）':''}</span><button disabled={busy||disabled} onClick={()=>void legacy(l.id)}>查看原记录</button><button disabled={busy||disabled} onClick={()=>setMaterial({expected_user_id:userId,legacy_id:l.id,source_name:l.name})}>预览整理</button></div>)}{archive&&<details open><summary>原记录内容</summary><pre>{JSON.stringify(archive,null,2)}</pre></details>}</section>}
+ {markdown&&<section className="panel"><h3>当前简历导出</h3><p>仅导出生成稿，不修改经历事实。</p>{['md','docx','pdf'].map(format=><button className="secondary-button" key={format} disabled={busy||disabled} onClick={()=>void download(format)}>{format.toUpperCase()}</button>)}</section>}
+ </div>
+}

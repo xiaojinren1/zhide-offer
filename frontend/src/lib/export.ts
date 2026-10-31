@@ -1,7 +1,7 @@
 /** 只导出当前正文；不持久化、上传附件或请求外部资源。 */
 import { ACCOUNT_CHANGED_EVENT, SESSION_EXPIRED_EVENT } from './api'
 
-export function exportFilename(name: string, extension: 'md' | 'docx'): string {
+export function exportFilename(name: string, extension: 'md' | 'docx' | 'pdf'): string {
   const safe = name.replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g, '-').replace(/[. ]+$/g, '').trim().slice(0, 80)
   return `${safe || '职得offer'}-定向简历.${extension}`
 }
@@ -53,6 +53,38 @@ export async function downloadWord(markdown: string, name = '职得offer', signa
     const blob = await response.blob()
     if (controller.signal.aborted) throw new Error('导出已取消，请重新操作。')
     saveBlob(blob, exportFilename(name, 'docx'))
+  } finally {
+    window.clearTimeout(timeout)
+    signal?.removeEventListener('abort', cancel)
+    window.removeEventListener(ACCOUNT_CHANGED_EVENT, cancel)
+    window.removeEventListener(SESSION_EXPIRED_EVENT, cancel)
+  }
+}
+
+export async function downloadPdf(markdown: string, name = '职得offer', signal?: AbortSignal) {
+  requireMarkdown(markdown)
+  const controller = new AbortController()
+  const cancel = () => controller.abort()
+  const timeout = window.setTimeout(cancel, 30000)
+  signal?.addEventListener('abort', cancel, { once: true })
+  window.addEventListener(ACCOUNT_CHANGED_EVENT, cancel)
+  window.addEventListener(SESSION_EXPIRED_EVENT, cancel)
+  if (signal?.aborted) cancel()
+  try {
+    const response = await fetch('/api/export/pdf', {
+      method: 'POST', credentials: 'same-origin', signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({ markdown, name }),
+    })
+    if (!response.ok) {
+      if (response.status === 401 && !controller.signal.aborted) window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT))
+      const body = await response.json().catch(() => null)
+      throw new Error(typeof body?.detail === 'string' ? body.detail : `PDF 导出失败（${response.status}），请确认导出服务已接入后重试。`)
+    }
+    if (!response.headers.get('Content-Type')?.includes('application/pdf')) throw new Error('导出服务未返回 PDF 文件，请联系负责人检查路由接入。')
+    const blob = await response.blob()
+    if (controller.signal.aborted) throw new Error('导出已取消，请重新操作。')
+    saveBlob(blob, exportFilename(name, 'pdf'))
   } finally {
     window.clearTimeout(timeout)
     signal?.removeEventListener('abort', cancel)

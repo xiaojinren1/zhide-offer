@@ -102,6 +102,14 @@ export const api = {
     }>
   },
 
+  parseResumeImage: (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return http.post('/resume/parse-image', fd).then((r) => r.data) as Promise<{
+      ok: boolean; error?: string; profile?: ResumeProfile; raw_text?: string
+    }>
+  },
+
   parseResumeText: (text: string) =>
     http.post('/resume/parse-text', { text }).then((r) => r.data) as Promise<{
       ok: boolean; error?: string; profile?: ResumeProfile; raw_text?: string
@@ -160,4 +168,12 @@ export const api = {
     }>,
   deleteProfile: (id: string) =>
     http.delete(`/profiles/${encodeURIComponent(id)}`).then((r) => r.data) as Promise<{ ok: boolean; error?: string }>,
+}
+
+// Uses the same account-generation and CSRF protections as the workbench.
+export const libraryApi = {
+  list: () => http.get('/library').then(r => r.data) as Promise<import('./library').Bank>,
+  preview: (material: import('./library').Material) => http.post('/library/preview', material).then(r => r.data) as Promise<import('./library').Preview>,
+  apply: (material: import('./library').Material, revision: number, choices: import('./library').Choice[]) => http.post('/library/import', {...material, revision, choices, facts_confirmed: true}).then(r => r.data) as Promise<{changed: number}>,
+  action: (id: string, expected_user_id: string, revision: number, action: 'delete' | 'restore' | 'revert', version?: number) => http.post('/library/'+encodeURIComponent(id)+'/action', {expected_user_id,revision,action,version}).then(r => r.data),
 }

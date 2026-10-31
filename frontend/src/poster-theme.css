@@ -567,6 +567,62 @@ body {
     font-size:22px;
   }
 }
+
+/* Keep workflow labels and the legal footer fully readable at every viewport. */
+.sidebar .nav-item {
+  align-items:flex-start;
+}
+.sidebar .nav-item > span:not(.flow-index):not(.nav-dot) {
+  min-width:0;
+  flex:1 1 auto;
+  overflow:visible;
+  text-overflow:clip;
+  white-space:normal;
+  overflow-wrap:anywhere;
+}
+.workspace {
+  min-height:calc(100vh - 88px);
+  height:auto;
+  padding-bottom:36px;
+  overflow-x:clip;
+}
+.workspace .workspace-footer {
+  width:100%;
+  min-width:0;
+  height:auto;
+  min-height:0;
+  overflow:visible;
+  white-space:normal;
+  line-height:1.8;
+  overflow-wrap:anywhere;
+}
+.workspace .workspace-footer > p {
+  min-width:0;
+  max-width:none;
+  overflow:visible;
+  white-space:normal;
+  overflow-wrap:anywhere;
+}
+@media(max-width:800px) {
+  .sidebar .nav-item {
+    align-items:center;
+    flex:0 0 auto;
+    width:auto;
+    white-space:nowrap;
+  }
+  .sidebar .nav-item > span:not(.flow-index):not(.nav-dot) {
+    flex:0 0 auto;
+    white-space:nowrap;
+    overflow:visible;
+  }
+  .workspace {
+    min-height:0;
+    padding-bottom:28px;
+  }
+  .workspace .workspace-footer {
+    padding-bottom:18px;
+  }
+}
 @media(prefers-reduced-motion:reduce) {
   .workspace button {
     transition:none;

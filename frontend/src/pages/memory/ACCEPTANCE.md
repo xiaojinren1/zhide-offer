@@ -4,17 +4,19 @@
 
 ## 已完成与验证
 
+当前默认应用已接入 `MemoryPage` 和 Word/PDF 导出路由；下方“待负责人接入”仅保留为本轮 D 模块初始交接记录，不代表当前代码状态。
+
 - MemoryPage：列表、详情、载入确认、确认删除、失败重试、空态；载入产生独立副本并撤销确认。严格校验旧资料结构，账户切换/卸载忽略迟到响应。
 - Markdown：当前正文原样下载，文件名清理、空稿阻止、下载地址释放。
 - Word：新增 POST /api/export/docx，返回 A4 DOCX；中文字体、标题、段落、列表与常用行内格式。PDF：新增 POST /api/export/pdf，返回 A4 PDF；复用登录/CSRF、空稿、大小、非法字符、退出后拒绝、附件响应头及无远程关系契约，并检查中文字体缺失时的明确错误。
 - 前端 `npm.cmd --prefix frontend test`：6 个测试文件、67 项通过（其中 D 新增 13 项）。页面测试执行实际处理器，未替代浏览器验收。
 - `frontend/node_modules/.bin/tsc.cmd --project frontend/tsconfig.json`：通过，包含尚未接入 App 的 MemoryPage。
-- `npm.cmd --prefix frontend run build`：通过；默认入口尚未引用 D 页面，因此该构建不代表页面导航已接通。
+- `npm.cmd --prefix frontend run build`：通过；当前默认入口已引用 D 页面，另需结合浏览器验收下载和响应式布局。
 - `.venv/py310/Scripts/python.exe -m unittest tests.test_export tests.test_accounts tests.test_persistence tests.test_workbench_contract -v`：36 项通过。Word 5 项新增测试使用独立测试应用注册路由；账户/工作台/持久化使用原应用及临时数据库。
 
-## 待负责人接入
+## 初始交接记录（已完成）
 
-严格按 [BEHAVIOR.md](BEHAVIOR.md) 将 MemoryPage 替换 App 的 memory-placeholder，并在 main.py 注册 api.export。本轮未修改 App.tsx、api.ts、工作台或主服务入口，没有新增依赖。默认主页面仍为原占位页，默认服务暂不提供 Word URL。
+初始交接时要求按 [BEHAVIOR.md](BEHAVIOR.md) 将 MemoryPage 替换 App 的 memory-placeholder，并在 main.py 注册 api.export；当前已由负责人完成接入，默认服务提供 Word/PDF 导出 URL。
 
 ## 未验证与已知问题
 

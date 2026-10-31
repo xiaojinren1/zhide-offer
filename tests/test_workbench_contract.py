@@ -30,7 +30,7 @@ class WorkbenchContract(AuthenticatedContract):
                 return {'requirements': [{'quote': unit, 'priority': 'core', 'evidence_ids': ['e1.actions.1']} for unit in payload['units']]}
             if 'review' in payload:
                 return {'markdown': '# 演示同学\n整理报名需求'}
-            return {'items': [{'id': row['id'], 'quote': ''} for row in payload['plan']['requirements']], 'unsupported_claims': []}
+            return {'items': [{'id': row['id'], 'excerpt_id': ''} for row in payload['plan']['requirements']], 'unsupported_claims': []}
         planner = patch('engine.tailoring.chat_json', side_effect=tailoring_json)
         planner.start()
         self.addCleanup(planner.stop)

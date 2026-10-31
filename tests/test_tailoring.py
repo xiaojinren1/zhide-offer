@@ -10,7 +10,13 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
 from core.llm import LLMError, chat_json
 from engine.models import Experience, ResumeProfile
-from engine.tailoring import fact_catalog, plan_tailoring, review_tailoring, jd_units, has_evidence_anchor
+from engine.tailoring import fact_catalog, plan_tailoring, review_tailoring, jd_units, has_evidence_anchor, markdown_excerpt_catalog
+
+DEFAULT_MARKDOWN = '# 虚构同学\n使用 SQL 分析订单'
+
+
+def excerpt_id(text, markdown=DEFAULT_MARKDOWN):
+    return next((key for key, value in markdown_excerpt_catalog(markdown).items() if value == text), 'unknown-excerpt')
 
 
 def profile():
@@ -24,8 +30,8 @@ def planned(quote='使用 SQL 分析', ids=None, priority='core'):
     return {'quote': quote, 'priority': priority, 'evidence_ids': ['e2.actions.2'] if ids is None else ids}
 
 
-def audited(key='r1', quote='使用 SQL 分析订单', ids=None):
-    return {'id': key, 'quote': quote, 'evidence_ids': ['e2.actions.2'] if ids is None else ids,
+def audited(key='r1', quote='使用 SQL 分析订单', ids=None, markdown=DEFAULT_MARKDOWN):
+    return {'id': key, 'excerpt_id': excerpt_id(quote, markdown) if quote else '', 'evidence_ids': ['e2.actions.2'] if ids is None else ids,
             'reason': '已确认的 SQL 订单分析行动体现岗位分析要求'}
 
 
@@ -58,16 +64,17 @@ class TailoringEngine(unittest.TestCase):
 
     def test_name_excerpt_with_real_evidence_ids_is_unaddressed_not_success(self):
         plan, _, _ = self.plan()
-        raw = {'items': [audited(quote='虚构同学')], 'unsupported_claims': []}
+        raw = {'items': [audited(quote='# 虚构同学', markdown='# 虚构同学')], 'unsupported_claims': []}
         with patch('engine.tailoring.chat_json', return_value=raw):
             report = review_tailoring(plan, '# 虚构同学', profile(), deadline_at=time.monotonic()+60)
         self.assertEqual(report['requirements'][0]['output_excerpt'], '')
 
     def test_excerpt_requires_active_fact_id_and_reason(self):
         plan, _, _ = self.plan()
-        for item in [audited(ids=[]), audited(ids=['e1.actions.1']), audited(ids=['e2.actions.2']*2),
-                     {**audited(), 'reason': ''}, {**audited(), 'evidence_ids': [{}]},
-                     {'id': 'r1', 'quote': '使用 SQL 分析订单'}]:
+        body = '使用 SQL 分析订单'
+        for item in [audited(ids=[], markdown=body), audited(ids=['e1.actions.1'], markdown=body), audited(ids=['e2.actions.2']*2, markdown=body),
+                     {**audited(markdown=body), 'reason': ''}, {**audited(markdown=body), 'evidence_ids': [{}]},
+                     {'id': 'r1', 'excerpt_id': excerpt_id(body, body)}]:
             with patch('engine.tailoring.chat_json', return_value={'items': [item], 'unsupported_claims': []}), self.assertRaises(LLMError):
                 review_tailoring(plan, '使用 SQL 分析订单', profile(), deadline_at=time.monotonic()+60)
 
@@ -128,30 +135,73 @@ class TailoringEngine(unittest.TestCase):
 
     def test_review_returns_verbatim_excerpt_and_flags_unmet_focus(self):
         plan, _, _ = self.plan([planned(), planned('绘制报名原型', ['e1.actions.2'])])
-        raw = {'items': [audited(), {'id': 'r2', 'quote': ''}], 'unsupported_claims': []}
+        raw = {'items': [audited(), {'id': 'r2', 'excerpt_id': ''}], 'unsupported_claims': []}
         with patch('engine.tailoring.chat_json', return_value=raw):
             report = review_tailoring(plan, '# 虚构同学\n使用 SQL 分析订单', profile(), deadline_at=time.monotonic()+100)
         self.assertEqual(report['requirements'][1]['output_excerpt'], '')
         self.assertNotIn('active_evidence', report['requirements'][0])
         self.assertIn('不代表', report['review_note'])
 
+    def test_catalog_preserves_multiline_markdown_and_unicode_without_rewriting(self):
+        body = '# 虚构同学\r\n\r\n## 校园产品\r\n- 收集用户反馈\r\n- 绘制报名原型\r\n\r\n- 输出需求文档 📄\r\n- 收集用户反馈'
+        catalog = markdown_excerpt_catalog(body)
+        self.assertTrue(catalog)
+        self.assertTrue(all(text in body for text in catalog.values()))
+        self.assertIn('## 校园产品\r\n- 收集用户反馈\r\n- 绘制报名原型', catalog.values())
+        self.assertIn('- 输出需求文档 📄', catalog.values())
+        self.assertEqual(list(catalog.values()).count('- 收集用户反馈'), 1)
+
+    def test_long_review_resolves_original_multiline_excerpt_without_model_copying(self):
+        plan, _, _ = self.plan([planned(f'校园产品要求{i}', ['e1.actions.1', 'e1.actions.2', 'e1.results.1'])
+                                for i in range(25)])
+        body = '# 虚构同学\n\n## 校园产品\n- 收集用户反馈\n- 绘制报名原型\n- 输出需求文档'
+        original = '## 校园产品\n- 收集用户反馈\n- 绘制报名原型\n- 输出需求文档'
+        def audit_from_catalog(system, user, **kwargs):
+            payload = json.loads(user)
+            chosen = next(item['id'] for item in payload['excerpts'] if item['text'] == original)
+            self.assertNotIn('markdown', payload)
+            self.assertIn('excerpt_id', system)
+            return {'items': [{'id': row['id'], 'excerpt_id': chosen,
+                               'evidence_ids': ['e1.actions.1', 'e1.actions.2', 'e1.results.1'],
+                               'reason': '已确认的反馈收集、原型及需求文档共同支持产品实践'}
+                              for row in payload['plan']['requirements']], 'unsupported_claims': []}
+        with patch('engine.tailoring.chat_json', side_effect=audit_from_catalog):
+            report = review_tailoring(plan, body, profile(), deadline_at=time.monotonic()+100)
+        self.assertEqual(len(report['requirements']), 25)
+        self.assertTrue(all(row['output_excerpt'] == original for row in report['requirements']))
+        self.assertTrue(all('excerpt_id' not in row for row in report['requirements']))
+
+    def test_previous_body_excerpt_ids_cannot_be_reused_after_revision(self):
+        plan, _, _ = self.plan()
+        original = '# 虚构同学\n使用 SQL 分析订单'
+        revised = original + '\n形成分析报告'
+        self.assertTrue(set(markdown_excerpt_catalog(original)).isdisjoint(markdown_excerpt_catalog(revised)))
+        for raw in [
+            {'items': [audited(markdown=original)], 'unsupported_claims': []},
+            {'items': [{'id': 'r1', 'excerpt_id': ''}], 'unsupported_claims': [
+                {'excerpt_id': excerpt_id('使用 SQL 分析订单', original), 'reason': '旧正文编号'}]},
+        ]:
+            with self.subTest(raw=raw), patch('engine.tailoring.chat_json', return_value=raw), self.assertRaises(LLMError):
+                review_tailoring(plan, revised, profile(), deadline_at=time.monotonic()+100)
+
     def test_review_rejects_fabricated_excerpt_missing_row_and_duplicate(self):
         plan, _, _ = self.plan()
-        for items in [[], [{'id': 'r1', 'quote': '不存在的原文'}], [{'id': 'r2', 'quote': ''}], [None],
-                      [{'id': 'r1', 'quote': ''}, {'id': 'r1', 'quote': ''}]]:
+        for items in [[], [{'id': 'r1', 'excerpt_id': 'unknown-excerpt'}], [{'id': 'r2', 'excerpt_id': ''}], [None],
+                      [{'id': 'r1', 'excerpt_id': ''}, {'id': 'r1', 'excerpt_id': ''}],
+                      [{'id': 'r1', 'quote': '旧协议原文'}]]:
             with patch('engine.tailoring.chat_json', return_value={'items': items, 'unsupported_claims': []}), self.assertRaises(LLMError):
                 review_tailoring(plan, '# 测试', profile(), deadline_at=time.monotonic()+100)
 
     def test_review_gap_cannot_be_marked_addressed(self):
         plan, _, _ = self.plan([planned('熟悉 Java', [])])
-        with patch('engine.tailoring.chat_json', return_value={'items': [{'id': 'r1', 'quote': '熟悉 Java'}], 'unsupported_claims': []}), self.assertRaises(LLMError):
+        with patch('engine.tailoring.chat_json', return_value={'items': [audited(quote='熟悉 Java', markdown='熟悉 Java')], 'unsupported_claims': []}), self.assertRaises(LLMError):
             review_tailoring(plan, '熟悉 Java', profile(), deadline_at=time.monotonic()+100)
 
     def test_unsupported_claim_must_exist_in_markdown(self):
         plan, _, _ = self.plan()
         for quote in ['领导团队', '原句不存在']:
-            with patch('engine.tailoring.chat_json', return_value={'items': [{'id': 'r1', 'quote': ''}],
-                'unsupported_claims': [{'quote': quote, 'reason': '事实仅说明参与'}]}):
+            with patch('engine.tailoring.chat_json', return_value={'items': [{'id': 'r1', 'excerpt_id': ''}],
+                'unsupported_claims': [{'excerpt_id': excerpt_id(quote, '领导团队'), 'reason': '事实仅说明参与'}]}):
                 if quote == '领导团队':
                     self.assertEqual(len(review_tailoring(plan, '领导团队', profile(), deadline_at=time.monotonic()+100)['unsupported_claims']), 1)
                 else:
@@ -186,7 +236,7 @@ class TailoringApi(unittest.TestCase):
         self.request = {'jd_text': '使用 SQL 分析；熟悉 Java', 'resume_profile': profile().to_dict(),
                         'use_examples': False, 'jd_keywords': ['SQL', 'Java', '伪造关键词']}
         self.model_plan = {'requirements': [planned(), planned('熟悉 Java', [])]}
-        self.audit = {'items': [{'id': 'r1', 'quote': '使用 SQL 分析订单'}, {'id': 'r2', 'quote': ''}], 'unsupported_claims': []}
+        self.audit = {'items': [audited(), {'id': 'r2', 'excerpt_id': ''}], 'unsupported_claims': []}
         self.audit['items'][0] = audited()
 
     def test_full_flow_prompt_contains_verified_plan_and_only_supported_keywords(self):
@@ -221,7 +271,7 @@ class TailoringApi(unittest.TestCase):
         writer.assert_not_called()
 
     def test_invalid_audit_not_silently_delivered(self):
-        broken = copy.deepcopy(self.audit); broken['items'][0]['quote'] = '不存在的句子'
+        broken = copy.deepcopy(self.audit); broken['items'][0]['excerpt_id'] = 'unknown-excerpt'
         with patch('engine.tailoring.chat_json', side_effect=[self.model_plan, broken]), patch('api.resume.chat_with_tools',
             return_value={'content': '# 普通润色', 'rounds': 1}):
             response = self.client.post('/api/resume/generate', json=self.request)
@@ -229,7 +279,7 @@ class TailoringApi(unittest.TestCase):
         self.assertNotIn('markdown', response.json())
 
     def test_generic_draft_is_explicitly_unaddressed(self):
-        audit = copy.deepcopy(self.audit); audit['items'][0]['quote'] = ''
+        audit = copy.deepcopy(self.audit); audit['items'][0]['excerpt_id'] = ''
         with patch('engine.tailoring.chat_json', side_effect=[self.model_plan, audit, {'markdown': '# 虚构同学\n仍未体现'}, audit]), patch('api.resume.chat_with_tools',
             return_value={'content': '# 虚构同学\n认真积极', 'rounds': 1}):
             response = self.client.post('/api/resume/generate', json=self.request)
@@ -244,7 +294,7 @@ class TailoringApi(unittest.TestCase):
         model.assert_not_called()
 
     def test_repair_once_and_recheck_final_body(self):
-        first = copy.deepcopy(self.audit); first['items'][0]['quote'] = ''
+        first = copy.deepcopy(self.audit); first['items'][0]['excerpt_id'] = ''
         final = '# 虚构同学\n使用 SQL 分析订单'
         with patch('engine.tailoring.chat_json', side_effect=[self.model_plan, first, {'markdown': final}, self.audit]) as stages, patch('api.resume.chat_with_tools', return_value={'content': '# 虚构同学\n积极认真', 'rounds': 1}):
             response = self.client.post('/api/resume/generate', json=self.request)
@@ -259,8 +309,9 @@ class TailoringApi(unittest.TestCase):
 
     def test_unsupported_claims_trigger_repair_even_if_focus_was_addressed(self):
         first = copy.deepcopy(self.audit)
-        first['unsupported_claims'] = [{'quote': '领导团队', 'reason': '事实仅说明分析订单'}]
         final = '# 虚构同学\n使用 SQL 分析订单'
+        first['items'][0] = audited(markdown=final+'\n领导团队')
+        first['unsupported_claims'] = [{'excerpt_id': excerpt_id('领导团队', final+'\n领导团队'), 'reason': '事实仅说明分析订单'}]
         with patch('engine.tailoring.chat_json', side_effect=[self.model_plan, first, {'markdown': final}, self.audit]), patch('api.resume.chat_with_tools', return_value={'content': final+'\n领导团队', 'rounds': 1}):
             response = self.client.post('/api/resume/generate', json=self.request)
         self.assertEqual(response.status_code, 200, response.text)
@@ -268,7 +319,7 @@ class TailoringApi(unittest.TestCase):
         self.assertEqual(response.json()['tailoring']['unsupported_claims'], [])
 
     def test_invalid_or_failed_repair_never_returns_first_draft_as_success(self):
-        first = copy.deepcopy(self.audit); first['items'][0]['quote'] = ''
+        first = copy.deepcopy(self.audit); first['items'][0]['excerpt_id'] = ''
         for result in [{'markdown': '稍后再修订'}, {}, LLMError('repair timeout', status_code=504)]:
             with patch('engine.tailoring.chat_json', side_effect=[self.model_plan, first, result]), patch('api.resume.chat_with_tools', return_value={'content': '# 虚构同学', 'rounds': 1}):
                 response = self.client.post('/api/resume/generate', json=self.request)
@@ -276,7 +327,7 @@ class TailoringApi(unittest.TestCase):
             self.assertNotIn('markdown', response.json())
 
     def test_final_review_failure_does_not_deliver_unreviewed_repair(self):
-        first = copy.deepcopy(self.audit); first['items'][0]['quote'] = ''
+        first = copy.deepcopy(self.audit); first['items'][0]['excerpt_id'] = ''
         with patch('engine.tailoring.chat_json', side_effect=[self.model_plan, first, {'markdown': '# 虚构同学'}, LLMError('audit timeout', status_code=504)]), patch('api.resume.chat_with_tools', return_value={'content': '# 虚构同学', 'rounds': 1}):
             response = self.client.post('/api/resume/generate', json=self.request)
         self.assertEqual(response.status_code, 504)
@@ -285,7 +336,7 @@ class TailoringApi(unittest.TestCase):
     def test_gap_only_does_not_trigger_fabricating_repair(self):
         request = {**self.request, 'jd_text': '熟悉 Java'}
         plan = {'requirements': [planned('熟悉 Java', [])]}
-        audit = {'items': [{'id': 'r1', 'quote': ''}], 'unsupported_claims': []}
+        audit = {'items': [{'id': 'r1', 'excerpt_id': ''}], 'unsupported_claims': []}
         with patch('engine.tailoring.chat_json', side_effect=[plan, audit]) as stages, patch('api.resume.chat_with_tools', return_value={'content': '# 虚构同学\n使用 SQL 分析订单', 'rounds': 1}):
             response = self.client.post('/api/resume/generate', json=request)
         self.assertEqual(response.status_code, 200, response.text)
@@ -306,9 +357,10 @@ class TailoringApi(unittest.TestCase):
         self.assertNotIn('markdown', response.json())
 
     def test_final_numbers_checked_again_after_revision(self):
-        first = copy.deepcopy(self.audit); first['items'][0]['quote'] = ''
+        first = copy.deepcopy(self.audit); first['items'][0]['excerpt_id'] = ''
         final = '# 虚构同学\n使用 SQL 分析订单，提升 98765%'
-        with patch('engine.tailoring.chat_json', side_effect=[self.model_plan, first, {'markdown': final}, self.audit]), patch('api.resume.chat_with_tools', return_value={'content': '# 虚构同学', 'rounds': 1}):
+        final_audit = {'items': [audited(quote='使用 SQL 分析订单，提升 98765%', markdown=final), {'id': 'r2', 'excerpt_id': ''}], 'unsupported_claims': []}
+        with patch('engine.tailoring.chat_json', side_effect=[self.model_plan, first, {'markdown': final}, final_audit]), patch('api.resume.chat_with_tools', return_value={'content': '# 虚构同学', 'rounds': 1}):
             response = self.client.post('/api/resume/generate', json=self.request)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertFalse(response.json()['traceability_passed'])

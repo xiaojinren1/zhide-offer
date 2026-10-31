@@ -34,6 +34,7 @@ http.interceptors.response.use((response) => response, (error) => {
   if (error.response?.status === 401 && error.config?.accountGeneration === authGeneration && !error.config?.url?.startsWith('/auth/')) {
     window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT))
   }
+  if (axios.isAxiosError(error)) error.message = apiErrorMessage(error)
   return Promise.reject(error)
 })
 
@@ -48,6 +49,7 @@ export function apiErrorMessage(error: unknown): string {
       413: '提交内容过大，请缩减材料后重试。',
       422: '提交内容不符合要求，请检查后重试。',
       429: '请求过于频繁或服务额度不足，请稍后重试。',
+      502: '模型返回的内容为空或格式不正确，请重试。',
       503: '服务暂不可用，请检查服务配置后重试。',
       504: '处理超时，请稍后重试。',
     }

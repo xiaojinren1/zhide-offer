@@ -49,22 +49,42 @@ _TRANSIENT_NETWORK_SIGNATURES = (
 class LLMError(RuntimeError):
     """模型调用最终失败（所有 provider 都已尝试）。"""
 
-    def __init__(self, message: str, *, providers_tried: list[str] | None = None):
+    def __init__(self, message: str, *, providers_tried: list[str] | None = None,
+                 status_code: int = 503):
         super().__init__(message)
         self.providers_tried = providers_tried or []
+        self.status_code = status_code
 
 
 def _is_transient_network_error(exc: Exception) -> bool:
-    if isinstance(exc, httpx.HTTPError):
+    if isinstance(exc, httpx.HTTPStatusError):
+        return False
+    if isinstance(exc, httpx.TransportError):
         return True
+    if isinstance(exc, LLMError):
+        return False
     msg = str(exc).lower()
     return any(sig in msg for sig in _TRANSIENT_NETWORK_SIGNATURES)
 
 
 def _is_retryable_status(exc: Exception) -> bool:
-    code = getattr(exc, "status_code", None) or getattr(exc, "response", None)
-    code = getattr(code, "status_code", code)
-    return isinstance(code, int) and (code == 429 or code >= 500)
+    return isinstance(exc, httpx.HTTPStatusError) and (
+        exc.response.status_code == 429 or exc.response.status_code >= 500
+    )
+
+
+def _failure_status(exc: Exception | None) -> int:
+    """仅使用结构化异常分类；上游鉴权不是应用账户失效。"""
+    if isinstance(exc, LLMError):
+        return exc.status_code
+    if isinstance(exc, httpx.TimeoutException):
+        return 504
+    if isinstance(exc, httpx.HTTPStatusError):
+        if exc.response.status_code == 429:
+            return 429
+        if exc.response.status_code in (408, 504):
+            return 504
+    return 503
 
 
 # --------------------------------------------------------------------------
@@ -156,9 +176,9 @@ def _run_with_providers(
                 events.emit("llm_chain_deadline", provider=provider["name"],
                             elapsed=round(elapsed, 1), budget=budget_s)
                 raise LLMError(
-                    f"llm deadline exceeded after {budget_s}s (last error: {last_exc})",
-                    providers_tried=tried,
-                )
+                    "llm deadline exceeded",
+                    providers_tried=tried, status_code=504,
+                ) from last_exc
             try:
                 result = call_once(provider)
                 if provider["name"] != "primary":
@@ -172,20 +192,20 @@ def _run_with_providers(
                     remaining = budget_s - (_time.monotonic() - started)
                     if remaining <= 0:
                         raise LLMError(
-                            f"llm deadline exceeded after {budget_s}s",
-                            providers_tried=tried,
-                        )
+                            "llm deadline exceeded",
+                            providers_tried=tried, status_code=504,
+                        ) from exc
                     # 退避不超过剩余预算，避免"睡过头"
                     _time.sleep(min(min(2 ** attempt, 30) + random.uniform(0, 1), remaining))
                     continue
                 events.emit("llm_provider_failed", provider=provider["name"],
-                            attempt=attempt + 1, error=str(exc)[:200])
+                            attempt=attempt + 1, status_code=_failure_status(exc))
                 break
 
     raise LLMError(
-        f"all providers failed ({len(chain)} tried): {last_exc}",
-        providers_tried=tried,
-    )
+        "all model providers failed",
+        providers_tried=tried, status_code=_failure_status(last_exc),
+    ) from last_exc
 
 
 # --------------------------------------------------------------------------
@@ -225,15 +245,42 @@ def _post_messages(
     url = base if base.endswith("/chat/completions") else f"{base}/chat/completions"
     with httpx.Client(timeout=_HTTP_TIMEOUT) as client:
         resp = client.post(url, headers=headers, json=payload)
-    if resp.status_code == 429 or resp.status_code >= 500:
-        raise httpx.HTTPError(f"retryable status {resp.status_code}: {resp.text[:200]}")
     resp.raise_for_status()
-    data = resp.json()
-    msg = data.get("choices", [{}])[0].get("message", {}) or {}
-    usage = data.get("usage") or {}
+    try:
+        data = resp.json()
+        if not isinstance(data, dict):
+            raise ValueError("response must be an object")
+        choices = data.get("choices")
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            raise ValueError("response choices missing")
+        msg = choices[0].get("message")
+        if not isinstance(msg, dict):
+            raise ValueError("response message missing")
+        content = msg.get("content")
+        if content is not None and not isinstance(content, str):
+            raise ValueError("response content must be text")
+        calls = msg.get("tool_calls") or []
+        if not isinstance(calls, list) or any(
+            not isinstance(call, dict)
+            or not isinstance(call.get("id"), str) or not call["id"]
+            or not isinstance(call.get("function"), dict)
+            or not isinstance(call["function"].get("name"), str) or not call["function"]["name"]
+            or not isinstance(call["function"].get("arguments"), str)
+            for call in calls
+        ):
+            raise ValueError("invalid response tool calls")
+        if not json_mode and not (content or "").strip() and not calls:
+            raise ValueError("empty response content")
+        usage = data.get("usage") or {}
+        if not isinstance(usage, dict):
+            raise ValueError("response usage must be an object")
+        prompt_tokens = int(usage.get("prompt_tokens") or 0)
+        completion_tokens = int(usage.get("completion_tokens") or 0)
+    except (ValueError, TypeError) as exc:
+        raise LLMError("invalid model response", status_code=502) from exc
     in_text = " ".join(str(m.get("content") or "") for m in messages)
-    pt = int(usage.get("prompt_tokens") or 0) or _estimate_tokens(in_text)
-    ct = int(usage.get("completion_tokens") or 0) or _estimate_tokens(str(msg.get("content") or ""))
+    pt = prompt_tokens or _estimate_tokens(in_text)
+    ct = completion_tokens or _estimate_tokens(str(msg.get("content") or ""))
     budget.record(pt, ct)
     return msg
 
@@ -261,7 +308,10 @@ def chat(
         lambda p: _post_messages(p, messages, temperature=temperature, json_mode=json_mode),
         model=model, api_key=api_key, base_url=base_url,
     )
-    return str(msg.get("content") or "")
+    content = str(msg.get("content") or "")
+    if not content.strip():
+        raise LLMError("empty model response", status_code=502)
+    return content
 
 
 def chat_json(
@@ -286,9 +336,15 @@ def chat_json(
         model=model, api_key=api_key, base_url=base_url,
     )
     content = str(msg.get("content") or "")
+    def parse_object(value: str) -> dict:
+        data = json.loads(value)
+        if not isinstance(data, dict):
+            raise ValueError("model JSON must be an object")
+        return data
+
     try:
-        return json.loads(content)
-    except Exception:
+        return parse_object(content)
+    except ValueError:
         retry_messages = messages + [
             {"role": "assistant", "content": content},
             {"role": "user", "content": "[SYSTEM] 上次返回不是合法 JSON，请只输出 JSON，不要 markdown 代码块。"},
@@ -298,9 +354,9 @@ def chat_json(
             model=model, api_key=api_key, base_url=base_url,
         )
         try:
-            return json.loads(str(msg2.get("content") or ""))
-        except Exception as exc:
-            raise LLMError(f"model did not return valid JSON: {exc}") from exc
+            return parse_object(str(msg2.get("content") or ""))
+        except ValueError as exc:
+            raise LLMError("model did not return a valid JSON object", status_code=502) from exc
 
 
 def chat_with_tools(
@@ -322,8 +378,8 @@ def chat_with_tools(
     → 直到不再调用工具（或达到 max_rounds / flow_deadline）。
 
     双层墙钟：整流程 flow_deadline（默认 150s）封顶，每轮再受单链墙钟约束。
-    超时时**尽量返回已产出的最好内容**（降级），不空手而归——演示场景下
-    "给出一版有瑕疵的稿子"远好于"报错什么都没有"。
+    流程预算或轮次耗尽时保留草稿并标记 deadline_hit，由调用方拒绝交付；
+    模型调用本身失败则传播 LLMError，保留限流、服务不可用或超时分类。
 
     返回 {content, rounds, tool_calls, final_tool_result, deadline_hit}。
     """
@@ -361,8 +417,8 @@ def chat_with_tools(
                 deadline=per_round_budget,
             )
         except LLMError as exc:
-            events.emit_error("llm_tool_round", exc, round=round_no)
-            break
+            events.emit("llm_tool_round_failed", status_code=exc.status_code, round=round_no)
+            raise
         content = str(msg.get("content") or "")
         if content.strip():
             last_content = content
@@ -396,7 +452,7 @@ def chat_with_tools(
                 "content": json.dumps(result, ensure_ascii=False)[:4000],
             })
 
-    # 收尾：要么正常走到这里（模型一直在调工具），要么被墙钟/异常打断
+    # 收尾：模型持续调用工具，或流程预算已不足；调用失败已向上传播。
     remaining = flow_budget - (_time.monotonic() - flow_started)
     if last_content.strip() and remaining > 5:
         # 还有时间：最后一轮不给工具，逼它基于已有信息收尾
@@ -408,7 +464,8 @@ def chat_with_tools(
             )
             last_content = str(final.get("content") or "") or last_content
         except LLMError as exc:
-            events.emit_error("llm_tool_final", exc)
+            events.emit("llm_tool_final_failed", status_code=exc.status_code)
+            raise
     elif last_content.strip():
         events.emit("llm_flow_degraded", rounds=max_rounds,
                     note="超时，返回已产出的最好内容而非报错")

@@ -26,9 +26,9 @@ export function confirmedProfile(profile: ResumeProfile): ResumeProfile {
   const issues = factIssues(profile)
   if (issues.length) throw new Error(issues.join(' '))
   const clean = (items: string[]) => items.map((item) => item.trim()).filter(Boolean)
-  return { ...profile, user_confirmed: true, skills: clean(profile.skills), education: clean(profile.education),
+  return { ...profile, user_confirmed: true, skills: clean(profile.skills), education: [],
     experiences: profile.experiences.map((experience) => ({ ...experience, name: experience.name.trim(), role: experience.role.trim(), period: experience.period.trim(),
-      actions: clean(experience.actions), results: clean(experience.results), skills: clean(experience.skills) })) }
+      actions: experience.kind==='education'?[]:clean(experience.actions), results: experience.kind==='education'?[]:clean(experience.results), skills: experience.kind==='education'?[]:clean(experience.skills) })) }
 }
 
 export function fileError(file: Pick<File, 'name' | 'size'>): string {

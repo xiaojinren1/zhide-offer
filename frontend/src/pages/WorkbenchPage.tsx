@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, apiErrorMessage } from '../lib/api'
+import ImportReview from './library/ImportReview'
+import './library/library.css'
+import { api } from '../lib/api'
 import type { Experience, ResumeProfile } from '../lib/types'
 import { UiIcon } from '../components/Brand'
 import ResumePreview from './workbench/ResumePreview'
@@ -9,6 +11,7 @@ import { tailoringReport } from '../lib/tailoring'
 import type { TailoringReport } from '../lib/tailoring'
 import './workbench/workbench.css'
 interface Props {
+  userId?: string
   sourceText: string; setSourceText: (text: string) => void
   sourceName: string; setSourceName: (name: string) => void
   profile: ResumeProfile | null; onProfileChange: (profile: ResumeProfile | null) => void
@@ -18,7 +21,7 @@ interface Props {
 }
 const SAMPLE = '陈同学\n某大学，本科，2022.09—2026.06\n求职方向：产品经理\n项目：校园活动报名流程优化，2025.03—2025.06\n角色：项目成员\n负责收集同学的报名反馈，整理重复填报、信息分散等问题，绘制报名流程原型，并与开发同学沟通需求。\n产出：需求文档与流程原型，协助完成反馈整理。\n技能：需求分析、原型设计、用户反馈整理、跨团队协作。'
 const SAMPLE_JD = '产品经理（示例岗位）\n工作职责：收集用户需求，分析业务流程，完成产品原型与需求文档，与研发团队沟通并推动方案落地。\n岗位要求：具备需求分析、原型设计和沟通协作能力，有校园项目或实习经历。'
-export default function WorkbenchPage({ sourceText, setSourceText, sourceName, setSourceName, profile, onProfileChange, jdText, onJdChange, markdown, onMarkdownChange, jdKeywords, busy, onBusyChange, onInterview }: Props) {
+export default function WorkbenchPage({ userId, sourceText, setSourceText, sourceName, setSourceName, profile, onProfileChange, jdText, onJdChange, markdown, onMarkdownChange, jdKeywords, busy, onBusyChange, onInterview }: Props) {
   const [activity, setActivity] = useState('')
   const [error, setError] = useState('')
   const [generationCheck, setGenerationCheck] = useState<{ snapshot: string; review: GenerationReview; numbers: string[]; tailoring: TailoringReport | null } | null>(null)
@@ -26,15 +29,6 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
   const [retryAction, setRetryAction] = useState<'parse' | 'generate' | null>(null)
   const [waiting, setWaiting] = useState(false)
   const [activeStep, setActiveStep] = useState(1)
-  const [memoryBusy, setMemoryBusy] = useState(false)
-  const [memoryMessage, setMemoryMessage] = useState<{ version: number; text: string } | null>(null)
-  const memoryLock = useRef(false)
-  const memorySnapshot = JSON.stringify([profile, sourceName])
-  const memoryVersion = useRef({ snapshot: memorySnapshot, version: 0 })
-  if (memoryVersion.current.snapshot !== memorySnapshot) {
-    memoryVersion.current = { snapshot: memorySnapshot, version: memoryVersion.current.version + 1 }
-  }
-  const visibleMemoryMessage = memoryMessage?.version === memoryVersion.current.version ? memoryMessage.text : ''
   const [manuallyEdited, setManuallyEdited] = useState(false)
   const requestLock = useRef(false)
   const lastFile = useRef<File | undefined>(undefined)
@@ -62,7 +56,7 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
     || tailoring.requirements.some((item) => item.status === 'supported' && !item.output_excerpt)
   const resetOutput = () => { setGenerationCheck(null); setError(''); setRetryAction(null); setManuallyEdited(false) }
   const invalidateDraft = () => { onMarkdownChange(''); resetOutput() }
-  const editProfile = (value: ResumeProfile) => { onProfileChange(changedFacts(value)); invalidateDraft() }
+  const editProfile = (value: ResumeProfile) => { onProfileChange(changedFacts({...value,experiences:value.experiences.map(e=>e.kind==='education'?{...e,actions:[],results:[],skills:[]}:e)})); invalidateDraft() }
   const editJd = (text: string) => {
     onJdChange(text)
     if (profile) onProfileChange(changedFacts(profile))
@@ -81,23 +75,6 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
     try {
       onProfileChange(checked ? confirmedProfile(profile) : changedFacts(profile)); invalidateDraft()
     } catch (reason) { setError(operationError(reason)) }
-  }
-  const saveMemory = async () => {
-    if (busy || requestLock.current || memoryLock.current || !profile || !profile.user_confirmed || issues.length > 0) return
-    memoryLock.current = true
-    const version = memoryVersion.current.version
-    const isCurrent = () => mounted.current && memoryVersion.current.version === version
-    setMemoryBusy(true); setMemoryMessage(null)
-    try {
-      const result = await api.saveProfile(profile.name || sourceName || '未命名经历库', { ...profile, user_confirmed: true })
-      if (!result.ok) throw new Error(result.error || '保存经历库失败，请重试。')
-      if (isCurrent()) setMemoryMessage({ version, text: '经历已保存到个人记忆，可从左侧“个人记忆”查看。' })
-    } catch (cause) {
-      if (isCurrent()) setMemoryMessage({ version, text: apiErrorMessage(cause) })
-    } finally {
-      memoryLock.current = false
-      if (mounted.current) setMemoryBusy(false)
-    }
   }
   const editExperience = (index: number, patch: Partial<Experience>) => {
     if (profile) editProfile({ ...profile, experiences: profile.experiences.map((item, i) => i === index ? { ...item, ...patch } : item) })
@@ -181,21 +158,22 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
           <label className="field-label" htmlFor="person-name">姓名</label><input id="person-name" value={profile.name} onChange={(e) => editProfile({ ...profile, name: e.target.value })} placeholder="填写姓名" />
           {profile.experiences.map((exp, index) => <details className="experience-card" key={index} open><summary><span><span className="experience-number">{String(index + 1).padStart(2, '0')}</span>{exp.name || '待补充的经历'}</span><span>⌄</span></summary><div className="experience-fields">
             <div className="two-fields"><label>经历名称<input aria-label={`经历${index + 1}名称`} value={exp.name} onChange={(e) => editExperience(index, { name: e.target.value })} /></label><label>类型<select aria-label={`经历${index + 1}类型`} value={exp.kind} onChange={(e) => editExperience(index, { kind: e.target.value })}><option value="project">项目</option><option value="internship">工作 / 实习</option><option value="education">教育</option>{!['project', 'internship', 'education'].includes(exp.kind) && <option value={exp.kind}>{exp.kind}</option>}</select></label></div>
-            {exp.kind === 'education' && <p className="wb-hint">教育经历不强制填写行动或成果；只保留真实信息，无需为了确认补写内容。</p>}
-            <div className="two-fields"><label>角色<input aria-label={`经历${index + 1}角色`} value={exp.role} onChange={(e) => editExperience(index, { role: e.target.value })} /></label><label>时间<input aria-label={`经历${index + 1}时间`} value={exp.period} onChange={(e) => editExperience(index, { period: e.target.value })} placeholder="如 2025.03—2025.06" /></label></div>
-            <label>我做了什么 · 每行一条<textarea aria-label={`经历${index + 1}行动`} rows={3} value={exp.actions.join('\n')} onChange={(e) => editExperience(index, { actions: e.target.value.split('\n') })} /></label>
+            {exp.kind === 'education' && <p className="wb-hint">教育仅记录学校、专业学历和起止时间，不添加描述。</p>}
+            <div className="two-fields"><label>{exp.kind === 'education' ? '专业 / 学历' : '角色'}<input aria-label={`经历${index + 1}角色`} value={exp.role} onChange={(e) => editExperience(index, { role: e.target.value })} /></label><label>时间<input aria-label={`经历${index + 1}时间`} value={exp.period} onChange={(e) => editExperience(index, { period: e.target.value })} placeholder="如 2025.03—2025.06" /></label></div>
+            {exp.kind !== 'education' && <><label>我做了什么 · 每行一条<textarea aria-label={`经历${index + 1}行动`} rows={3} value={exp.actions.join('\n')} onChange={(e) => editExperience(index, { actions: e.target.value.split('\n') })} /></label>
             <label>真实成果 · 每行一条<textarea aria-label={`经历${index + 1}成果`} rows={2} value={exp.results.join('\n')} onChange={(e) => editExperience(index, { results: e.target.value.split('\n') })} placeholder="没有依据的数字，不必填写" /></label>
-            <label>涉及技能 · 每行一项<textarea aria-label={`经历${index + 1}技能`} rows={2} value={exp.skills.join('\n')} onChange={(e) => editExperience(index, { skills: e.target.value.split('\n') })} /></label>
+            <label>涉及技能 · 每行一项<textarea aria-label={`经历${index + 1}技能`} rows={2} value={exp.skills.join('\n')} onChange={(e) => editExperience(index, { skills: e.target.value.split('\n') })} /></label></>}
             <button className="text-button danger" onClick={() => editProfile({ ...profile, experiences: profile.experiences.filter((_item, i) => i !== index) })}>移除这段经历</button>
           </div></details>)}
           <button className="secondary-button full" onClick={() => editProfile({ ...profile, experiences: [...profile.experiences, emptyExperience()] })}><UiIcon name="plus" />补充一段经历</button>
           <label className="field-label" htmlFor="all-skills">技能清单 · 每行一项</label><textarea id="all-skills" rows={2} value={profile.skills.join('\n')} onChange={(e) => editProfile({ ...profile, skills: e.target.value.split('\n') })} />
-          <label className="field-label" htmlFor="education">教育背景 · 每行一条</label><textarea id="education" rows={2} value={profile.education.join('\n')} onChange={(e) => editProfile({ ...profile, education: e.target.value.split('\n') })} />
+          {!!profile.education.length && <p className="warning-note">旧教育文本：{profile.education.join('；')}。请在教育卡中核对学校、专业学历和时间；此文本仅作来源参考。</p>}
           <details className="source-details"><summary>查看与修正原始材料</summary><textarea aria-label="原始材料" rows={5} value={sourceText} onChange={(e) => { setSourceText(e.target.value); setSourceName(''); lastFile.current = undefined; editProfile({ ...profile, raw_text: e.target.value }) }} /><p className="wb-hint">修改会同步材料区、撤销确认并清空旧稿，但不会自动改写上述事实。请人工核对，或回到第 1 步重新整理。</p></details>
           {issues.length > 0 && <div id="wb-fact-issues" className="warning-note" role="status"><strong>确认前请补充</strong><ul>{issues.map((issue) => <li key={issue}>{issue}</li>)}</ul></div>}
-          <label className="confirmation-check"><input type="checkbox" aria-describedby={issues.length ? 'wb-fact-issues' : undefined} disabled={issues.length > 0 && !profile.user_confirmed} checked={!!profile.user_confirmed && !issues.length} onChange={(e) => { confirmFacts(e.target.checked); setMemoryMessage(null) }} /><span>我已核对以上内容，确认可用于本次简历生成。</span></label>
-          {profile.user_confirmed && !issues.length && <div className="memory-save-row"><button type="button" className="secondary-button" disabled={busy || memoryBusy} onClick={() => void saveMemory()}>{memoryBusy ? '保存中…' : '保存到个人记忆'}</button>{visibleMemoryMessage && <span className="field-hint" role="status">{visibleMemoryMessage}</span>}</div>}
+          <label className="confirmation-check"><input type="checkbox" aria-describedby={issues.length ? 'wb-fact-issues' : undefined} disabled={issues.length > 0 && !profile.user_confirmed} checked={!!profile.user_confirmed && !issues.length} onChange={(e) => { confirmFacts(e.target.checked) }} /><span>我已核对以上内容，确认可用于本次简历生成。</span></label>
+
         </fieldset>}
+        {profile && userId && <ImportReview key={JSON.stringify([userId,profile,sourceName])} material={{expected_user_id:userId,profile,source_name:sourceName||'工作台材料'}} disabled={busy||!profile.user_confirmed||issues.length>0}/> }
         <div className="fact-note"><UiIcon name="shield" /><span>没有依据的经历与成果数字，不写入简历。修改事实或岗位 JD 后，需要重新确认。</span></div>{stepActions(2)}
       </section>
       <section id="wb-step-3" hidden={activeStep !== 3} aria-hidden={activeStep !== 3} tabIndex={-1} className="panel wb-jd-panel"><div className="panel-heading"><div><span className="section-kicker">03 / TARGET ROLE</span><h2>目标岗位 JD</h2></div><span className={`tag ${jdText.trim() ? 'green' : 'amber'}`}>{jdText.trim() ? '已填写' : '待填写'}</span></div><fieldset disabled={busy}><label className="field-label" htmlFor="jd-text">岗位职责与任职要求 <span>不限岗位</span></label><textarea id="jd-text" className="jd-text" value={jdText} onChange={(e) => editJd(e.target.value)} placeholder="粘贴完整岗位职责和任职要求，让每次生成都针对具体岗位。" /><p className="wb-hint">可提前填写。修改 JD 会撤销确认并清空旧简历，请回到第 2 步重新确认。</p></fieldset>{stepActions(3)}</section>

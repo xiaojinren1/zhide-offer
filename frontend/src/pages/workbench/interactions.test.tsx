@@ -23,6 +23,7 @@ vi.mock('../../lib/api', async (importOriginal) => ({ ...await importOriginal<ty
 import { api } from '../../lib/api'
 import WorkbenchPage from '../WorkbenchPage'
 import DiagnosePage from '../DiagnosePage'
+import ImportReview from '../library/ImportReview'
 
 const fixture = (): ResumeProfile => ({ name: '虚构同学', experiences: [{ kind: 'project', name: '校园项目', role: '成员', period: '', actions: ['整理反馈'], results: ['输出文档'], skills: [] }], skills: [], education: [], user_confirmed: true })
 let props: Parameters<typeof WorkbenchPage>[0]
@@ -117,7 +118,7 @@ describe('工作台真实事件回调（Mock API）', () => {
   it('保留解析出的教育卡，无需补写成果即可确认和生成', async () => {
     props.profile = { ...fixture(), user_confirmed: false, experiences: [{ kind: 'education', name: '虚构大学', role: '本科', period: '2022—2026', actions: [], results: [], skills: [] }, ...fixture().experiences] }
     expect(input(render(), 'type', 'checkbox').props.disabled).toBe(false)
-    expect(text(render())).toContain('教育经历不强制填写行动或成果')
+    expect(text(render())).toContain('教育仅记录学校、专业学历和起止时间')
     input(render(), 'type', 'checkbox').props.onChange({ target: { checked: true } })
     button(render(), '根据已确认事实生成简历').props.onClick(); await settle()
     expect(api.generateResume).toHaveBeenCalledWith(props.jdText, expect.objectContaining({ experiences: expect.arrayContaining([expect.objectContaining({ kind: 'education', actions: [], results: [] })]) }), [])
@@ -263,61 +264,28 @@ describe('工作台真实事件回调（Mock API）', () => {
     generate.props.onClick()
     expect(api.generateResume).not.toHaveBeenCalled()
   })
-  it('确认事实后可以保存到个人记忆', async () => {
-    button(render(), '保存到个人记忆').props.onClick()
-    await settle()
-    expect(api.saveProfile).toHaveBeenCalledWith('虚构同学', expect.objectContaining({ user_confirmed: true }))
-    expect(text(render())).toContain('经历已保存到个人记忆')
+  it('解析后接入查重预览，事实未确认时禁止导入', () => {
+    props.userId='test-account'; props.profile={...fixture(),user_confirmed:false}
+    const review=nodes(render()).find(n=>n.type===ImportReview)
+    expect(review.props.material.expected_user_id).toBe('test-account')
+    expect(review.props.disabled).toBe(true)
+    expect(api.saveProfile).not.toHaveBeenCalled()
   })
-  it.each(['success', 'failure'])('修改事实并重新确认后忽略旧保存的 %s 响应，再保存可恢复', async (result) => {
-    let finish!: (value: any) => void
-    let fail!: (reason: Error) => void
-    vi.mocked(api.saveProfile).mockImplementationOnce(() => new Promise((resolve, reject) => { finish = resolve; fail = reject }))
-    const save = button(render(), '保存到个人记忆')
-    save.props.onClick(); save.props.onClick()
-    expect(api.saveProfile).toHaveBeenCalledTimes(1)
-    expect(button(render(), '保存中').props.disabled).toBe(true)
-    input(render(), 'aria-label', '经历1成果').props.onChange({ target: { value: '新的真实成果' } })
-    input(render(), 'type', 'checkbox').props.onChange({ target: { checked: true } })
-    render()
-    if (result === 'success') finish({ ok: true })
-    else fail(new Error('旧版本保存失败'))
-    await settle()
-    expect(text(render())).not.toContain('经历已保存到个人记忆')
-    expect(text(render())).not.toContain('旧版本保存失败')
-    expect(button(render(), '保存到个人记忆').props.disabled).toBe(false)
-    button(render(), '保存到个人记忆').props.onClick(); await settle()
-    expect(api.saveProfile).toHaveBeenLastCalledWith('虚构同学', expect.objectContaining({ experiences: [expect.objectContaining({ results: ['新的真实成果'] })] }))
-    expect(text(render())).toContain('经历已保存到个人记忆')
+  it('确认后使用当前材料的独立查重预览，修改材料更换预览', () => {
+    props.userId='test-account'
+    const first=nodes(render()).find(n=>n.type===ImportReview)
+    expect(first.props.disabled).toBe(false)
+    input(render(),'aria-label','经历1成果').props.onChange({target:{value:'新的成果'}})
+    const second=nodes(render()).find(n=>n.type===ImportReview)
+    expect(second.key).not.toBe(first.key)
+    expect(second.props.disabled).toBe(true)
+    expect(second.props.material.profile.experiences[0].results).toEqual(['新的成果'])
   })
-  it('保存成功后外部恢复其他事实立即隐藏旧成功提示，恢复原事实也不复用', async () => {
-    button(render(), '保存到个人记忆').props.onClick(); await settle()
-    expect(text(render())).toContain('经历已保存到个人记忆')
-    const original = props.profile
-    props.profile = { ...fixture(), name: '恢复版本' }
-    expect(text(render())).not.toContain('经历已保存到个人记忆')
-    props.profile = original
-    expect(text(render())).not.toContain('经历已保存到个人记忆')
-  })
-  it('保存失败显示当前错误并解锁，显式重试成功', async () => {
-    vi.mocked(api.saveProfile).mockRejectedValueOnce(new Error('保存失败，请重试'))
-    button(render(), '保存到个人记忆').props.onClick(); await settle()
-    expect(text(render())).toContain('保存失败，请重试')
-    expect(button(render(), '保存到个人记忆').props.disabled).toBe(false)
-    button(render(), '保存到个人记忆').props.onClick(); await settle()
-    expect(text(render())).toContain('经历已保存到个人记忆')
-    expect(text(render())).not.toContain('保存失败，请重试')
-  })
-  it('请求中切换事实后又恢复原内容，也不能显示旧保存提示', async () => {
-    let finish!: (value: any) => void
-    vi.mocked(api.saveProfile).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
-    button(render(), '保存到个人记忆').props.onClick()
-    const original = props.profile
-    props.profile = { ...fixture(), name: '其他版本' }; render()
-    props.profile = original; render()
-    finish({ ok: true }); await settle()
-    expect(text(render())).not.toContain('经历已保存到个人记忆')
-    expect(button(render(), '保存到个人记忆').props.disabled).toBe(false)
+  it('教育卡不显示行动、成果或技能描述输入', () => {
+    props.profile={...fixture(),experiences:[{kind:'education',name:'学校',role:'本科',period:'2022—2026',actions:[],results:[],skills:[]}]}
+    expect(input(render(),'aria-label','经历1行动')).toBeUndefined()
+    expect(input(render(),'aria-label','经历1成果')).toBeUndefined()
+    expect(input(render(),'aria-label','经历1技能')).toBeUndefined()
   })
   it.each(['jd', 'fact', 'source'])('修改 %s 会清空旧稿并撤销确认', (kind) => {
     props.markdown = '# 旧稿'

@@ -17,6 +17,8 @@ from engine.resume_parser import profile_from_dict
 from engine.suspicion import run_all
 
 router = APIRouter(prefix="/api/interview", tags=["interview"])
+from api.interview_v2 import router as continuous_router
+router.include_router(continuous_router)
 QUESTION_CATEGORIES = ("timeline", "skill_authenticity", "project_match")
 
 

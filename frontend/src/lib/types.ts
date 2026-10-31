@@ -61,3 +61,41 @@ export interface QualityReport {
   suspicions: Suspicion[]
   passed: boolean
 }
+
+export type InterviewCategory = 'timeline' | 'skill_authenticity' | 'project_match'
+
+export interface InterviewQuestion {
+  id: string
+  index: number
+  category: InterviewCategory
+  question: string
+  evidence: string
+  focus: string
+  trap: string
+  source_suspicion: string
+  answer_key: string
+}
+
+export interface InterviewDimensions {
+  evidence: number
+  job_match: number
+  clarity: number
+  structure: number
+}
+
+export interface InterviewScore {
+  question_id: string
+  score: number
+  dimensions: InterviewDimensions
+  evidence: {
+    matched_resume_tokens: string[]
+    matched_jd_tokens: string[]
+    structure_markers: string[]
+    question_basis: string
+  }
+  summary: string
+  issues: string[]
+  improvement: string
+  recommended_structure: string
+  scored_by: string
+}

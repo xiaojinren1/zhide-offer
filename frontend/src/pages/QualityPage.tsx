@@ -8,6 +8,8 @@ interface Props {
   profile: ResumeProfile | null
   markdown: string
   onMarkdownChange: (text: string) => void
+  onEditResume?: () => void
+  onNext?: () => void
 }
 
 const SEV: Record<string, string> = {
@@ -31,7 +33,7 @@ function Bar({ label, value }: { label: string; value: number }) {
   )
 }
 
-export default function QualityPage({ jdText, jdKeywords, profile, markdown, onMarkdownChange }: Props) {
+export default function QualityPage({ jdText, jdKeywords, profile, markdown, onMarkdownChange, onEditResume, onNext }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [report, setReport] = useState<QualityReport | null>(null)
@@ -64,6 +66,7 @@ export default function QualityPage({ jdText, jdKeywords, profile, markdown, onM
       const result = await api.reviseResume(jdText, profile, markdown, chosen)
       if (!result.ok || !result.markdown?.trim()) throw new Error(result.error || '未生成新的简历')
       onMarkdownChange(result.markdown)
+      setReport(null)
       setApplyMessage(`已应用 ${chosen.length} 条建议，请重新运行质检确认结果。`)
       setSelected([])
     } catch (reason) { setError(apiErrorMessage(reason)) } finally { setApplying(false) }
@@ -88,10 +91,11 @@ export default function QualityPage({ jdText, jdKeywords, profile, markdown, onM
         <p className="text-sm text-gray-500 mt-1">全部指标由程序判定——AI 生成完，立刻自己给自己打分。</p>
       </header>
 
-      <button onClick={run} disabled={busy || !profile}
+      <button onClick={run} disabled={busy || !profile || !markdown.trim()}
         className="px-5 py-2 bg-teal-600 text-white rounded-lg disabled:bg-gray-300">
         {busy ? '质检中…' : '运行质检'}
       </button>
+      {!markdown.trim() && <p className="wb-hint">请先回到简历工作台生成简历，再运行检查。</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       {report && (
@@ -132,6 +136,10 @@ export default function QualityPage({ jdText, jdKeywords, profile, markdown, onM
               <ul className="mt-2 space-y-2">{report.suspicions.map(s)}</ul>
             </div>
           )}
+          <div className="step-actions" aria-label="简历检查完成后的操作">
+            <button type="button" className="secondary-button" onClick={onEditResume}>返回修改简历</button>
+            <button type="button" className="primary-button" disabled={!markdown.trim() || !report.passed} onClick={onNext}>{report.passed ? '开始模拟面试' : '处理完问题后开始模拟面试'}</button>
+          </div>
         </div>
       )}
     </div>

@@ -15,12 +15,11 @@ import { useWorkspace } from './lib/useWorkspace'
 import type { WorkspacePage } from './lib/workspace'
 
 type Page = WorkspacePage | 'account'
-const NAV: Array<{ id: Page; name: string; icon: string }> = [
-  { id: 'workbench', name: '简历工作台', icon: 'edit' },
+const FLOW: Array<{ id: Page; name: string; icon: string }> = [
+  { id: 'workbench', name: '材料整理与修改简历', icon: 'edit' },
   { id: 'diagnose', name: '岗位匹配', icon: 'search' },
   { id: 'quality', name: '简历检查', icon: 'shield' },
   { id: 'interview', name: '模拟面试', icon: 'chat' },
-  { id: 'memory', name: '个人记忆', icon: 'folder' },
 ]
 export default function App() {
   const [user, setUser] = useState<AccountUser | null>(null)
@@ -95,8 +94,14 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
   const { state, update } = persistence
   const { profile, jd_text: jdText, jd_keywords: jdKeywords, markdown, source_text: sourceText, source_name: sourceName } = state
   const [pageOverride, setPageOverride] = useState<'account' | null>(null)
-  const page: Page = pageOverride || state.page
+  const canOpen = (value: Page) => value === 'account' || value === 'memory' || value === 'workbench'
+    || (value === 'diagnose' && Boolean(profile && jdText.trim() && markdown.trim()))
+    || (value === 'quality' && Boolean(profile && jdText.trim() && markdown.trim()))
+    || (value === 'interview' && Boolean(markdown.trim()))
+  const requestedPage: Page = pageOverride || state.page
+  const page: Page = canOpen(requestedPage) ? requestedPage : 'workbench'
   const setPage = (value: Page) => {
+    if (!canOpen(value)) return
     setPageOverride(value === 'account' ? 'account' : null)
     if (value !== 'account') update((previous) => ({ ...previous, page: value }))
   }
@@ -121,14 +126,14 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
   }
   return <div className="app-shell">
     <header className="topbar"><a className="brand" href="#" onClick={(e) => { e.preventDefault(); if (!busy) setPage('workbench') }}><OwlLogo /><span>职得<span className="brand-offer">offer</span></span></a><div className="topbar-right"><button className="account-entry" type="button" disabled={busy || loggingOut} onClick={() => setPage('account')} aria-label="打开个人中心"><span className="avatar small topbar-avatar">{user.avatar_url ? <img src={`/api/auth/avatar?v=${encodeURIComponent(user.avatar_url)}`} alt="" /> : user.username[0].toUpperCase()}</span><span className="account-name" title={user.username}>{user.username}</span><UiIcon name="chevron" /></button><button className="secondary-button account-logout" disabled={busy || loggingOut} onClick={logout}>{loggingOut ? '退出中…' : '退出登录'}</button></div></header>
-    <aside className="sidebar"><div className="sidebar-caption">我的求职空间</div><nav aria-label="主导航">{NAV.map((item) => <button key={item.id} disabled={busy || loggingOut || !persistence.loaded} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => setPage(item.id)}><UiIcon name={item.icon} /><span>{item.name}</span>{page === item.id && <span className="nav-dot" />}</button>)}</nav><div className="sidebar-bottom"><div className="sidebar-tip"><UiIcon name="shield" /><strong>先确认，再生成</strong><p>每一份简历，都从你真实的经历出发。</p></div></div></aside>
+    <aside className="sidebar"><div className="sidebar-caption">我的求职流程</div><nav aria-label="求职流程">{FLOW.map((item, index) => { const allowed = canOpen(item.id); return <button key={item.id} disabled={busy || loggingOut || !persistence.loaded || !allowed} aria-disabled={!allowed} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => setPage(item.id)}><span className="flow-index">{index + 1}</span><UiIcon name={item.icon} /><span>{item.name}</span>{page === item.id && <span className="nav-dot" />}</button> })}</nav><div className="sidebar-secondary"><button className={`nav-item ${page === 'memory' ? 'active' : ''}`} disabled={busy || loggingOut || !persistence.loaded} onClick={() => setPage('memory')}><UiIcon name="folder" /><span>个人经历库</span></button></div><div className="sidebar-bottom"><div className="sidebar-tip"><UiIcon name="shield" /><strong>按步骤完成</strong><p>诊断和检查后，都可以回到修改简历。</p></div></div></aside>
     <main className="workspace"><div className="page-heading"><div><span className="eyebrow">{page === 'account' ? 'ACCOUNT SETTINGS' : 'YOUR NEXT CHAPTER'}</span><h1>{page === 'account' ? '个人中心' : '把真实经历，变成岗位竞争力'}</h1><p>{page === 'account' ? '管理头像与登录密码。' : '整理经历，确认事实，为每个心仪岗位做好准备。'}</p></div>{page !== 'account' && <span className="heading-badge"><UiIcon name="spark" />懂你经历的求职 Agent</span>}</div>
       {logoutError && <p className="auth-error account-error" role="alert">退出未成功：{logoutError}</p>}
       <div className="notice" role={persistence.error ? 'alert' : 'status'}><span>{retentionLabel}{persistence.error && `：${persistence.error}`}</span>{persistence.savedAt && persistence.phase === 'saved' && <span className="muted"> · {new Date(persistence.savedAt).toLocaleTimeString('zh-CN')}</span>}{persistence.phase === 'load-error' && <button className="secondary-button" onClick={() => void persistence.load()}>重试恢复</button>}{persistence.phase === 'save-error' && <button className="secondary-button" disabled={loggingOut} onClick={() => void persistence.retrySave().catch(() => undefined)}>重试保存</button>}{persistence.phase === 'conflict' && <button className="secondary-button" onClick={() => void persistence.load()}>放弃本页编辑并加载服务器版本</button>}</div>
       <div inert={!persistence.loaded || loggingOut}>
-      {page === 'workbench' && <WorkbenchPage userId={user.id} sourceText={sourceText} setSourceText={setSourceText} sourceName={sourceName} setSourceName={setSourceName} profile={profile} onProfileChange={updateProfile} jdText={jdText} onJdChange={updateJd} markdown={markdown} onMarkdownChange={setMarkdown} jdKeywords={jdKeywords} busy={busy || loggingOut || !persistence.loaded} onBusyChange={setBusy} onInterview={() => setPage('interview')} />}
-      {page === 'diagnose' && <div className="legacy-panel"><DiagnosePage jdText={jdText} setJdText={updateJd} profile={profile} onDone={(_text, keywords) => setJdKeywords(keywords)} /></div>}
-      {page === 'quality' && <div className="legacy-panel"><QualityPage jdText={jdText} jdKeywords={jdKeywords} profile={profile} markdown={markdown} onMarkdownChange={setMarkdown} /></div>}
+      {page === 'workbench' && <WorkbenchPage userId={user.id} sourceText={sourceText} setSourceText={setSourceText} sourceName={sourceName} setSourceName={setSourceName} profile={profile} onProfileChange={updateProfile} jdText={jdText} onJdChange={updateJd} markdown={markdown} onMarkdownChange={setMarkdown} jdKeywords={jdKeywords} busy={busy || loggingOut || !persistence.loaded} onBusyChange={setBusy} onDiagnose={() => setPage('diagnose')} />}
+      {page === 'diagnose' && <div className="legacy-panel"><DiagnosePage jdText={jdText} setJdText={updateJd} profile={profile} onDone={(_text, keywords) => setJdKeywords(keywords)} onEditResume={() => setPage('workbench')} onNext={() => setPage('quality')} /></div>}
+      {page === 'quality' && <div className="legacy-panel"><QualityPage jdText={jdText} jdKeywords={jdKeywords} profile={profile} markdown={markdown} onMarkdownChange={setMarkdown} onEditResume={() => setPage('workbench')} onNext={() => setPage('interview')} /></div>}
       {page === 'interview' && <div className="legacy-panel"><InterviewPage userId={user.id} jdText={jdText} profile={profile} markdown={markdown} /></div>}
       {page === 'memory' && <LibraryPage key={user.id} currentProfile={profile} hasUnsaved={persistence.hasUnsaved()} userId={user.id} markdown={markdown} resumeName={sourceName || profile?.name || '职得offer'} disabled={busy || loggingOut || !persistence.loaded} onLoad={(loadedProfile, meta) => {
         update((previous) => ({

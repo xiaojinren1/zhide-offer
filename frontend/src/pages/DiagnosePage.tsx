@@ -10,6 +10,8 @@ interface Props {
   setJdText: (s: string) => void
   profile: ResumeProfile | null
   onDone: (jdText: string, keywords: string[]) => void
+  onEditResume?: () => void
+  onNext?: () => void
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -21,7 +23,7 @@ const STATUS_LABEL: Record<string, string> = {
   covered: '已覆盖', partial: '部分覆盖', missing: '缺失',
 }
 
-export default function DiagnosePage({ jdText, setJdText, profile, onDone }: Props) {
+export default function DiagnosePage({ jdText, setJdText, profile, onDone, onEditResume, onNext }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [report, setReport] = useState<ValidatedDiagnosis | null>(null)
@@ -106,6 +108,10 @@ export default function DiagnosePage({ jdText, setJdText, profile, onDone }: Pro
                 </div>
               </div>
             ))}
+          </div>
+          <div className="step-actions" aria-label="岗位匹配完成后的操作">
+            <button type="button" className="secondary-button" onClick={onEditResume}>根据诊断建议修改简历</button>
+            <button type="button" className="primary-button" disabled={!profile || !jdText.trim()} onClick={onNext}>继续检查简历</button>
           </div>
         </div>
       )}

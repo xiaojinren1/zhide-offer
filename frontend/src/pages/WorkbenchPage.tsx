@@ -17,18 +17,18 @@ interface Props {
   profile: ResumeProfile | null; onProfileChange: (profile: ResumeProfile | null) => void
   jdText: string; onJdChange: (text: string) => void
   markdown: string; onMarkdownChange: (text: string) => void
-  jdKeywords: string[]; busy: boolean; onBusyChange: (busy: boolean) => void; onInterview: () => void
+  jdKeywords: string[]; busy: boolean; onBusyChange: (busy: boolean) => void; onDiagnose?: () => void; onInterview?: () => void
 }
 const SAMPLE = '陈同学\n某大学，本科，2022.09—2026.06\n求职方向：产品经理\n项目：校园活动报名流程优化，2025.03—2025.06\n角色：项目成员\n负责收集同学的报名反馈，整理重复填报、信息分散等问题，绘制报名流程原型，并与开发同学沟通需求。\n产出：需求文档与流程原型，协助完成反馈整理。\n技能：需求分析、原型设计、用户反馈整理、跨团队协作。'
 const SAMPLE_JD = '产品经理（示例岗位）\n工作职责：收集用户需求，分析业务流程，完成产品原型与需求文档，与研发团队沟通并推动方案落地。\n岗位要求：具备需求分析、原型设计和沟通协作能力，有校园项目或实习经历。'
-export default function WorkbenchPage({ userId, sourceText, setSourceText, sourceName, setSourceName, profile, onProfileChange, jdText, onJdChange, markdown, onMarkdownChange, jdKeywords, busy, onBusyChange, onInterview }: Props) {
+export default function WorkbenchPage({ userId, sourceText, setSourceText, sourceName, setSourceName, profile, onProfileChange, jdText, onJdChange, markdown, onMarkdownChange, jdKeywords, busy, onBusyChange, onDiagnose, onInterview }: Props) {
   const [activity, setActivity] = useState('')
   const [error, setError] = useState('')
   const [generationCheck, setGenerationCheck] = useState<{ snapshot: string; review: GenerationReview; numbers: string[]; tailoring: TailoringReport | null } | null>(null)
   const [previewMode, setPreviewMode] = useState<'preview' | 'edit'>('preview')
   const [retryAction, setRetryAction] = useState<'parse' | 'generate' | null>(null)
   const [waiting, setWaiting] = useState(false)
-  const [activeStep, setActiveStep] = useState(1)
+  const [activeStep, setActiveStep] = useState(markdown.trim() ? 4 : 1)
   const [manuallyEdited, setManuallyEdited] = useState(false)
   const requestLock = useRef(false)
   const lastFile = useRef<File | undefined>(undefined)
@@ -208,6 +208,6 @@ export default function WorkbenchPage({ userId, sourceText, setSourceText, sourc
         <div className="export-note">本轮支持 Markdown；Word 和 PDF 可在个人记忆页导出。</div>{stepActions(4)}
       </section>
     </div>
-    <section className="next-step"><span className="next-icon"><UiIcon name="chat" /></span><div><h3>把简历里的经历，练成面试时的表达</h3><p>生成后，继续准备面试问题与回答要点。</p></div><button className="secondary-button" disabled={busy || !markdown.trim()} onClick={onInterview}>前往模拟面试 →</button></section>
+    <section className="next-step"><span className="next-icon"><UiIcon name="search" /></span><div><h3>先让简历匹配目标岗位</h3><p>生成简历后，先完成岗位诊断，再检查问题并进入模拟面试。</p></div><button className="secondary-button" disabled={busy || !markdown.trim() || !jdText.trim()} onClick={onDiagnose || onInterview}>开始岗位匹配诊断 →</button></section>
   </div>
 }

@@ -19,7 +19,7 @@ const NAV: Array<{ id: Page; name: string; icon: string }> = [
   { id: 'workbench', name: '简历工作台', icon: 'edit' },
   { id: 'diagnose', name: '岗位匹配', icon: 'search' },
   { id: 'quality', name: '简历检查', icon: 'shield' },
-  { id: 'interview', name: '面试话术', icon: 'chat' },
+  { id: 'interview', name: '模拟面试', icon: 'chat' },
   { id: 'memory', name: '个人记忆', icon: 'folder' },
 ]
 export default function App() {

@@ -182,6 +182,6 @@ export default function WorkbenchPage({ userId, sourceText, setSourceText, sourc
         <div className="export-note">本轮支持 Markdown；Word 和 PDF 可在个人记忆页导出。</div>{stepActions(4)}
       </section>
     </div>
-    <section className="next-step"><span className="next-icon"><UiIcon name="chat" /></span><div><h3>把简历里的经历，练成面试时的表达</h3><p>生成后，继续准备面试问题与回答要点。</p></div><button className="secondary-button" disabled={busy || !markdown.trim()} onClick={onInterview}>前往面试话术 →</button></section>
+    <section className="next-step"><span className="next-icon"><UiIcon name="chat" /></span><div><h3>把简历里的经历，练成面试时的表达</h3><p>生成后，继续准备面试问题与回答要点。</p></div><button className="secondary-button" disabled={busy || !markdown.trim()} onClick={onInterview}>前往模拟面试 →</button></section>
   </div>
 }

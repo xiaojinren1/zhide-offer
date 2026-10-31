@@ -219,7 +219,7 @@ class ModelApiErrors(unittest.TestCase):
                 model.assert_not_called()
 
     def test_semantic_match_failure_is_not_partial_success(self):
-        jd = ParsedJD(job_title="产品经理", hard_requirements=["需求分析"], keywords=["需求分析"])
+        jd = ParsedJD(job_title="产品经理", hard_requirements=["需求分析"], keywords=["需求分析"], evidence={"需求分析": "需求分析"})
         with patch("api.diagnose.parse_jd", return_value=jd), patch("engine.matcher.chat_json", side_effect=llm.LLMError(SENSITIVE, status_code=429)):
             response = self.client.post("/api/diagnose", json={"jd_text": "产品经理", "resume_profile": self.profile})
         self.assertEqual(response.status_code, 429)

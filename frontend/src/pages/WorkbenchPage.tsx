@@ -5,6 +5,9 @@ import { api } from '../lib/api'
 import type { Experience, ResumeProfile } from '../lib/types'
 import { UiIcon } from '../components/Brand'
 import ResumePreview from './workbench/ResumePreview'
+import RoleRequirementsEditor from './workbench/RoleRequirementsEditor'
+import DiagnosePage from './DiagnosePage'
+import QualityPage from './QualityPage'
 import { changedFacts, confirmedProfile, emptyExperience, factIssues, FILE_ACCEPT, fileError, generatedMarkdown, generationBlock, generationReview, manualProfile, operationError, parsedProfile, progress } from './workbench/state'
 import type { GenerationReview } from './workbench/state'
 import { tailoringReport } from '../lib/tailoring'
@@ -17,22 +20,25 @@ interface Props {
   profile: ResumeProfile | null; onProfileChange: (profile: ResumeProfile | null) => void
   jdText: string; onJdChange: (text: string) => void
   markdown: string; onMarkdownChange: (text: string) => void
-  jdKeywords: string[]; busy: boolean; onBusyChange: (busy: boolean) => void; onDiagnose?: () => void; onQuality?: () => void; onInterview?: () => void
+  jdKeywords: string[]; onJdKeywordsChange?: (keywords: string[]) => void; busy: boolean; onBusyChange: (busy: boolean) => void; onDiagnose?: () => void; onQuality?: () => void; onInterview?: () => void
 }
 const SAMPLE = '陈同学\n某大学，本科，2022.09—2026.06\n求职方向：产品经理\n项目：校园活动报名流程优化，2025.03—2025.06\n角色：项目成员\n负责收集同学的报名反馈，整理重复填报、信息分散等问题，绘制报名流程原型，并与开发同学沟通需求。\n产出：需求文档与流程原型，协助完成反馈整理。\n技能：需求分析、原型设计、用户反馈整理、跨团队协作。'
 const SAMPLE_JD = '产品经理（示例岗位）\n工作职责：收集用户需求，分析业务流程，完成产品原型与需求文档，与研发团队沟通并推动方案落地。\n岗位要求：具备需求分析、原型设计和沟通协作能力，有校园项目或实习经历。'
-export default function WorkbenchPage({ userId, sourceText, setSourceText, sourceName, setSourceName, profile, onProfileChange, jdText, onJdChange, markdown, onMarkdownChange, jdKeywords, busy, onBusyChange, onDiagnose, onQuality, onInterview }: Props) {
+export default function WorkbenchPage({ userId, sourceText, setSourceText, sourceName, setSourceName, profile, onProfileChange, jdText, onJdChange, markdown, onMarkdownChange, jdKeywords, onJdKeywordsChange, busy, onBusyChange, onDiagnose, onQuality, onInterview }: Props) {
   // 保留旧调用方的可选参数，避免队友页面或测试在联调时因接口变化中断。
-  void onInterview
+  void onDiagnose; void onQuality
   const [activity, setActivity] = useState('')
   const [error, setError] = useState('')
   const [generationCheck, setGenerationCheck] = useState<{ snapshot: string; review: GenerationReview; numbers: string[]; tailoring: TailoringReport | null } | null>(null)
   const [previewMode, setPreviewMode] = useState<'preview' | 'edit'>('preview')
   const [retryAction, setRetryAction] = useState<'parse' | 'generate' | null>(null)
   const [waiting, setWaiting] = useState(false)
-  const [activeStep, setActiveStep] = useState(markdown.trim() ? 4 : 1)
+  const [activeStep, setActiveStep] = useState(markdown.trim() ? 3 : profile ? 2 : 1)
+  const [optimizationTool, setOptimizationTool] = useState<'quality' | 'match'>('quality')
+  const [initialDraft, setInitialDraft] = useState(false)
   const [manuallyEdited, setManuallyEdited] = useState(false)
   const requestLock = useRef(false)
+  const initialGeneration = useRef(false)
   const lastFile = useRef<File | undefined>(undefined)
   const mounted = useRef(true)
   const snapshot = JSON.stringify([sourceText, sourceName, profile, jdText, markdown, jdKeywords])
@@ -61,8 +67,7 @@ export default function WorkbenchPage({ userId, sourceText, setSourceText, sourc
   const editProfile = (value: ResumeProfile) => { onProfileChange(changedFacts({...value,experiences:value.experiences.map(e=>e.kind==='education'?{...e,actions:[],results:[],skills:[]}:e)})); invalidateDraft() }
   const editJd = (text: string) => {
     onJdChange(text)
-    if (profile) onProfileChange(changedFacts(profile))
-    invalidateDraft()
+    resetOutput()
   }
   const editSource = (text: string) => {
     setSourceText(text); setSourceName(''); lastFile.current = undefined
@@ -79,6 +84,7 @@ export default function WorkbenchPage({ userId, sourceText, setSourceText, sourc
   const startManual = () => {
     if (busy || requestLock.current || profile) return
     onProfileChange(manualProfile(sourceText)); invalidateDraft()
+    setActiveStep(2)
   }
   const confirmFacts = (checked: boolean) => {
     if (busy || requestLock.current || !profile) return
@@ -109,22 +115,26 @@ export default function WorkbenchPage({ userId, sourceText, setSourceText, sourc
       onProfileChange(parsed)
       setSourceText((typeof result.raw_text === 'string' && result.raw_text) || parsed.raw_text || sourceText)
       setSourceName(file?.name || '文本材料')
+      setActiveStep(2)
     } catch (err) { if (mounted.current && latestInput.current === expected) { setError(operationError(err)); setRetryAction('parse') } }
     finally { requestLock.current = false; if (mounted.current) { onBusyChange(false); setActivity(''); setWaiting(false) } }
   }
-  const generate = async () => {
+  const generate = async (initial = false) => {
     if (busy || requestLock.current || !profile || generationBlock(profile, jdText)) return
     requestLock.current = true
+    initialGeneration.current = initial
     invalidateDraft(); onBusyChange(true); setWaiting(false); setActivity('正在生成并检查简历…')
     const expected = JSON.stringify([sourceText, sourceName, profile, jdText, '', jdKeywords])
     latestInput.current = expected
     try {
-      const result = await api.generateResume(jdText, profile, jdKeywords)
+      const result = await api.generateResume(initial ? '' : jdText, profile, initial ? [] : jdKeywords)
       if (!mounted.current || latestInput.current !== expected) return
       const nextMarkdown = generatedMarkdown(result)
       onMarkdownChange(nextMarkdown)
+      setInitialDraft(initial || !jdText.trim())
       setGenerationCheck({ snapshot: JSON.stringify([sourceText, sourceName, profile, jdText, nextMarkdown, jdKeywords]), review: generationReview(result), numbers: Array.isArray(result.untraceable) ? result.untraceable.filter((item) => typeof item === 'string') : [], tailoring: tailoringReport(result.tailoring, profile, jdText, nextMarkdown) })
       setPreviewMode('preview')
+      setActiveStep(3)
     } catch (err) { if (mounted.current && latestInput.current === expected) { setError(operationError(err)); setRetryAction('generate') } }
     finally { requestLock.current = false; if (mounted.current) { onBusyChange(false); setActivity(''); setWaiting(false) } }
   }
@@ -137,21 +147,22 @@ export default function WorkbenchPage({ userId, sourceText, setSourceText, sourc
   }
   const stepReady = (step: number) => {
     if (step === 2) return Boolean(profile)
-    if (step === 3) return Boolean(profile?.user_confirmed && !issues.length)
-    if (step === 4) return Boolean(profile?.user_confirmed && !issues.length && jdText.trim())
+    if (step === 3 || step === 4) return Boolean(profile?.user_confirmed && !issues.length && markdown.trim())
     return true
   }
-  const canVisitStep = (step: number) => step <= activeStep || stepReady(step)
+  const canVisitStep = (step: number) => stepReady(step)
   const stepActions = (step: number) => <div className="step-actions">
     {step === 1 && <button type="button" className="secondary-button" disabled={busy || (!sourceText && !sourceName && !profile && !markdown)} onClick={clearMaterial}>清除文本</button>}
     {step > 1 && <button type="button" className="secondary-button" disabled={busy} onClick={() => setActiveStep(step - 1)}>上一步</button>}
-    {step < 4 && <button type="button" className="primary-button" disabled={busy || !stepReady(step + 1)} onClick={() => setActiveStep(step + 1)}>下一步：{['', '确认事实', '岗位 JD', '简历预览'][step]}</button>}
+    {step === 1 && <button type="button" className="primary-button" disabled={busy || !stepReady(2)} onClick={() => setActiveStep(2)}>下一步：确认事实</button>}
+    {step === 2 && <button type="button" className="primary-button" disabled={busy || Boolean(blocked)} onClick={() => markdown.trim() ? setActiveStep(3) : void generate(true)}>{markdown.trim() ? '继续检查与优化' : '生成初稿并继续'}</button>}
+    {step === 3 && <button type="button" className="primary-button" disabled={busy || !stepReady(4)} onClick={() => setActiveStep(4)}>查看最终简历</button>}
   </div>
   return <div className="role-b-workbench" aria-busy={busy}>
-    <ol className="stepper" aria-label="求职准备进度">{['材料输入', '确认事实', '岗位 JD', '简历预览'].map((name, i) => <li key={name} aria-current={activeStep === i + 1 ? 'step' : undefined} className={activeStep === i + 1 ? 'current' : current.step > i + 1 ? 'complete' : ''}><button type="button" className="step-link" disabled={!canVisitStep(i + 1)} aria-disabled={!canVisitStep(i + 1)} onClick={() => canVisitStep(i + 1) && setActiveStep(i + 1)}><span className="step-number">{current.step > i + 1 ? <UiIcon name="check" /> : i + 1}</span><span>{name}</span></button><a className="step-link-legacy" href={`#wb-step-${i + 1}`} hidden aria-hidden="true" tabIndex={-1}>{name}</a>{i < 3 && <span className="step-line" />}</li>)}</ol>
-    <div className="wb-status" role="status"><strong>当前：{markdown.trim() && !blocked && review.warning ? '草稿待核对' : current.label}</strong><p>{blocked || (markdown.trim() ? '简历已生成草稿，请查看质检提示并逐句核对后使用。' : '事实与岗位已就绪，可以生成简历。')}</p></div>
+    <ol className="stepper" aria-label="求职准备进度">{['材料输入', '确认事实', '检查与优化', '简历预览'].map((name, i) => <li key={name} aria-current={activeStep === i + 1 ? 'step' : undefined} className={activeStep === i + 1 ? 'current' : current.step > i + 1 ? 'complete' : ''}><button type="button" className="step-link" disabled={busy || !canVisitStep(i + 1)} aria-disabled={busy || !canVisitStep(i + 1)} onClick={() => !busy && canVisitStep(i + 1) && setActiveStep(i + 1)}><span className="step-number">{current.step > i + 1 ? <UiIcon name="check" /> : i + 1}</span><span>{name}</span></button><a className="step-link-legacy" href={`#wb-step-${i + 1}`} hidden aria-hidden="true" tabIndex={-1}>{name}</a>{i < 3 && <span className="step-line" />}</li>)}</ol>
+    <div className="wb-status" role="status"><strong>当前：{current.label}</strong><p>{blocked || (markdown.trim() ? '围绕当前简历反复检查和修改；满意后查看最终简历。' : '事实已确认，可先生成初稿，再填写岗位并检查优化。')}</p></div>
     <p className="wb-hint">离开前请确认页面上方显示工作台已保存；原始上传文件不会留存。演示材料完全虚构，请替换为自己的真实经历。</p>
-    {error && <div className="error-banner" role="alert"><strong>这一步没有完成</strong><span>{error}</span>{retryAction && <button className="secondary-button" disabled={busy} onClick={() => retryAction === 'parse' ? void parse(lastFile.current) : void generate()}>重试{retryAction === 'parse' ? '整理材料' : '生成简历'}</button>}<button className="wb-dismiss" onClick={() => setError('')} aria-label="关闭错误提示">×</button></div>}
+    {error && <div className="error-banner" role="alert"><strong>这一步没有完成</strong><span>{error}</span>{retryAction && <button className="secondary-button" disabled={busy} onClick={() => retryAction === 'parse' ? void parse(lastFile.current) : void generate(initialGeneration.current)}>重试{retryAction === 'parse' ? '整理材料' : '生成简历'}</button>}<button className="wb-dismiss" onClick={() => setError('')} aria-label="关闭错误提示">×</button></div>}
     {busy && <div className="activity-banner" role="status"><span className="spinner" />{activity || '正在处理…'}<span className="muted">{waiting ? '模型仍在处理，请勿重复提交；若超时会显示重试入口。' : '完成后可继续编辑，请勿刷新页面。'}</span></div>}
     <div className="workbench-grid step-page-grid">
       <section id="wb-step-1" hidden={activeStep !== 1} aria-hidden={activeStep !== 1} tabIndex={-1} className="panel materials-panel"><div className="panel-heading"><div><span className="section-kicker">01 / MATERIALS</span><h2>求职材料</h2></div><UiIcon name="folder" /></div><fieldset disabled={busy}>
@@ -185,14 +196,18 @@ export default function WorkbenchPage({ userId, sourceText, setSourceText, sourc
 
         </fieldset>}
         {profile && userId && <ImportReview key={JSON.stringify([userId,profile,sourceName])} material={{expected_user_id:userId,profile,source_name:sourceName||'工作台材料'}} disabled={busy||!profile.user_confirmed||issues.length>0}/> }
-        <div className="fact-note"><UiIcon name="shield" /><span>没有依据的经历与成果数字，不写入简历。修改事实或岗位 JD 后，需要重新确认。</span></div>{stepActions(2)}
+        <div className="fact-note"><UiIcon name="shield" /><span>没有依据的经历与成果数字，不写入简历。修改真实事实后需要重新确认；岗位要求可在下一步补充。</span></div>{stepActions(2)}
       </section>
-      <section id="wb-step-3" hidden={activeStep !== 3} aria-hidden={activeStep !== 3} tabIndex={-1} className="panel wb-jd-panel"><div className="panel-heading"><div><span className="section-kicker">03 / TARGET ROLE</span><h2>目标岗位 JD</h2></div><span className={`tag ${jdText.trim() ? 'green' : 'amber'}`}>{jdText.trim() ? '已填写' : '待填写'}</span></div><fieldset disabled={busy}><label className="field-label" htmlFor="jd-text">岗位职责与任职要求 <span>不限岗位</span></label><textarea id="jd-text" className="jd-text" value={jdText} onChange={(e) => editJd(e.target.value)} placeholder="粘贴完整岗位职责和任职要求，让每次生成都针对具体岗位。" /><p className="wb-hint">可提前填写。修改 JD 会撤销确认并清空旧简历，请回到第 2 步重新确认。</p></fieldset>{stepActions(3)}</section>
-      <section id="wb-step-4" hidden={activeStep !== 4} aria-hidden={activeStep !== 4} tabIndex={-1} className="panel preview-panel"><div className="panel-heading"><div><span className="section-kicker">04 / YOUR NEXT OFFER</span><h2>定向简历预览</h2></div><span className={`tag ${markdown && review.warning ? 'amber' : 'blue'}`}>{markdown ? '草稿待核对' : '待生成'}</span></div><p className="panel-description">让与岗位相关的经历，先被看见。</p>
+      <section id="wb-step-3" hidden={activeStep !== 3} aria-hidden={activeStep !== 3} tabIndex={-1} className="panel wb-jd-panel"><div className="panel-heading"><div><span className="section-kicker">03 / REFINE YOUR RESUME</span><h2>检查与优化</h2></div><span className="tag blue">当前稿持续更新</span></div><p className="panel-description">补充岗位要求，检查简历并采纳建议。可以反复修改和检查，满意后再预览。</p><fieldset disabled={busy}><RoleRequirementsEditor id="jd-text" jdText={jdText} onChange={editJd} disabled={busy} onBusyChange={onBusyChange} /><p className="wb-hint">修改岗位要求保留当前简历和事实确认，原报告需重新运行；岗位缺口不能写成个人经历。</p></fieldset>
+        <div className="optimization-tools" role="group" aria-label="选择优化工具"><button type="button" className={optimizationTool === 'quality' ? 'primary-button' : 'secondary-button'} disabled={busy} aria-pressed={optimizationTool === 'quality'} onClick={() => setOptimizationTool('quality')}>简历检查</button><button type="button" className={optimizationTool === 'match' ? 'primary-button' : 'secondary-button'} disabled={busy} aria-pressed={optimizationTool === 'match'} onClick={() => setOptimizationTool('match')}>岗位匹配</button></div>
+        {activeStep === 3 && optimizationTool === 'quality' && <QualityPage embedded jdText={jdText} jdKeywords={jdKeywords} profile={profile} markdown={markdown} onMarkdownChange={editMarkdown} busy={busy} onBusyChange={onBusyChange} />}
+        {activeStep === 3 && optimizationTool === 'match' && <DiagnosePage embedded jdText={jdText} setJdText={editJd} profile={profile} markdown={markdown} onMarkdownChange={editMarkdown} busy={busy} onBusyChange={onBusyChange} onDone={(_text, keywords) => onJdKeywordsChange?.(keywords)} />}
+        <details className="optimization-draft" open><summary>查看与编辑当前简历</summary><p className="wb-hint">采纳建议会更新此稿；手动编辑后请重新检查。原始事实没有变化时，无需返回确认。</p><textarea className="markdown-editor" aria-label="优化阶段编辑简历" disabled={busy} value={markdown} onChange={e => editMarkdown(e.target.value)} /></details>{stepActions(3)}</section>
+      <section id="wb-step-4" hidden={activeStep !== 4} aria-hidden={activeStep !== 4} tabIndex={-1} className="panel preview-panel"><div className="panel-heading"><div><span className="section-kicker">04 / YOUR NEXT OFFER</span><h2>简历预览</h2></div><span className={`tag ${markdown && review.warning ? 'amber' : 'blue'}`}>{markdown ? '草稿待核对' : '待生成'}</span></div><p className="panel-description">让与岗位相关的经历，先被看见。</p>
         <button className="primary-button full generate-button" disabled={busy || Boolean(blocked)} onClick={() => void generate()}><UiIcon name="spark" />{activity === '正在生成并检查简历…' ? activity : markdown ? '重新生成简历' : '根据已确认事实生成简历'}</button><p className="wb-hint">{blocked || (markdown ? '重新生成将替换当前稿件，包括手动修改；如需保留请先下载。' : '只改写与排序，不新增经历事实。')}</p>
-        {markdown && (blocked ? <p className="warning-note" role="status">以下是保留的草稿，尚不能作为当前已确认结果。请补全事实与岗位、重新确认后生成。</p> : <p className={review.warning || tailoringNeedsReview ? 'warning-note' : 'wb-success'} role="status">简历已生成草稿，可预览和编辑；请核对下方检查信息后再下载使用。</p>)}
+        {markdown && (blocked ? <p className="warning-note" role="status">以下是保留的草稿，尚不能作为当前已确认结果。请补全真实事实、重新确认后生成。</p> : <p className={review.warning || tailoringNeedsReview ? 'warning-note' : 'wb-success'} role="status">简历已生成草稿，可预览和编辑；请核对下方检查信息后再下载使用。</p>)}
         {markdown && <div className="wb-review warning-note" role="status" aria-label="生成稿检查状态"><strong>{review.title}</strong><p>{review.detail}</p><p>请逐句核对职责、动作、上线/落地、成果和数字。原材料未说明的内容不能因 AI 润色就当成事实；自动检查及数字检查通过也不等于事实认证。</p></div>}
-        {markdown && <section className="wb-tailoring" aria-label="岗位定制依据"><h3>这份简历如何针对岗位调整</h3>{tailoring ? <>
+        {markdown && jdText.trim() && !initialDraft && <section className="wb-tailoring" aria-label="岗位定制依据"><h3>这份简历如何针对岗位调整</h3>{tailoring ? <>
           <p>本次规划经历顺序：{tailoring.selected_experiences.map((item) => item.name).join(' → ')}</p>
           <p className="wb-hint">已逐条核对 JD 原文条目（含标题和背景）。{tailoring.revision_count === 1 ? '已自动定向修订 1 次并重新复核；仍有警告的内容请人工修改，不代表已通过。' : '未触发自动定向修订。'}</p>
           <p className="wb-hint">{tailoring.review_note}“有相关依据”可能只是部分支持，不等于满足整条要求。</p>
@@ -206,10 +221,10 @@ export default function WorkbenchPage({ userId, sourceText, setSourceText, sourc
         </> : <p className="warning-note">定制依据待核对：未收到与当前材料、JD 和稿件对应的完整报告。编辑或恢复的草稿不沿用旧报告，请重新生成或人工逐项核对。</p>}</section>}
         {markdown ? <><div className="preview-toolbar"><div className="segmented"><button className={previewMode === 'preview' ? 'selected' : ''} disabled={busy} onClick={() => setPreviewMode('preview')}>预览</button><button className={previewMode === 'edit' ? 'selected' : ''} disabled={busy} onClick={() => setPreviewMode('edit')}>编辑</button></div><span className="muted">Markdown</span></div>{previewMode === 'preview' ? <ResumePreview markdown={markdown} /> : <textarea className="markdown-editor" aria-label="编辑简历 Markdown" disabled={busy} value={markdown} onChange={(e) => editMarkdown(e.target.value)} />}
           {manuallyEdited && <p className="warning-note">稿件已手动修改，原数字检查不再代表当前内容，请重新核对所有事实和数字。</p>}
-          {numberWarnings.length > 0 && <div className="warning-note" role="status"><strong>数字检查：以下内容缺少材料依据</strong><ul>{numberWarnings.map((item, i) => <li key={i}>{item}</li>)}</ul></div>}<p className="field-hint">初稿及手动修改均需人工核对，数字检查不等于事实认证。</p><button className="secondary-button full" disabled={busy || !markdown.trim()} onClick={download}><UiIcon name="download" />下载 Markdown 简历</button></> : <div className="preview-empty"><div className="paper-skeleton"><span className="skeleton-name" /><span className="skeleton-sub" /><div className="skeleton-divider" /><span className="skeleton-title" /><span /><span /><span className="short" /><div className="skeleton-divider" /><span className="skeleton-title" /><span /><span className="short" /></div><h3>你的下一份简历，从这里开始</h3><p>确认经历并填写岗位后，生成结果会显示在这里。</p></div>}
+          {numberWarnings.length > 0 && <div className="warning-note" role="status"><strong>数字检查：以下内容缺少材料依据</strong><ul>{numberWarnings.map((item, i) => <li key={i}>{item}</li>)}</ul></div>}<p className="field-hint">初稿及手动修改均需人工核对，数字检查不等于事实认证。</p><button className="secondary-button full" disabled={busy || !markdown.trim()} onClick={download}><UiIcon name="download" />下载 Markdown 简历</button></> : <div className="preview-empty"><div className="paper-skeleton"><span className="skeleton-name" /><span className="skeleton-sub" /><div className="skeleton-divider" /><span className="skeleton-title" /><span /><span /><span className="short" /><div className="skeleton-divider" /><span className="skeleton-title" /><span /><span className="short" /></div><h3>你的下一份简历，从这里开始</h3><p>确认经历并生成初稿后，结果会显示在这里。</p></div>}
         <div className="export-note">本轮支持 Markdown；Word 和 PDF 可在个人记忆页导出。</div>{stepActions(4)}
+        <div className="step-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => setActiveStep(3)}>返回检查与优化</button><button type="button" className="primary-button" disabled={busy || !jdText.trim() || !markdown.trim() || Boolean(blocked)} onClick={onInterview}>准备模拟面试</button></div>{!jdText.trim() && <p className="wb-hint">准备面试前请返回检查与优化填写目标岗位要求，当前简历会保留。</p>}
       </section>
     </div>
-    {markdown.trim() && <section className="workflow-actions" aria-label="简历优化工具"><div className="next-step"><span className="next-icon"><UiIcon name="search" /></span><div><h3>岗位匹配</h3><p>对照当前 JD 找出已有依据、缺口和可优化表达。</p></div><button className="secondary-button" disabled={busy || !jdText.trim()} onClick={onDiagnose}>开始匹配 →</button></div><div className="next-step"><span className="next-icon"><UiIcon name="shield" /></span><div><h3>简历检查</h3><p>检查 ATS、套话、一致性和事实风险，逐条采纳修改建议。</p></div><button className="secondary-button" disabled={busy} onClick={onQuality}>开始检查 →</button></div></section>}
   </div>
 }

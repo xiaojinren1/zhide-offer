@@ -51,13 +51,13 @@ describe('工作台状态与输入', () => {
     expect(progress(null, '', '').step).toBe(1)
     expect(progress(changedFacts(profile), '岗位', '').step).toBe(2)
     expect(progress(profile, '', '').step).toBe(3)
-    expect(progress(profile, '岗位', '').step).toBe(4)
-    expect(progress(profile, '岗位', '# 简历').label).toBe('已生成')
+    expect(progress(profile, '岗位', '').step).toBe(3)
+    expect(progress(profile, '岗位', '# 简历').label).toBe('已有简历 · 可继续优化')
   })
-  it('未确认、没有经历或 JD 为空均不能生成', () => {
+  it('未确认或没有经历不能生成，JD 为空可生成初稿', () => {
     expect(generationBlock(changedFacts(profile), '岗位')).toContain('确认')
     expect(generationBlock({ ...profile, experiences: [] }, '岗位')).toContain('尚无经历')
-    expect(generationBlock(profile, '  ')).toContain('JD')
+    expect(generationBlock(profile, '  ')).toBe('')
     expect(generationBlock(profile, '岗位')).toBe('')
   })
   it('修改事实撤销确认且不修改原始对象', () => {

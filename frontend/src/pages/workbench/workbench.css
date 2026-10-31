@@ -17,3 +17,23 @@
 .role-b-workbench .source-remove:focus-visible{outline:3px solid #739fe8;outline-offset:3px}
 .role-b-workbench .source-remove:disabled{opacity:.5;cursor:not-allowed}
 .role-b-workbench .step-actions{flex-wrap:wrap}
+
+/* 岗位参考与建议采用沿用品牌主题，窄屏按钮和输入独立换行。 */
+.role-requirements-editor{min-width:0}
+.role-b-workbench .optimization-tools{display:flex;flex-wrap:wrap;gap:10px;margin:20px 0}
+.role-b-workbench .optimization-draft{margin-top:24px;border-top:1px solid var(--line,#cfdee8);padding-top:16px}
+.role-b-workbench .optimization-draft>summary{cursor:pointer;font-weight:600;line-height:1.8}
+.role-b-workbench .optimization-draft .markdown-editor{width:100%;padding:12px;border:1px solid var(--line,#cfdee8);resize:vertical}
+.role-requirements-editor .field-label{display:block;margin:14px 0 8px}
+.role-title-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
+.role-title-actions input{flex:1 1 240px;width:100%;min-width:0;padding:10px 12px;border:1px solid var(--line,#cfdee8)}
+.role-title-actions button{white-space:normal}
+.role-requirements-editor textarea{display:block;width:100%;padding:12px;border:1px solid var(--line,#cfdee8);resize:vertical;line-height:1.7}
+.role-reference-preview{margin:16px 0;padding:14px;border:1px solid var(--line,#cfdee8);border-radius:12px;background:var(--sky,#edf3f8)}
+.role-reference-preview h3{font-size:14px;color:var(--ink,#222c36);margin-bottom:8px}
+.role-reference-preview textarea{min-height:200px}
+.role-b-diagnose .wb-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+.role-b-diagnose .step-actions{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}
+.role-b-diagnose .match-suggestions-panel{border-color:var(--line,#cfdee8);background:var(--sky,#edf3f8)}
+.role-b-diagnose .match-suggestions-panel label{border-color:var(--line,#cfdee8);color:var(--ink,#222c36)}
+@media(max-width:520px){.role-title-actions input,.role-title-actions button{flex-basis:100%;width:100%}.role-b-diagnose .step-actions button{flex:1 1 100%}.role-reference-preview{padding:12px}}

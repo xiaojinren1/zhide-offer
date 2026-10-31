@@ -24,6 +24,8 @@ import { api } from '../../lib/api'
 import WorkbenchPage from '../WorkbenchPage'
 import DiagnosePage from '../DiagnosePage'
 import ImportReview from '../library/ImportReview'
+import RoleRequirementsEditor from './RoleRequirementsEditor'
+import MatchSuggestionsPanel from './MatchSuggestionsPanel'
 
 const fixture = (): ResumeProfile => ({ name: '虚构同学', experiences: [{ kind: 'project', name: '校园项目', role: '成员', period: '', actions: ['整理反馈'], results: ['输出文档'], skills: [] }], skills: [], education: [], user_confirmed: true })
 let props: Parameters<typeof WorkbenchPage>[0]
@@ -61,6 +63,36 @@ beforeEach(() => {
 })
 
 describe('工作台真实事件回调（Mock API）', () => {
+  it('恢复已有稿进入检查与优化，预览中的普通编辑不自动跳步', () => {
+    props.markdown = '# 恢复稿'
+    expect(input(render(), 'id', 'wb-step-3').props.hidden).toBe(false)
+    button(render(), '查看最终简历').props.onClick()
+    expect(input(render(), 'id', 'wb-step-4').props.hidden).toBe(false)
+    props.jdText = '补充后的岗位要求'
+    props.markdown = '# 手工修改稿'
+    expect(input(render(), 'id', 'wb-step-4').props.hidden).toBe(false)
+  })
+  it.each(['', '已有目标岗位'])('确认后可先生成基础初稿并保留工作台JD：%s', async (jd) => {
+    props.jdText = jd
+    const action = button(render(), '生成初稿并继续')
+    expect(action.props.disabled).toBe(false)
+    action.props.onClick(); await settle()
+    expect(api.generateResume).toHaveBeenCalledWith('', expect.objectContaining({ user_confirmed: true }), [])
+    expect(props.jdText).toBe(jd)
+    expect(props.markdown).toBe('# 虚构同学')
+    expect(input(render(), 'id', 'wb-step-3').props.hidden).toBe(false)
+    expect(button(render(), '查看最终简历').props.disabled).toBe(false)
+    button(render(), '查看最终简历').props.onClick()
+    expect(input(render(), 'id', 'wb-step-4').props.hidden).toBe(false)
+    expect(button(render(), '准备模拟面试').props.disabled).toBe(!jd)
+  })
+  it('初稿生成失败重试仍走基础稿请求，保留目标JD', async () => {
+    vi.mocked(api.generateResume).mockRejectedValueOnce(new Error('初稿模型失败'))
+    button(render(), '生成初稿并继续').props.onClick(); await settle()
+    button(render(), '重试生成简历').props.onClick(); await settle()
+    expect(api.generateResume).toHaveBeenLastCalledWith('', expect.anything(), [])
+    expect(props.jdText).toBe('虚构岗位 JD')
+  })
   it('清除文本同时清除来源、事实和旧稿，保留岗位 JD 且阻止下一步', () => {
     props.sourceText = '虚构材料'; props.sourceName = 'resume.pdf'; props.markdown = '# 旧稿'
     button(render(), '清除文本').props.onClick()
@@ -232,6 +264,18 @@ describe('工作台真实事件回调（Mock API）', () => {
       expect(input(tree, 'id', `wb-step-${step}`).props.tabIndex).toBe(-1)
     }
   })
+  it('岗位参考生成期间禁用工作台步骤导航，结束后恢复', () => {
+    const editor = nodes(render()).find(n => n.type === RoleRequirementsEditor)
+    editor.props.onBusyChange(true)
+    expect(props.busy).toBe(true)
+    const tree = render()
+    const steps = nodes(tree).filter(n => n.type === 'button' && n.props.className === 'step-link')
+    expect(steps).toHaveLength(4)
+    expect(steps.every(n => n.props.disabled)).toBe(true)
+    nodes(tree).find(n => n.type === RoleRequirementsEditor).props.onBusyChange(false)
+    expect(props.busy).toBe(false)
+    expect(nodes(render()).find(n => n.type === RoleRequirementsEditor).props.disabled).toBe(false)
+  })
   it.each(['parse', 'generate'])('%s 迟到响应不能覆盖服务器恢复的工作台', async (operation) => {
     let finish!: (value: any) => void
     if (operation === 'parse') {
@@ -320,10 +364,16 @@ describe('工作台真实事件回调（Mock API）', () => {
     expect(input(render(),'aria-label','经历1成果')).toBeUndefined()
     expect(input(render(),'aria-label','经历1技能')).toBeUndefined()
   })
-  it.each(['jd', 'fact', 'source'])('修改 %s 会清空旧稿并撤销确认', (kind) => {
+  it('修改 JD 保留旧稿及事实确认', () => {
+    props.markdown = '# 旧稿'
+    input(render(), 'id', 'jd-text').props.onChange('新岗位')
+    expect(props.markdown).toBe('# 旧稿')
+    expect(props.profile?.user_confirmed).toBe(true)
+    expect(props.jdText).toBe('新岗位')
+  })
+  it.each(['fact', 'source'])('修改 %s 会清空旧稿并撤销确认', (kind) => {
     props.markdown = '# 旧稿'
     const tree = render()
-    if (kind === 'jd') input(tree, 'id', 'jd-text').props.onChange({ target: { value: '新岗位' } })
     if (kind === 'fact') input(tree, 'id', 'person-name').props.onChange({ target: { value: '新姓名' } })
     if (kind === 'source') input(tree, 'id', 'source-text').props.onChange({ target: { value: '新材料' } })
     expect(props.markdown).toBe('')
@@ -414,6 +464,43 @@ describe('工作台真实事件回调（Mock API）', () => {
 })
 
 describe('岗位匹配输入保护', () => {
+  const validReport = { ok: true, coverage: 1, items: [{ requirement: '整理反馈', status: 'covered', evidence: '整理反馈', note: '' }], missing_hard: [] }
+  it.each(['markdown', 'markdown-aba', 'profile', 'jd-aba'])('输入 %s 变化后丢弃迟到结果并释放忙碌状态', async kind => {
+    let finish!: (value: any) => void
+    vi.mocked(api.diagnose).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const current = { jdText: '岗位', setJdText: vi.fn(), profile: fixture(), markdown: '# 原稿', onMarkdownChange: vi.fn(), onDone: vi.fn(), onBusyChange: vi.fn() }
+    const view = () => { hooks.cursor = 0; return DiagnosePage(current) }
+    button(view(), '开始诊断').props.onClick()
+    expect(current.onBusyChange).toHaveBeenLastCalledWith(true)
+    if (kind.startsWith('markdown')) { current.markdown = '# 修改稿'; view() }
+    if (kind === 'markdown-aba') current.markdown = '# 原稿'
+    if (kind === 'profile') current.profile = { ...fixture(), name: '修改后的名字' }
+    if (kind === 'jd-aba') { current.jdText = '修改岗位'; view(); current.jdText = '岗位' }
+    view(); finish(validReport); await settle()
+    expect(current.onDone).not.toHaveBeenCalled()
+    expect(current.onBusyChange).toHaveBeenLastCalledWith(false)
+    expect(text(view())).not.toContain('匹配覆盖率')
+  })
+  it('应用成功后清空报告，在报告外保留新稿提示和导航', async () => {
+    vi.mocked(api.diagnose).mockResolvedValueOnce(validReport as any)
+    const current = { jdText: '岗位', setJdText: vi.fn(), profile: fixture(), markdown: '# 原稿', onMarkdownChange: (value: string) => { current.markdown = value }, onDone: vi.fn(), onBusyChange: vi.fn() }
+    const view = () => { hooks.cursor = 0; return DiagnosePage(current) }
+    button(view(), '开始诊断').props.onClick(); await settle()
+    const panel = nodes(view()).find(n => n.type === MatchSuggestionsPanel)
+    expect(panel.props.markdown).toBe('# 原稿')
+    panel.props.onBusyChange(true)
+    expect(button(view(), '返回修改简历').props.disabled).toBe(true)
+    panel.props.onMarkdownChange('# 新稿')
+    panel.props.onApplied('已更新，请重新诊断、运行质检并人工核对。')
+    panel.props.onBusyChange(false)
+    const tree = view()
+    expect(current.markdown).toBe('# 新稿')
+    expect(nodes(tree).some(n => n.type === MatchSuggestionsPanel)).toBe(false)
+    expect(text(tree)).not.toContain('匹配覆盖率')
+    expect(text(tree)).toContain('已更新，请重新诊断、运行质检并人工核对。')
+    expect(button(tree, '继续检查简历').props.disabled).toBe(false)
+    current.markdown = '# 后续编辑'; expect(text(view())).not.toContain('已更新，请重新诊断')
+  })
   it.each([
     null,
     { ok: true, coverage: .5, items: [null], missing_hard: [] },
@@ -423,7 +510,7 @@ describe('岗位匹配输入保护', () => {
     const valid = { ok: true, coverage: 0, items: [{ requirement: 'SQL', status: 'missing', evidence: '', note: '' }], missing_hard: ['SQL'] }
     vi.mocked(api.diagnose).mockResolvedValueOnce(valid as any).mockResolvedValueOnce(response as any).mockResolvedValueOnce({ ...valid, coverage: 1 } as any)
     const done = vi.fn()
-    const view = () => { hooks.cursor = 0; return DiagnosePage({ jdText: '岗位', setJdText: vi.fn(), profile: fixture(), onDone: done }) }
+    const view = () => { hooks.cursor = 0; return DiagnosePage({ jdText: '岗位', setJdText: vi.fn(), profile: fixture(), markdown: '# 简历', onMarkdownChange: vi.fn(), onDone: done }) }
     button(view(), '开始诊断').props.onClick(); await settle()
     expect(text(view())).toContain('0%')
     button(view(), '重新诊断').props.onClick()
@@ -443,7 +530,7 @@ describe('岗位匹配输入保护', () => {
     vi.mocked(api.diagnose).mockImplementation(() => new Promise((resolve) => { finish = resolve }))
     const done = vi.fn()
     let jd = '原岗位'
-    const view = () => { hooks.cursor = 0; return DiagnosePage({ jdText: jd, setJdText: (value) => { jd = value }, profile: fixture(), onDone: done }) }
+    const view = () => { hooks.cursor = 0; return DiagnosePage({ jdText: jd, setJdText: (value) => { jd = value }, profile: fixture(), markdown: '# 简历', onMarkdownChange: vi.fn(), onDone: done }) }
     button(view(), '开始诊断').props.onClick()
     jd = '新岗位'; view()
     finish({ ok: true, coverage: 1, items: [{ requirement: '旧要求', status: 'covered' }], missing_hard: [] })

@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 
 from fastapi import APIRouter
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
 from core import events
 from engine.jd_parser import parse_jd
@@ -36,14 +36,6 @@ class QualityRequest(BaseModel):
     resume_profile: dict
     resume_markdown: str = ""      # J2 产物；为空则只检经历库
     jd_keywords: list[str] = []    # 前端从诊断步带过来，有就跳过重复解析
-
-    @field_validator("jd_text")
-    @classmethod
-    def require_jd_text(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("JD 文本不能为空")
-        return value
-
 
 def _cliche_hits(text: str) -> list[str]:
     return [c for c in _CLICHES if c in (text or "")]
@@ -80,7 +72,9 @@ def quality(req: QualityRequest):
     # 10~20 秒 + 一份 token）；没带才自己解析。解析失败必须传播，不能伪装成
     # 关键词覆盖率为 0 的成功报告。
     keyword_coverage = 0.0
-    if req.jd_keywords:
+    if not req.jd_text.strip():
+        jd_keywords = []
+    elif req.jd_keywords:
         jd_keywords = list(req.jd_keywords)
     else:
         jd = parse_jd(req.jd_text)
@@ -104,7 +98,7 @@ def quality(req: QualityRequest):
         suspicions=run_all(profile, jd_keywords),
     )
     report.passed = (
-        report.keyword_coverage >= 0.6
+        (not req.jd_text.strip() or report.keyword_coverage >= 0.6)
         and report.quantified_ratio >= 0.5
         and not report.cliche_hits
         and not report.consistency_issues
@@ -114,4 +108,5 @@ def quality(req: QualityRequest):
                 coverage=report.keyword_coverage, suspicions=len(report.suspicions))
     result = report.to_dict()
     result["ok"] = True
+    result["keyword_applicable"] = bool(req.jd_text.strip())
     return result

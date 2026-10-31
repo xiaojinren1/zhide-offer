@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, apiErrorMessage } from '../lib/api'
 import type { QualityReport, ResumeProfile, Suspicion } from '../lib/types'
 
@@ -10,6 +10,9 @@ interface Props {
   onMarkdownChange: (text: string) => void
   onEditResume?: () => void
   onNext?: () => void
+  busy?: boolean
+  onBusyChange?: (busy: boolean) => void
+  embedded?: boolean
 }
 
 const SEV: Record<string, string> = {
@@ -33,21 +36,39 @@ function Bar({ label, value }: { label: string; value: number }) {
   )
 }
 
-export default function QualityPage({ jdText, jdKeywords, profile, markdown, onMarkdownChange, onEditResume, onNext }: Props) {
-  const [busy, setBusy] = useState(false)
+export default function QualityPage({ jdText, jdKeywords, profile, markdown, onMarkdownChange, onEditResume, onNext, busy: externalBusy = false, onBusyChange, embedded = false }: Props) {
+  const [working, setWorking] = useState(false)
+  const busy = externalBusy || working
   const [error, setError] = useState('')
-  const [report, setReport] = useState<QualityReport | null>(null)
+  const [storedReport, setReport] = useState<QualityReport | null>(null)
+  const [reportInput, setReportInput] = useState('')
+  const [reportVersion, setReportVersion] = useState(-1)
   const [selected, setSelected] = useState<string[]>([])
   const [applying, setApplying] = useState(false)
   const [applyMessage, setApplyMessage] = useState('')
+  const [messageInput, setMessageInput] = useState('')
+  const [errorVersion, setErrorVersion] = useState(-1)
+  const snapshot = JSON.stringify([jdText, profile, markdown, jdKeywords])
+  const latest = useRef({ snapshot, version: 0 })
+  if (latest.current.snapshot !== snapshot) latest.current = { snapshot, version: latest.current.version + 1 }
+  const version = latest.current.version
+  const report = reportInput === snapshot && reportVersion === version ? storedReport : null
+  const requestLock = useRef(false)
+  const mounted = useRef(true)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
+  const isCurrent = () => mounted.current && latest.current.snapshot === snapshot && latest.current.version === version
+  const setBusy = (value: boolean) => { requestLock.current = value; setWorking(value); onBusyChange?.(value) }
 
   const run = async () => {
-    if (!profile) return
-    setBusy(true); setError('')
+    if (!profile || !markdown.trim() || busy || requestLock.current) return
+    setBusy(true); setError(''); setReport(null); setApplyMessage('')
     try {
       const r = await api.quality(jdText, profile, markdown, jdKeywords)
-      if (r.ok) { setReport(r); setSelected([]); setApplyMessage('') } else { setError(r.error || '质检失败') }
-    } catch (e) { setError(apiErrorMessage(e)) } finally { setBusy(false) }
+      if (!isCurrent()) return
+      if (!r.ok) throw new Error(r.error || '质检失败')
+      setReport(r); setReportInput(snapshot); setReportVersion(version); setSelected([])
+    } catch (e) { if (isCurrent()) { setError(apiErrorMessage(e)); setErrorVersion(version) } }
+    finally { requestLock.current = false; if (mounted.current) setBusy(false) }
   }
 
   const suggestions = report ? [
@@ -58,18 +79,22 @@ export default function QualityPage({ jdText, jdKeywords, profile, markdown, onM
   ] : []
   const toggleSuggestion = (id: string) => setSelected((previous) => previous.includes(id) ? previous.filter((item) => item !== id) : [...previous, id])
   const applySuggestions = async (all = false) => {
-    if (!profile || !markdown.trim() || applying) return
+    if (!profile?.user_confirmed || !markdown.trim() || !report || busy || requestLock.current) return
     const chosen = all ? suggestions : suggestions.filter((item) => selected.includes(item.id))
-    if (!chosen.length) { setApplyMessage('请先选择至少一条建议。'); return }
-    setApplying(true); setError(''); setApplyMessage('')
+    if (!chosen.length) { setApplyMessage('请先选择至少一条建议。'); setMessageInput(snapshot); return }
+    if (chosen.length > 30) { setError('每次最多应用 30 条建议，请分批选择。'); setErrorVersion(version); return }
+    setBusy(true); setApplying(true); setError(''); setApplyMessage('')
     try {
       const result = await api.reviseResume(jdText, profile, markdown, chosen)
+      if (!isCurrent()) return
       if (!result.ok || !result.markdown?.trim()) throw new Error(result.error || '未生成新的简历')
       onMarkdownChange(result.markdown)
       setReport(null)
-      setApplyMessage(`已应用 ${chosen.length} 条建议，请重新运行质检确认结果。`)
+      setMessageInput(JSON.stringify([jdText, profile, result.markdown, jdKeywords]))
+      setApplyMessage(`已应用 ${chosen.length} 条建议，当前简历已更新。请再次检查并人工核对事实${result.untraceable?.length ? '，尤其核对缺少材料依据的数字' : ''}；可继续修改，满意后查看最终简历。`)
       setSelected([])
-    } catch (reason) { setError(apiErrorMessage(reason)) } finally { setApplying(false) }
+    } catch (reason) { if (isCurrent()) { setError(apiErrorMessage(reason)); setErrorVersion(version) } }
+    finally { requestLock.current = false; if (mounted.current) { setApplying(false); setBusy(false) } }
   }
 
   const s = (x: Suspicion) => (
@@ -87,16 +112,18 @@ export default function QualityPage({ jdText, jdKeywords, profile, markdown, onM
   return (
     <div className="space-y-5">
       <header>
-        <h2 className="text-lg font-medium">第四步 · 质检报告</h2>
-        <p className="text-sm text-gray-500 mt-1">全部指标由程序判定——AI 生成完，立刻自己给自己打分。</p>
+        <h2 className="text-lg font-medium">简历检查</h2>
+        <p className="text-sm text-gray-500 mt-1">检查当前稿的表达、格式和事实风险。采纳后可以反复检查，结果不代表事实认证。</p>
       </header>
 
       <button onClick={run} disabled={busy || !profile || !markdown.trim()}
         className="px-5 py-2 bg-teal-600 text-white rounded-lg disabled:bg-gray-300">
-        {busy ? '质检中…' : '运行质检'}
+        {applying ? '正在修改简历…' : working ? '检查中…' : report || applyMessage ? '再次检查简历' : '检查当前简历'}
       </button>
       {!markdown.trim() && <p className="wb-hint">请先回到简历工作台生成简历，再运行检查。</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && errorVersion === version && <p className="text-sm text-red-600" role="alert">{error}</p>}
+      {applyMessage && messageInput === snapshot && <p className="warning-note" role="status">{applyMessage}</p>}
+      {!jdText.trim() && <p className="wb-hint">尚未填写岗位要求，本次进行基础检查，岗位关键词指标不适用。</p>}
 
       {report && (
         <div className="space-y-4">
@@ -109,11 +136,11 @@ export default function QualityPage({ jdText, jdKeywords, profile, markdown, onM
           </div>
 
           <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
-            <Bar label="JD 关键词覆盖率" value={report.keyword_coverage} />
-            <Bar label="量化表述密度" value={report.quantified_ratio} />
+            {jdText.trim() && <Bar label="JD 关键词覆盖率" value={report.keyword_coverage} />}
+            <Bar label="已确认材料的量化密度" value={report.quantified_ratio} /><p className="wb-hint">只记录已确认材料中的数字；没有依据无需补数字，不影响简历预览。事实风险项基于已确认材料，格式与一致性检查针对当前简历。</p>
           </div>
 
-          {suggestions.length > 0 && <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-medium text-blue-900">可采纳建议（{suggestions.length}）</h3><p className="text-sm text-blue-800 mt-1">选择后应用到当前简历，也可以一次性全部采纳。</p></div><div className="flex gap-2"><button className="px-3 py-1.5 text-sm border border-blue-300 rounded-lg bg-white" disabled={applying || !markdown.trim()} onClick={() => setSelected(suggestions.map((item) => item.id))}>全选</button><button className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg disabled:bg-gray-300" disabled={applying || !markdown.trim()} onClick={() => void applySuggestions(true)}>{applying ? '应用中…' : '全部采纳并修改简历'}</button></div></div>{suggestions.map((item) => <label key={item.id} className="block bg-white border border-blue-100 rounded-lg p-3 cursor-pointer"><div className="flex gap-2"><input type="checkbox" checked={selected.includes(item.id)} disabled={applying || !markdown.trim()} onChange={() => toggleSuggestion(item.id)} /><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={`text-xs px-1.5 py-0.5 rounded ${SEV[item.severity] || ''}`}>{item.severity}</span><strong className="text-sm">{item.type}</strong><span className="text-xs text-gray-500">{item.location}</span></div><p className="text-sm text-gray-700 mt-1">{item.detail}</p><p className="text-sm text-teal-700 mt-1">建议：{item.suggestion}</p></div></div></label>)}<button className="w-full px-4 py-2 bg-teal-600 text-white rounded-lg disabled:bg-gray-300" disabled={applying || !markdown.trim() || selected.length === 0} onClick={() => void applySuggestions()}>{applying ? '正在按建议修改简历…' : `采纳选中建议并修改简历（${selected.length}）`}</button>{applyMessage && <p className="text-sm text-teal-700" role="status">{applyMessage}</p>}</div>}
+          {suggestions.length > 0 && <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-medium text-blue-900">可采纳建议（{suggestions.length}）</h3><p className="text-sm text-blue-800 mt-1">选择后应用到当前简历，也可以一次性全部采纳。</p></div><div className="flex gap-2"><button className="px-3 py-1.5 text-sm border border-blue-300 rounded-lg bg-white" disabled={busy || !profile?.user_confirmed || !markdown.trim()} onClick={() => setSelected(suggestions.map((item) => item.id))}>全选</button><button className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg disabled:bg-gray-300" disabled={busy || !profile?.user_confirmed || !markdown.trim()} onClick={() => void applySuggestions(true)}>{applying ? '应用中…' : '全部采纳并修改简历'}</button></div></div>{suggestions.map((item) => <label key={item.id} className="block bg-white border border-blue-100 rounded-lg p-3 cursor-pointer"><div className="flex gap-2"><input type="checkbox" checked={selected.includes(item.id)} disabled={busy || !profile?.user_confirmed || !markdown.trim()} onChange={() => toggleSuggestion(item.id)} /><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={`text-xs px-1.5 py-0.5 rounded ${SEV[item.severity] || ''}`}>{item.severity}</span><strong className="text-sm">{item.type}</strong><span className="text-xs text-gray-500">{item.location}</span></div><p className="text-sm text-gray-700 mt-1">{item.detail}</p><p className="text-sm text-teal-700 mt-1">建议：{item.suggestion}</p></div></div></label>)}<button className="w-full px-4 py-2 bg-teal-600 text-white rounded-lg disabled:bg-gray-300" disabled={busy || !profile?.user_confirmed || !markdown.trim() || selected.length === 0} onClick={() => void applySuggestions()}>{applying ? '正在按建议修改简历…' : `采纳选中建议并修改简历（${selected.length}）`}</button></div>}
           {report.ats_issues.length > 0 && (
             <div className="bg-white border border-gray-200 rounded-xl p-4">
               <h3 className="text-sm font-medium">ATS 友好度问题</h3>
@@ -136,10 +163,10 @@ export default function QualityPage({ jdText, jdKeywords, profile, markdown, onM
               <ul className="mt-2 space-y-2">{report.suspicions.map(s)}</ul>
             </div>
           )}
-          <div className="step-actions" aria-label="简历检查完成后的操作">
+          {!embedded && <div className="step-actions" aria-label="简历检查完成后的操作">
             <button type="button" className="secondary-button" onClick={onEditResume}>返回修改简历</button>
-            <button type="button" className="primary-button" disabled={!markdown.trim() || !report.passed} onClick={onNext}>{report.passed ? '开始模拟面试' : '处理完问题后开始模拟面试'}</button>
-          </div>
+            <button type="button" className="primary-button" disabled={busy || !markdown.trim()} onClick={onNext}>查看最终简历</button>
+          </div>}
         </div>
       )}
     </div>

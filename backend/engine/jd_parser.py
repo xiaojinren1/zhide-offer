@@ -1,7 +1,7 @@
 """E1 JD 解析器：JD 原文 → 结构化 JSON。
 
 防幻觉设计（设计文档 5.3.1）：每条要求必须能在原文找到依据；
-找不到依据的标 inferred=True，不当成硬性要求使用。
+找不到依据的职责或要求标为 inferred，匹配诊断拒绝使用这份不完整解析。
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ _SYSTEM = """你是招聘需求分析器。把用户给的 JD 原文解析成结
 def _verify_evidence(jd_text: str, parsed: ParsedJD) -> ParsedJD:
     """程序校验：evidence 的原文依据是否真实存在于 JD 中。
 
-    可追溯铁律：回溯不了的一律降级为 inferred，不参与硬性判断。
+    可追溯铁律：职责和要求均须有原文依据，回溯不了的标为 inferred。
     """
     verified: dict[str, str] = {}
     inferred: list[str] = []
@@ -41,7 +41,7 @@ def _verify_evidence(jd_text: str, parsed: ParsedJD) -> ParsedJD:
         else:
             inferred.append(req)
     # 没有 evidence 的要求也算无依据
-    all_reqs = list(parsed.hard_requirements) + list(parsed.soft_requirements)
+    all_reqs = list(parsed.responsibilities) + list(parsed.hard_requirements) + list(parsed.soft_requirements)
     for req in all_reqs:
         if req not in verified and req not in inferred:
             inferred.append(req)

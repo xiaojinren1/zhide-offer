@@ -118,6 +118,11 @@ export const api = {
       ok: boolean; error?: string; profile?: ResumeProfile; raw_text?: string
     }>,
 
+  generateRole: (job_title: string) =>
+    http.post('/diagnose/generate-role', { job_title }).then((r) => r.data) as Promise<{
+      ok: boolean; error?: string; job_title?: string; jd_text?: string
+    }>,
+
   parseJd: (jd_text: string) =>
     http.post('/diagnose/parse-jd', { jd_text }).then((r) => r.data) as Promise<{
       ok: boolean; error?: string; jd?: ParsedJD
@@ -131,8 +136,9 @@ export const api = {
   generateResume: (jd_text: string, resume_profile: ResumeProfile, jd_keywords: string[] = []) =>
     http.post('/resume/generate', { jd_text, resume_profile, jd_keywords }).then((r) => r.data) as Promise<{
       ok: boolean; error?: string; markdown?: string
+      generation_mode?: 'initial' | 'tailored'
       untraceable?: string[]; traceability_passed?: boolean
-      tailoring?: TailoringReport
+      tailoring?: TailoringReport | null
       slimming?: { total: number; used: number; dropped: string[] }
     }>,
   reviseResume: (jd_text: string, resume_profile: ResumeProfile, resume_markdown: string, suggestions: Array<{ id: string; type: string; location: string; detail: string; suggestion: string; severity: string }>) =>

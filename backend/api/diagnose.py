@@ -2,15 +2,33 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from core import events
 from core.llm import LLMError
 from engine.jd_parser import parse_jd
 from engine.matcher import match
 from engine.resume_parser import profile_from_dict
+from engine.role_requirements import generate_role_requirements
 
 router = APIRouter(prefix="/api/diagnose", tags=["diagnose"])
+
+
+class GenerateRoleRequest(BaseModel):
+    job_title: str = Field(min_length=1, max_length=120)
+
+    @field_validator("job_title")
+    @classmethod
+    def require_title(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("请填写目标岗位名称")
+        return value.strip()
+
+
+@router.post("/generate-role")
+def generate_role(req: GenerateRoleRequest):
+    jd_text = generate_role_requirements(req.job_title)
+    return {"ok": True, "job_title": req.job_title, "jd_text": jd_text}
 
 
 class DiagnoseRequest(BaseModel):

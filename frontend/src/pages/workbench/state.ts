@@ -54,12 +54,11 @@ export function operationError(error: unknown): string {
   return error instanceof Error ? error.message : '操作失败，请重试。'
 }
 
-export function generationBlock(profile: ResumeProfile | null, jdText: string): string {
+export function generationBlock(profile: ResumeProfile | null, _jdText: string): string {
   if (!profile) return '先整理材料，再核对事实。'
   const issues = factIssues(profile)
   if (issues.length) return issues[0]
-  if (!profile.user_confirmed) return '请核对并勾选事实确认；修改岗位后也需重新确认。'
-  if (!jdText.trim()) return '请在第 3 步填写目标岗位 JD。'
+  if (!profile.user_confirmed) return '请核对并勾选事实确认。'
   return ''
 }
 
@@ -67,8 +66,7 @@ export function progress(profile: ResumeProfile | null, jdText: string, markdown
   const blocked = generationBlock(profile, jdText)
   if (!profile) return { step: 1, label: '待整理' }
   if (factIssues(profile).length || !profile.user_confirmed) return { step: 2, label: '待确认' }
-  if (!jdText.trim()) return { step: 3, label: '已确认 · 待填写岗位' }
-  return { step: 4, label: markdown.trim() && !blocked ? '已生成' : '已确认 · 待生成' }
+  return { step: 3, label: markdown.trim() && !blocked ? '已有简历 · 可继续优化' : '已确认 · 待生成初稿' }
 }
 
 export function parsedProfile(result: { ok: boolean; error?: string; profile?: ResumeProfile }): ResumeProfile {

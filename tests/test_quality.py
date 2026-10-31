@@ -42,10 +42,21 @@ class QualityContract(unittest.TestCase):
             "resume_markdown": "# 演示同学\nPython 后端开发",
         }
 
-    def test_blank_jd_is_rejected(self):
-        response = self.client.post("/api/quality", json={**self.payload, "jd_text": "   "})
-        self.assertEqual(response.status_code, 422)
-        self.assertIn("JD 文本不能为空", str(response.json()["detail"]))
+    def test_blank_jd_runs_basic_check_without_parsing_or_stale_keywords(self):
+        with patch("api.quality.parse_jd") as parser, patch("api.quality.run_all", return_value=[]) as scan:
+            response = self.client.post("/api/quality", json={**self.payload, "jd_text": "   "})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
+        self.assertFalse(response.json()["keyword_applicable"])
+        self.assertEqual(response.json()["keyword_coverage"], 0)
+        self.assertEqual(scan.call_args.args[1], [])
+        parser.assert_not_called()
+
+    def test_blank_jd_keyword_gate_does_not_fail_an_otherwise_clean_report(self):
+        payload = {**self.payload, "jd_text": "", "resume_markdown": "# 演示同学\nPython 完成3个流程\na@sample.invalid\n13800138000"}
+        with patch("api.quality._consistency_issues", return_value=[]), patch("api.quality.run_all", return_value=[]):
+            response = self.client.post("/api/quality", json=payload)
+        self.assertTrue(response.json()["passed"])
 
     def test_jd_parse_failure_is_propagated(self):
         payload = {key: value for key, value in self.payload.items() if key != "jd_keywords"}

@@ -95,12 +95,12 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
   const [pageOverride, setPageOverride] = useState<'account' | null>(null)
   const canOpen = (value: Page) => value === 'account' || value === 'memory' || value === 'workbench'
     || (value === 'diagnose' && Boolean(profile && jdText.trim() && markdown.trim()))
-    || (value === 'quality' && Boolean(profile && jdText.trim() && markdown.trim()))
-    || (value === 'interview' && Boolean(markdown.trim()))
+    || (value === 'quality' && Boolean(profile && markdown.trim()))
+    || (value === 'interview' && Boolean(profile?.user_confirmed && jdText.trim() && markdown.trim()))
   const requestedPage: Page = pageOverride || state.page
   const page: Page = canOpen(requestedPage) ? requestedPage : 'workbench'
   const setPage = (value: Page) => {
-    if (!canOpen(value)) return
+    if (operationBusy.current || loggingOut || !canOpen(value)) return
     setPageOverride(value === 'account' ? 'account' : null)
     if (value !== 'account') update((previous) => ({ ...previous, page: value }))
   }
@@ -108,14 +108,20 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
   const setJdKeywords = (value: string[]) => update((previous) => ({ ...previous, jd_keywords: value }))
   const setSourceText = (value: string) => update((previous) => ({ ...previous, source_text: value }))
   const setSourceName = (value: string) => update((previous) => ({ ...previous, source_name: value }))
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusyState] = useState(false)
+  const operationBusy = useRef(false)
+  const setBusy = useCallback((value: boolean) => { operationBusy.current = value; setBusyState(value) }, [])
   const [loggingOut, setLoggingOut] = useState(false)
   const [logoutError, setLogoutError] = useState('')
   const updateProfile = (value: ResumeProfile | null) => update((previous) => ({ ...previous, profile: value, markdown: '' }))
-  const updateJd = (value: string) => update((previous) => ({ ...previous, jd_text: value, jd_keywords: [], markdown: '', profile: previous.profile ? { ...previous.profile, user_confirmed: false } : null }))
+  const updateJd = (value: string) => update((previous) => ({ ...previous, jd_text: value, jd_keywords: [] }))
   const retentionLabel = { loading: '正在恢复工作台…', ready: '工作台已就绪 · 编辑后自动保存', pending: '有编辑尚未保存…', saving: '正在保存工作台…', saved: '工作台已保存', 'load-error': '工作台恢复失败', 'save-error': '工作台保存失败', conflict: '其他页面已更新，请处理版本冲突' }[persistence.phase]
+  const restoreWorkspace = () => {
+    if (operationBusy.current || loggingOut) return
+    void persistence.load()
+  }
   async function logout() {
-    if (busy || loggingOut) return
+    if (operationBusy.current || loggingOut) return
     setLoggingOut(true); setLogoutError('')
     try { if (persistence.loaded || persistence.hasUnsaved()) await persistence.flush(); await api.logout(); onLoggedOut() }
     catch (reason) {
@@ -128,11 +134,11 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
     <aside className="sidebar"><div className="sidebar-caption">我的求职流程</div><nav aria-label="求职流程">{FLOW.map((item, index) => { const allowed = canOpen(item.id); return <button key={item.id} disabled={busy || loggingOut || !persistence.loaded || !allowed} aria-disabled={!allowed} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => setPage(item.id)}><span className="flow-index">{index + 1}</span><UiIcon name={item.icon} /><span>{item.name}</span>{page === item.id && <span className="nav-dot" />}</button> })}</nav><div className="sidebar-secondary"><button className={`nav-item ${page === 'memory' ? 'active' : ''}`} disabled={busy || loggingOut || !persistence.loaded} onClick={() => setPage('memory')}><UiIcon name="folder" /><span>个人经历库</span></button></div><div className="sidebar-bottom"><div className="sidebar-tip"><UiIcon name="shield" /><strong>工作台内完成闭环</strong><p>岗位匹配和简历检查会围绕当前简历逐项修改。</p></div></div></aside>
     <main className="workspace"><div className="page-heading"><div><span className="eyebrow">{page === 'account' ? 'ACCOUNT SETTINGS' : 'YOUR NEXT CHAPTER'}</span><h1>{page === 'account' ? '个人中心' : '把真实经历，变成岗位竞争力'}</h1><p>{page === 'account' ? '管理头像与登录密码。' : '整理经历，确认事实，为每个心仪岗位做好准备。'}</p></div>{page !== 'account' && <div className="brand-companion" aria-hidden="true"><span className="brand-orbit" /><img src={posterOwl} alt="" width="180" height="180" /><span className="companion-caption">你的 AI 求职伙伴</span></div>}</div>
       {logoutError && <p className="auth-error account-error" role="alert">退出未成功：{logoutError}</p>}
-      <div className="notice" role={persistence.error ? 'alert' : 'status'}><span>{retentionLabel}{persistence.error && `：${persistence.error}`}</span>{persistence.savedAt && persistence.phase === 'saved' && <span className="muted"> · {new Date(persistence.savedAt).toLocaleTimeString('zh-CN')}</span>}{persistence.phase === 'load-error' && <button className="secondary-button" onClick={() => void persistence.load()}>重试恢复</button>}{persistence.phase === 'save-error' && <button className="secondary-button" disabled={loggingOut} onClick={() => void persistence.retrySave().catch(() => undefined)}>重试保存</button>}{persistence.phase === 'conflict' && <button className="secondary-button" onClick={() => void persistence.load()}>放弃本页编辑并加载服务器版本</button>}</div>
+      <div className="notice" role={persistence.error ? 'alert' : 'status'}><span>{retentionLabel}{persistence.error && `：${persistence.error}`}</span>{persistence.savedAt && persistence.phase === 'saved' && <span className="muted"> · {new Date(persistence.savedAt).toLocaleTimeString('zh-CN')}</span>}{persistence.phase === 'load-error' && <button className="secondary-button" disabled={busy || loggingOut} onClick={restoreWorkspace}>重试恢复</button>}{persistence.phase === 'save-error' && <button className="secondary-button" disabled={loggingOut} onClick={() => void persistence.retrySave().catch(() => undefined)}>重试保存</button>}{persistence.phase === 'conflict' && <button className="secondary-button" disabled={busy || loggingOut} onClick={restoreWorkspace}>放弃本页编辑并加载服务器版本</button>}</div>
       <div inert={!persistence.loaded || loggingOut}>
-      {page === 'workbench' && <WorkbenchPage userId={user.id} sourceText={sourceText} setSourceText={setSourceText} sourceName={sourceName} setSourceName={setSourceName} profile={profile} onProfileChange={updateProfile} jdText={jdText} onJdChange={updateJd} markdown={markdown} onMarkdownChange={setMarkdown} jdKeywords={jdKeywords} busy={busy || loggingOut || !persistence.loaded} onBusyChange={setBusy} onDiagnose={() => setPage('diagnose')} onQuality={() => setPage('quality')} />}
-      {page === 'diagnose' && <div className="legacy-panel"><DiagnosePage jdText={jdText} setJdText={updateJd} profile={profile} onDone={(_text, keywords) => setJdKeywords(keywords)} onEditResume={() => setPage('workbench')} onNext={() => setPage('quality')} /></div>}
-      {page === 'quality' && <div className="legacy-panel"><QualityPage jdText={jdText} jdKeywords={jdKeywords} profile={profile} markdown={markdown} onMarkdownChange={setMarkdown} onEditResume={() => setPage('workbench')} onNext={() => setPage('interview')} /></div>}
+      {persistence.loaded && page === 'workbench' && <WorkbenchPage userId={user.id} sourceText={sourceText} setSourceText={setSourceText} sourceName={sourceName} setSourceName={setSourceName} profile={profile} onProfileChange={updateProfile} jdText={jdText} onJdChange={updateJd} markdown={markdown} onMarkdownChange={setMarkdown} jdKeywords={jdKeywords} onJdKeywordsChange={setJdKeywords} busy={busy || loggingOut || !persistence.loaded} onBusyChange={setBusy} onDiagnose={() => setPage('diagnose')} onQuality={() => setPage('quality')} onInterview={() => setPage('interview')} />}
+      {page === 'diagnose' && <div className="legacy-panel"><DiagnosePage jdText={jdText} setJdText={updateJd} profile={profile} markdown={markdown} onMarkdownChange={setMarkdown} busy={busy || loggingOut || !persistence.loaded} onBusyChange={setBusy} onDone={(_text, keywords) => setJdKeywords(keywords)} onEditResume={() => setPage('workbench')} onNext={() => setPage('quality')} /></div>}
+      {page === 'quality' && <div className="legacy-panel"><QualityPage jdText={jdText} jdKeywords={jdKeywords} profile={profile} markdown={markdown} onMarkdownChange={setMarkdown} busy={busy || loggingOut || !persistence.loaded} onBusyChange={setBusy} onEditResume={() => setPage('workbench')} onNext={() => setPage('workbench')} /></div>}
       {page === 'interview' && <div className="legacy-panel"><InterviewPage userId={user.id} jdText={jdText} profile={profile} markdown={markdown} /></div>}
       {page === 'memory' && <LibraryPage key={user.id} currentProfile={profile} hasUnsaved={persistence.hasUnsaved()} userId={user.id} markdown={markdown} resumeName={sourceName || profile?.name || '职得offer'} disabled={busy || loggingOut || !persistence.loaded} onLoad={(loadedProfile, meta) => {
         update((previous) => ({

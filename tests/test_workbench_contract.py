@@ -49,7 +49,7 @@ class WorkbenchContract(AuthenticatedContract):
             model.assert_not_called()
 
     def test_missing_inputs_rejected(self):
-        for jd,profile in [('',self.profile),('产品经理',dict(self.profile,experiences=[]))]:
+        for jd,profile in [('',dict(self.profile,experiences=[])),('产品经理',dict(self.profile,experiences=[]))]:
             response=self.client.post('/api/resume/generate',json={'jd_text':jd,'resume_profile':profile})
             self.assertEqual(response.status_code,422)
 

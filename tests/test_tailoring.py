@@ -239,6 +239,39 @@ class TailoringApi(unittest.TestCase):
         self.audit = {'items': [audited(), {'id': 'r2', 'excerpt_id': ''}], 'unsupported_claims': []}
         self.audit['items'][0] = audited()
 
+    def test_initial_draft_keeps_all_facts_and_skips_job_stages(self):
+        request = {**self.request, 'jd_text': ' ', 'use_examples': True}
+        with patch('api.resume.plan_tailoring') as planner, patch('api.resume.review_tailoring') as reviewer, \
+             patch('engine.example_lib.retrieve') as examples, patch('api.resume.chat_with_tools',
+                return_value={'content': '# 虚构同学\n整理练习数据', 'rounds': 1, 'tool_calls': []}) as writer:
+            response = self.client.post('/api/resume/generate', json=request)
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(data['generation_mode'], 'initial')
+        self.assertIsNone(data['tailoring'])
+        self.assertEqual(data['slimming'], {'total': 2, 'used': 2, 'dropped': []})
+        self.assertIn('self_check', data)
+        payload = json.loads(writer.call_args.args[1].split('输入：')[1].split('\n\n')[0])
+        self.assertEqual([row['name'] for row in payload['experiences']], ['校园产品', '数据练习'])
+        self.assertEqual(payload['jd_keywords'], [])
+        self.assertIsNone(payload['tailoring_plan'])
+        self.assertIn('不要推断目标岗位或筛除经历', writer.call_args.args[0])
+        self.assertIn('executor', writer.call_args.kwargs)
+        planner.assert_not_called(); reviewer.assert_not_called(); examples.assert_not_called()
+
+    def test_initial_draft_still_rejects_unconfirmed_empty_or_failed_output(self):
+        for changes in ({'user_confirmed': False}, {'experiences': []}):
+            with patch('api.resume.chat_with_tools') as writer:
+                response = self.client.post('/api/resume/generate', json={**self.request, 'jd_text': '',
+                    'resume_profile': {**self.request['resume_profile'], **changes}})
+            self.assertEqual(response.status_code, 422)
+            writer.assert_not_called()
+        for value, status in [({'content': ''}, 502), ({'content': '# 未完成', 'deadline_hit': True}, 504)]:
+            with patch('api.resume.chat_with_tools', return_value=value):
+                response = self.client.post('/api/resume/generate', json={**self.request, 'jd_text': ''})
+            self.assertEqual(response.status_code, status)
+            self.assertNotIn('markdown', response.json())
+
     def test_full_flow_prompt_contains_verified_plan_and_only_supported_keywords(self):
         with patch('engine.tailoring.chat_json', side_effect=[self.model_plan, self.audit]) as stages, patch('api.resume.chat_with_tools',
             return_value={'content': '# 虚构同学\n使用 SQL 分析订单', 'rounds': 1, 'tool_calls': []}) as writer:

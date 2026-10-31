@@ -140,7 +140,7 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
       }} />}
       {page === 'account' && <AccountPage user={user} onUserChange={onUserUpdated} />}
       </div>
-      <footer className="workspace-footer"><span>职得offer · 让每一段真实经历被看见</span><span>开发预览 · 内容请在使用前核对</span></footer>
+      <footer className="workspace-footer"><span className="footer-brand">职得offer · 让每一段真实经历被看见</span><p><strong>免责声明：</strong>AI 生成内容仅供求职准备参考，请核对真实性后再使用；本产品不承诺面试或录用结果。</p><p><strong>原创声明：</strong>产品界面与功能由团队原创设计开发；用户上传材料及其知识产权归用户或原权利人所有。</p></footer>
     </main>
   </div>
 }

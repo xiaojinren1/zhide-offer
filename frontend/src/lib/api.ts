@@ -5,20 +5,28 @@ import type {
 } from './types'
 import type { InterviewRecord, InterviewRecordInput, WorkspaceResponse, WorkspaceState } from './workspace'
 
-export type AccountUser = { id: string; username: string }
+export type AccountUser = { id: string; username: string; avatar_url?: string | null }
 export const SESSION_EXPIRED_EVENT = 'zhide:session-expired'
 export const ACCOUNT_CHANGED_EVENT = 'zhide:account-changed'
+export const PROFILE_UPDATED_EVENT = 'zhide:profile-updated'
 let authGeneration = 0
 type AccountRequestConfig = InternalAxiosRequestConfig & { accountGeneration?: number }
 const accountChannel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('zhide:account')
 export function invalidateAuthRequests() { authGeneration += 1 }
-accountChannel?.addEventListener('message', () => {
+accountChannel?.addEventListener('message', (event: MessageEvent) => {
+  if (event.data?.type === 'profile-updated') {
+    window.dispatchEvent(new Event(PROFILE_UPDATED_EVENT))
+    return
+  }
   invalidateAuthRequests()
   window.dispatchEvent(new Event(ACCOUNT_CHANGED_EVENT))
 })
 function announceAccountChange() {
   invalidateAuthRequests()
   accountChannel?.postMessage('changed')
+}
+function announceProfileUpdate() {
+  accountChannel?.postMessage({ type: 'profile-updated' })
 }
 
 const http = axios.create({
@@ -61,6 +69,16 @@ export function apiErrorMessage(error: unknown): string {
 
 export const api = {
   me: () => http.get('/auth/me').then((r) => r.data) as Promise<{ ok: true; user: AccountUser }>,
+  profile: () => http.get('/auth/profile').then((r) => r.data) as Promise<{ ok: true; user: AccountUser & { avatar_url: string | null } }>,
+  changePassword: (current_password: string, new_password: string) =>
+    http.post('/auth/change-password', { current_password, new_password }).then((r) => { announceAccountChange(); return r.data }) as Promise<{ ok: true; user: AccountUser }>,
+  uploadAvatar: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return http.post('/auth/avatar', form).then((r) => { announceProfileUpdate(); return r.data }) as Promise<{ ok: true }>
+  },
+  removeAvatar: () =>
+    http.delete('/auth/avatar').then((r) => { announceProfileUpdate(); return r.data }) as Promise<{ ok: true }>,
   login: (username: string, password: string) =>
     http.post('/auth/login', { username, password }).then((r) => { announceAccountChange(); return r.data }) as Promise<{ ok: true; user: AccountUser }>,
   register: (username: string, password: string) =>

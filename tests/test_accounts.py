@@ -3,11 +3,13 @@ import sys
 import tempfile
 import time
 import unittest
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 from fastapi.testclient import TestClient
+from PIL import Image
 from core import accounts
 from main import app
 
@@ -166,6 +168,99 @@ class AccountContract(unittest.TestCase):
         self.assertEqual(self.client.get(f"/api/profiles/{pid}").json()["profile"], profile)
         self.assertEqual(self.client.delete(f"/api/profiles/{pid}").status_code, 200)
         self.assertEqual(self.client.get(f"/api/profiles/{pid}").status_code, 404)
+
+    def test_account_profile_and_password_change_revoke_other_sessions(self):
+        registered = self.register()
+        self.assertEqual(self.client.get("/api/auth/profile").json(), {
+            "ok": True,
+            "user": {**registered.json()["user"], "avatar_url": None},
+        })
+        other_session = TestClient(app, headers=HEADER)
+        self.addCleanup(other_session.close)
+        self.assertEqual(other_session.post("/api/auth/login", json={
+            "username": "demo_a", "password": PASSWORD,
+        }).status_code, 200)
+        previous_token = self.client.cookies.get(accounts.COOKIE_NAME)
+        changed = self.client.post("/api/auth/change-password", json={
+            "current_password": PASSWORD, "new_password": "new-password-123",
+        })
+        self.assertEqual(changed.status_code, 200, changed.text)
+        self.assertNotEqual(self.client.cookies.get(accounts.COOKIE_NAME), previous_token)
+        self.assertEqual(self.client.get("/api/auth/profile").status_code, 200)
+        self.assertEqual(other_session.get("/api/auth/profile").status_code, 401)
+        self.assertEqual(self.client.post("/api/auth/logout").status_code, 200)
+        self.assertEqual(self.client.post("/api/auth/login", json={
+            "username": "demo_a", "password": PASSWORD,
+        }).status_code, 401)
+        self.assertEqual(self.client.post("/api/auth/login", json={
+            "username": "demo_a", "password": "new-password-123",
+        }).status_code, 200)
+
+    def test_change_password_requires_current_password_and_valid_new_length(self):
+        self.register()
+        response = self.client.post("/api/auth/change-password", json={
+            "current_password": "wrong-password", "new_password": "new-password-123",
+        })
+        self.assertEqual(response.status_code, 401)
+        for new_password in ("short", "x" * 129):
+            response = self.client.post("/api/auth/change-password", json={
+                "current_password": PASSWORD, "new_password": new_password,
+            })
+            self.assertEqual(response.status_code, 422)
+            self.assertNotIn(new_password, response.text)
+
+    @staticmethod
+    def png_bytes(size=(2, 2)):
+        buffer = BytesIO()
+        Image.new("RGB", size, (30, 90, 160)).save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    def test_avatar_upload_validates_bytes_stores_and_is_user_scoped(self):
+        self.register()
+        self.assertEqual(self.client.get("/api/auth/avatar").status_code, 404)
+        image = self.png_bytes()
+        uploaded = self.client.post("/api/auth/avatar", files={
+            "file": ("photo.jpg", image, "image/jpeg"),
+        })
+        self.assertEqual(uploaded.status_code, 200, uploaded.text)
+        self.assertEqual(uploaded.json(), {"ok": True, "avatar_url": "/api/auth/avatar"})
+        fetched = self.client.get("/api/auth/avatar")
+        self.assertEqual(fetched.status_code, 200)
+        self.assertEqual(fetched.headers["content-type"], "image/png")
+        self.assertEqual(fetched.content, image)
+        self.assertEqual(self.client.get("/api/auth/profile").json()["user"]["avatar_url"], "/api/auth/avatar")
+
+        second = TestClient(app, headers=HEADER)
+        self.addCleanup(second.close)
+        self.register(second, "demo_b")
+        self.assertEqual(second.get("/api/auth/avatar").status_code, 404)
+        self.assertIsNone(second.get("/api/auth/profile").json()["user"]["avatar_url"])
+        self.assertEqual(second.delete("/api/auth/avatar").status_code, 200)
+        self.assertEqual(self.client.get("/api/auth/avatar").content, image)
+        self.assertEqual(self.client.delete("/api/auth/avatar").status_code, 200)
+        self.assertEqual(self.client.get("/api/auth/avatar").status_code, 404)
+
+    def test_avatar_rejects_invalid_oversized_and_oversized_dimensions(self):
+        self.register()
+        invalid = self.client.post("/api/auth/avatar", files={
+            "file": ("fake.png", b"not an image", "image/png"),
+        })
+        self.assertEqual(invalid.status_code, 422)
+        gif = BytesIO()
+        Image.new("RGB", (2, 2), (30, 90, 160)).save(gif, format="GIF")
+        unsupported = self.client.post("/api/auth/avatar", files={
+            "file": ("photo.gif", gif.getvalue(), "image/gif"),
+        })
+        self.assertEqual(unsupported.status_code, 422)
+        large = self.client.post("/api/auth/avatar", files={
+            "file": ("large.png", b"x" * (2 * 1024 * 1024 + 1), "image/png"),
+        })
+        self.assertEqual(large.status_code, 413)
+        dimensions = self.client.post("/api/auth/avatar", files={
+            "file": ("large-dimensions.png", self.png_bytes((4097, 1)), "image/png"),
+        })
+        self.assertEqual(dimensions.status_code, 422)
+        self.assertEqual(self.client.get("/api/auth/profile").json()["user"]["avatar_url"], None)
 
 
 if __name__ == "__main__":

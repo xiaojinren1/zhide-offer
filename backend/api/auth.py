@@ -1,8 +1,12 @@
 """注册、登录及当前会话入口，不返回密码摘要或会话令牌。"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, Response
+from io import BytesIO
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, Field
+from PIL import Image, UnidentifiedImageError
+from fastapi.responses import Response as ImageResponse
 
 from core import accounts
 
@@ -12,6 +16,33 @@ router = APIRouter(prefix="/api/auth", tags=["auth"], dependencies=[Depends(acco
 class Credentials(BaseModel):
     username: str = Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9_]+\z", strict=True)
     password: str = Field(min_length=8, max_length=128, strict=True)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=8, max_length=128, strict=True)
+    new_password: str = Field(min_length=8, max_length=128, strict=True)
+
+
+MAX_AVATAR_BYTES = 2 * 1024 * 1024
+MAX_AVATAR_DIMENSION = 4096
+AVATAR_FORMATS = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
+
+
+def _validated_avatar(data: bytes) -> str:
+    try:
+        with Image.open(BytesIO(data)) as image:
+            image.verify()
+        with Image.open(BytesIO(data)) as image:
+            if image.format not in AVATAR_FORMATS:
+                raise HTTPException(status_code=422, detail="头像仅支持 JPEG、PNG 或 WebP")
+            if image.width > MAX_AVATAR_DIMENSION or image.height > MAX_AVATAR_DIMENSION:
+                raise HTTPException(status_code=422, detail="头像尺寸不能超过 4096×4096")
+            image.load()
+            return AVATAR_FORMATS[image.format]
+    except HTTPException:
+        raise
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise HTTPException(status_code=422, detail="上传内容不是有效的 JPEG、PNG 或 WebP 图片") from exc
 
 
 def _set_session(request: Request, response: Response, token: str) -> None:
@@ -38,6 +69,42 @@ def login(req: Credentials, request: Request, response: Response):
 @router.get("/me")
 def me(user: dict = Depends(accounts.require_user)):
     return {"ok": True, "user": user}
+
+
+@router.get("/profile")
+def get_profile(user: dict = Depends(accounts.require_user)):
+    return {"ok": True, "user": accounts.profile(user["id"])}
+
+
+@router.post("/change-password")
+def change_password(req: ChangePasswordRequest, request: Request, response: Response,
+                    user: dict = Depends(accounts.require_user)):
+    token = accounts.change_password(user["id"], req.current_password, req.new_password)
+    _set_session(request, response, token)
+    return {"ok": True, "user": {"id": user["id"], "username": user["username"]}}
+
+
+@router.get("/avatar")
+def get_avatar(user: dict = Depends(accounts.require_user)):
+    data, content_type = accounts.get_avatar(user["id"])
+    return ImageResponse(content=data, media_type=content_type, headers={"Cache-Control": "private, no-store"})
+
+
+@router.post("/avatar")
+async def upload_avatar(file: UploadFile = File(...), user: dict = Depends(accounts.require_user)):
+    data = await file.read(MAX_AVATAR_BYTES + 1)
+    await file.close()
+    if len(data) > MAX_AVATAR_BYTES:
+        raise HTTPException(status_code=413, detail="头像文件不能超过 2 MiB")
+    content_type = _validated_avatar(data)
+    accounts.set_avatar(user["id"], data, content_type)
+    return {"ok": True, "avatar_url": "/api/auth/avatar"}
+
+
+@router.delete("/avatar")
+def remove_avatar(user: dict = Depends(accounts.require_user)):
+    accounts.delete_avatar(user["id"])
+    return {"ok": True}
 
 
 @router.post("/logout")

@@ -12,6 +12,12 @@ export default function AuthPage({ onAuthenticated, notice = '' }: {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
+  const [recoveryUsername, setRecoveryUsername] = useState('')
+  const [recoveryCode, setRecoveryCode] = useState('')
+  const [recoveryNewPassword, setRecoveryNewPassword] = useState('')
+  const [recoveryConfirmation, setRecoveryConfirmation] = useState('')
+  const [newRecoveryCode, setNewRecoveryCode] = useState('')
+  const [newRecoveryUser, setNewRecoveryUser] = useState<AccountUser | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const submitting = useRef(false)
@@ -32,7 +38,39 @@ export default function AuthPage({ onAuthenticated, notice = '' }: {
     submitting.current = true
     setBusy(true)
     try {
-      const result = await (registering ? api.register(username, password) : api.login(username, password))
+      if (registering) {
+        const result = await api.register(username, password)
+        setNewRecoveryCode(result.recovery_code)
+        setNewRecoveryUser(result.user)
+      } else {
+        const result = await api.login(username, password)
+        onAuthenticated(result.user)
+      }
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    } finally {
+      submitting.current = false
+      setBusy(false)
+    }
+  }
+
+  async function resetPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (submitting.current) return
+    setError('')
+    if (!/^[A-Za-z0-9_]{3,32}$/.test(recoveryUsername)) {
+      setError('用户名请使用 3–32 位英文字母、数字或下划线。'); return
+    }
+    if (recoveryNewPassword.length < 8 || recoveryNewPassword.length > 128) {
+      setError('新密码长度应为 8–128 个字符。'); return
+    }
+    if (recoveryNewPassword !== recoveryConfirmation) {
+      setError('两次输入的新密码不一致。'); return
+    }
+    submitting.current = true
+    setBusy(true)
+    try {
+      const result = await api.resetPassword(recoveryUsername, recoveryCode, recoveryNewPassword)
       onAuthenticated(result.user)
     } catch (reason) {
       setError(apiErrorMessage(reason))
@@ -42,6 +80,20 @@ export default function AuthPage({ onAuthenticated, notice = '' }: {
     }
   }
 
+  if (newRecoveryCode) {
+    return <main className="auth-shell">
+      <div className="auth-layout"><section className="auth-card" aria-labelledby="recovery-title">
+        <span className="section-kicker">SAVE THIS CODE</span>
+        <h2 id="recovery-title">账户已创建</h2>
+        <p className="auth-description">请立即保存恢复码。关闭此页面后将无法再次查看。</p>
+        <div className="recovery-code" role="status">{newRecoveryCode}</div>
+        <p className="auth-notice">恢复码只用于找回密码，请不要发给其他人，也不要提交到代码仓库。</p>
+        <button type="button" className="primary-button full auth-submit" onClick={() => { if (newRecoveryUser) onAuthenticated(newRecoveryUser) }}>继续进入工作台 →</button>
+      </section></div>
+      <footer className="auth-footer">职得offer · 让每一段真实经历被看见</footer>
+    </main>
+  }
+
   if (forgotPassword) {
     return <main className="auth-shell">
       <div className="auth-layout">
@@ -49,15 +101,29 @@ export default function AuthPage({ onAuthenticated, notice = '' }: {
           <div className="brand"><OwlLogo /><span>职得<span className="brand-offer">offer</span></span></div>
           <span className="eyebrow">ACCOUNT RECOVERY</span>
           <h1>找回你的<br />求职空间。</h1>
-          <p>账户资料和求职材料都属于个人空间，恢复操作需要经过管理员核验。</p>
+          <p>账户资料和求职材料都属于个人空间，恢复操作需要用户名与注册时生成的恢复码。</p>
           <div className="auth-promise"><UiIcon name="shield" /><span>不会仅凭用户名直接修改密码</span></div>
         </section>
         <section className="auth-card" aria-labelledby="auth-title">
           <span className="section-kicker">PASSWORD RECOVERY</span>
           <h2 id="auth-title">忘记密码</h2>
-          <p className="auth-description">当前账户还没有绑定邮箱、手机号或恢复码。请联系团队管理员核验身份并重置密码。</p>
-          <p className="auth-notice" role="status">为保护账户安全，输入用户名不会直接修改密码，也不会暴露账户是否存在。</p>
-          <button type="button" className="primary-button full auth-submit" onClick={() => { setForgotPassword(false); setError('') }}>返回登录</button>
+          <p className="auth-description">输入用户名、注册时获得的恢复码和新密码即可找回账户。</p>
+          <form onSubmit={resetPassword}>
+            <fieldset disabled={busy}>
+              <label htmlFor="recovery-username">用户名</label>
+              <input id="recovery-username" autoComplete="username" value={recoveryUsername} onChange={(e) => setRecoveryUsername(e.target.value)} required minLength={3} maxLength={32} pattern="[A-Za-z0-9_]{3,32}" spellCheck={false} />
+              <label htmlFor="recovery-code">恢复码</label>
+              <input id="recovery-code" autoComplete="off" value={recoveryCode} onChange={(e) => setRecoveryCode(e.target.value)} required minLength={8} maxLength={128} spellCheck={false} />
+              <label htmlFor="recovery-password">新密码</label>
+              <input id="recovery-password" type="password" autoComplete="new-password" value={recoveryNewPassword} onChange={(e) => setRecoveryNewPassword(e.target.value)} required minLength={8} maxLength={128} />
+              <label htmlFor="recovery-confirmation">确认新密码</label>
+              <input id="recovery-confirmation" type="password" autoComplete="new-password" value={recoveryConfirmation} onChange={(e) => setRecoveryConfirmation(e.target.value)} required minLength={8} maxLength={128} />
+              {error && <p className="auth-error" role="alert">{error}</p>}
+              <button type="submit" className="primary-button full auth-submit">{busy ? '正在处理…' : '重置密码并进入 →'}</button>
+            </fieldset>
+          </form>
+          <p className="auth-notice" role="status">恢复码成功使用后会立即失效，其他设备上的旧登录也会被撤销。</p>
+          <button type="button" className="secondary-button full auth-submit" onClick={() => { setForgotPassword(false); setError('') }}>返回登录</button>
           <p className="auth-switch">还没有账户？<button type="button" onClick={() => { setForgotPassword(false); setRegistering(true); setError('') }}>创建账户</button></p>
         </section>
       </div>

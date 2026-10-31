@@ -34,9 +34,49 @@ class AccountContract(unittest.TestCase):
         client = client or self.client
         response = client.post("/api/auth/register", json={"username": username, "password": password})
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(set(response.json()), {"ok", "user"})
+        self.assertEqual(set(response.json()), {"ok", "user", "recovery_code"})
         self.assertEqual(set(response.json()["user"]), {"id", "username"})
+        self.assertTrue(response.json()["recovery_code"])
         return response
+
+    def test_recovery_code_is_hashed_and_resets_once(self):
+        registered = self.register()
+        recovery = registered.json()["recovery_code"]
+        with accounts.connection() as db:
+            row = db.execute("SELECT recovery_code_hash FROM users WHERE username = ?", ("demo_a",)).fetchone()
+            self.assertTrue(row["recovery_code_hash"])
+            self.assertNotEqual(row["recovery_code_hash"], recovery)
+        other_session = TestClient(app, headers=HEADER)
+        self.addCleanup(other_session.close)
+        other_session.post("/api/auth/login", json={"username": "demo_a", "password": PASSWORD})
+        reset = self.client.post("/api/auth/reset-password", json={
+            "username": "demo_a", "recovery_code": recovery, "new_password": "recovered-password-123",
+        })
+        self.assertEqual(reset.status_code, 200, reset.text)
+        self.assertEqual(self.client.get("/api/auth/me").status_code, 200)
+        self.assertEqual(other_session.get("/api/auth/me").status_code, 401)
+        self.client.post("/api/auth/logout")
+        self.assertEqual(self.client.post("/api/auth/login", json={"username": "demo_a", "password": PASSWORD}).status_code, 401)
+        self.assertEqual(self.client.post("/api/auth/login", json={"username": "demo_a", "password": "recovered-password-123"}).status_code, 200)
+        self.client.post("/api/auth/logout")
+        reused = self.client.post("/api/auth/reset-password", json={
+            "username": "demo_a", "recovery_code": recovery, "new_password": "another-password-123",
+        })
+        self.assertEqual(reused.status_code, 401)
+        self.assertEqual(reused.json(), {"detail": "用户名或恢复码不正确"})
+
+    def test_recovery_errors_are_uniform_and_csrf_is_required(self):
+        self.register()
+        for username, recovery in (("missing", "bad-recovery"), ("demo_a", "bad-recovery")):
+            response = self.client.post("/api/auth/reset-password", json={
+                "username": username, "recovery_code": recovery, "new_password": "new-password-123",
+            })
+            self.assertEqual(response.status_code, 401)
+            self.assertEqual(response.json(), {"detail": "用户名或恢复码不正确"})
+        response = self.client.post("/api/auth/reset-password", headers={"X-Requested-With": ""}, json={
+            "username": "demo_a", "recovery_code": "bad-recovery", "new_password": "new-password-123",
+        })
+        self.assertEqual(response.status_code, 403)
 
     def test_register_cookie_and_session_recovery(self):
         response = self.register(username="Demo_A")

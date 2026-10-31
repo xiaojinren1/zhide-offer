@@ -158,8 +158,10 @@ behavior行为情景、motivation动机。优先深挖代表经历的个人贡�
 同时覆盖JD的关键能力及资料缺口。不要所有人都问同样的通用题，不局限三个问题。
 自主选择数量：独立且相关的经历、决策和岗位要求越丰富，可以增加题目；不要按字数机械增加，
 不要重复凑数，不必生成到上限。材料少时通过不同考察角度与诚实的经验缺口题达到至少10题，不编造经历。
-每题source_ids引用真实来源编号，sample_source_ids只能选择resume来源；它们是服务端组装示范回答的事实。
-每题follow_ups为1至3个具体追问，answer_structure为2至5步行动建议，missing为需用户亲自补充的真实细节。
+每题source_ids引用1至8个所提供的真实来源编号；全部题目的source_ids合集必须同时至少引用一个kind=resume和一个kind=jd的来源。
+不要求每题都引用两类，但job_title提及岗位不能代替JD来源引用；JD用于确定考察要求，不能当作个人事实。
+sample_source_ids只能选择0至6个resume来源，用于服务端组装示范回答；没有可引用的事实时为空。
+每题follow_ups为1至3个具体追问，answer_structure为2至5步行动建议，missing为1至4个需用户亲自补充的真实细节。
 不要自由编造示范经历、职责、指标；建议与待补充项必须用建议或问题语气，不当作用户已做过的事实。
 job_title仅从JD概括目标岗位。""", {"sources": sources, "resume_markdown": snapshot["resume_markdown"],
                                                "jd_text": snapshot["jd_text"]}, BankOutput)
@@ -219,8 +221,10 @@ def next_question(context: dict, turns: list[dict], elapsed_seconds: int) -> dic
     result = _model("""你正在进行连续文字模拟面试。只生成下一道问题，不评分、不辅导、不展示答案或评价。
 结合完整对话，围绕同样能力变换问法。回答含糊时追问个人行动、选型依据、验证方式；
 已经充分回答则切换到尚未覆盖的岗位能力。用户跳过或不知道时尊重其选择，不反复逼问。
+上一条回答skipped=true时，下一问必须is_follow_up=false，换角度或主题，不追问被跳过的答案。
 节奏：自我介绍→经历/专业深挖→岗位情景→候选人反问。首次必须introduction。
 阶段逐步推进，不倒退；避免无限停留同一主题，不连续追问同一主题超过两次。
+最近三道问题的topic_id相同时，下一问必须切换到其他topic_id。
 候选人反问阶段可以邀请提问；若用户已提出反问，先用不虚构公司信息的简短回应，再提出下一问题。
 text只包含面试官发言，topic_id必须属于考察主题编号，is_follow_up表示是否沿上一回答追问。
 建议15分钟，但到时不能强制结束；覆盖主要主题后suggest_finish=true，仍给出可继续的问题。
@@ -258,8 +262,13 @@ communication表达结构、reflection反思与应变。每个key恰好出现一
 75=具体连贯、解释行动与依据；100=充分回应追问、解释取舍/局限及岗位迁移。
 未考察到或证据不足时score=null，不得因没被问到而判零；不得按关键词、回答长度、数字数量或与示范相似度计分。
 每个非空score、每个strengths/improvements必须提供实际作答的turn_id和逐字quote；跳过不算作答证据。
+所有evidence（包括score=null维度中的证据）的quote，以及optimized_answers的answer_excerpt，
+都必须是transcript中同一turn_id对应的实际非skipped回答answer里的逐字连续片段，保留原空格和标点，不得改写、拼接或补字。
+turn_id只能使用该实际回答的id；不得把source来源编号或topic主题编号当作turn_id，也不得将其他回答的摘录错配到当前turn_id。
+缺少依据时维度score=null且evidence=[]，不生成无依据的strengths、improvements或optimized_answers条目，不能伪造引用。
 优先给出最多三项改进，advice说明具体如何修改，不能只说加强表达。
 optimized_answers只给回答原文摘录、结构建议、resume事实source_ids和待补充项，由服务端组装示范，不自由编写新经历。
+optimized_answers每项source_ids只能引用0至6个kind=resume的真实来源编号，不能引用kind=jd；没有可引用的事实时为空。
 recommendations引用考察主题topic_id，给出下一轮具体练习动作。无回答时给阶段性反馈、所有维度null、亮点/改进/优化数组为空。
 不要输出逐题分数、总分或录用判断。""",
                   {**context, "transcript": turns}, ReportOutput)

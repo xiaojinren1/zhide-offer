@@ -81,6 +81,33 @@ class ContinuousInterviewContract(unittest.TestCase):
         self.assertEqual(self.model.call_count, 1)
         self.assertEqual(self.post("bank", dict(req, jd_text="另一个岗位")).status_code, 409)
 
+    def test_bank_requires_both_source_kinds_and_original_request_can_retry(self):
+        req = self.bank_body(RICH_PROFILE, "产品实习生；用户访谈；原型设计；协作沟通")
+
+        def resume_only(system, user, **kwargs):
+            data = model_reply(system, user, **kwargs)
+            sources = json.loads(user)["sources"]
+            resume_ids = {source["id"] for source in sources if source["kind"] == "resume"}
+            for question in data["questions"]:
+                question["source_ids"] = [sid for sid in question["source_ids"] if sid in resume_ids]
+            return data
+
+        self.model.side_effect = resume_only
+        self.assertEqual(self.post("bank", req).status_code, 502)
+        self.assertIsNone(store.find("bank-" + req["request_id"], self.uid, "bank"))
+        prompt = self.model.call_args.args[0]
+        self.assertIn("全部题目的source_ids合集必须同时至少引用一个kind=resume和一个kind=jd", prompt)
+
+        self.model.side_effect = model_reply
+        response = self.post("bank", req)
+        self.assertEqual(response.status_code, 200, response.text)
+        bank = response.json()["bank"]
+        kinds = {source["id"]: source["kind"] for source in bank["sources"]}
+        self.assertEqual({kinds[sid] for question in bank["questions"] for sid in question["source_ids"]}, {"resume", "jd"})
+        calls = self.model.call_count
+        self.assertEqual(response.json(), self.post("bank", req).json())
+        self.assertEqual(self.model.call_count, calls)
+
     def test_richer_materials_are_available_and_mock_covers_distinct_experiences(self):
         req = self.bank_body(RICH_PROFILE, "产品实习生；用户访谈；原型设计；协作沟通")
         response = self.post("bank", req)
@@ -155,6 +182,34 @@ class ContinuousInterviewContract(unittest.TestCase):
         self.assertTrue(value["turns"][0]["skipped"])
         self.assertFalse(value["turns"][-1]["question"]["is_follow_up"])
 
+    def test_invalid_followup_after_skip_does_not_commit_and_can_retry(self):
+        session = self.start()
+        req = self.answer_body(session, "", skip=True)
+
+        def follows_skipped_answer(system, user, **kwargs):
+            data = model_reply(system, user, **kwargs)
+            data["is_follow_up"] = True
+            return data
+
+        self.model.side_effect = follows_skipped_answer
+        self.assertEqual(self.post("turn", req).status_code, 502)
+        state, _ = store.load(session["id"], self.uid, "session")
+        self.assertEqual(state["version"], session["version"])
+        self.assertIsNone(state["turns"][0]["answer"])
+        self.assertEqual(len(state["turns"]), 1)
+        self.assertIn("上一条回答skipped=true时，下一问必须is_follow_up=false", self.model.call_args.args[0])
+
+        self.model.side_effect = model_reply
+        response = self.post("turn", req)
+        self.assertEqual(response.status_code, 200, response.text)
+        value = response.json()["session"]
+        self.assertTrue(value["turns"][0]["skipped"])
+        self.assertFalse(value["turns"][-1]["question"]["is_follow_up"])
+        self.assertEqual(len(value["turns"]), 2)
+        calls = self.model.call_count
+        self.assertEqual(response.json(), self.post("turn", req).json())
+        self.assertEqual(self.model.call_count, calls)
+
     def test_fifteen_minutes_does_not_end_and_early_end_has_partial_feedback(self):
         session = self.start()
         req = dict(self.answer_body(session), elapsed_seconds=930)
@@ -207,18 +262,65 @@ class ContinuousInterviewContract(unittest.TestCase):
         self.model.side_effect = model_reply
         self.assertEqual(self.post("report", req).json()["report"]["answered_count"], 1)
 
-    def test_fabricated_quote_rejected_and_retry_without_reappending_final(self):
-        session = self.start(); req = self.end_body(session, "只回答已确认的事实。")
-        def bad(system, user, **kwargs):
-            data = model_reply(system, user, **kwargs)
-            data["dimensions"][0]["evidence"] = [{"turn_id": "turn-1", "quote": "伪造收入增长100倍"}]
-            return data
-        self.model.side_effect = bad
-        self.assertEqual(self.post("report", req).status_code, 502)
+    def test_invalid_report_citations_and_jd_sample_retry_without_duplicate_final_or_history(self):
+        session = self.start()
+        answer = "我使用 Python  编写预约冲突检查，通过测试验证。"
+        session = self.post("turn", self.answer_body(session, answer)).json()["session"]
+        req = self.end_body(session, "最后补充：只回答已确认的事实。")
+
+        def invalid_reply(kind):
+            def reply(system, user, **kwargs):
+                data = model_reply(system, user, **kwargs)
+                payload = json.loads(user)
+                rewrite = data["optimized_answers"][0]
+                if kind == "rewritten_excerpt":
+                    rewrite["answer_excerpt"] = answer.replace("  ", " ")
+                elif kind == "wrong_answer_turn":
+                    rewrite["turn_id"] = payload["transcript"][-1]["id"]
+                elif kind == "null_dimension_fabricated_quote":
+                    data["dimensions"][0].update(score=None, evidence=[
+                        {"turn_id": payload["transcript"][0]["id"], "quote": "伪造收入增长100倍"}])
+                elif kind in ("source_as_turn", "topic_as_turn"):
+                    turn_id = payload["sources"][0]["id"] if kind == "source_as_turn" else payload["topics"][0]["id"]
+                    data["dimensions"][0]["evidence"] = [{"turn_id": turn_id, "quote": answer}]
+                elif kind == "jd_sample_source":
+                    rewrite["source_ids"] = [next(source["id"] for source in payload["sources"] if source["kind"] == "jd")]
+                return data
+            return reply
+
+        for kind in ("rewritten_excerpt", "wrong_answer_turn", "null_dimension_fabricated_quote",
+                     "source_as_turn", "topic_as_turn", "jd_sample_source"):
+            with self.subTest(kind=kind):
+                self.model.side_effect = invalid_reply(kind)
+                calls = self.model.call_count
+                self.assertEqual(self.post("report", req).status_code, 502)
+                self.assertEqual(self.model.call_count, calls + 1)
+                state, _ = store.load(session["id"], self.uid, "session")
+                self.assertEqual(state["status"], "ended")
+                self.assertNotIn("report", state)
+                self.assertEqual([turn["answer"] for turn in state["turns"]], [answer, req["final_answer"]])
+                self.assertEqual(self.a.get("/api/interview-records").json()["records"], [])
+        prompt = self.model.call_args.args[0]
+        self.assertIn("保留原空格和标点，不得改写、拼接或补字", prompt)
+        self.assertIn("source_ids只能引用0至6个kind=resume", prompt)
+        self.assertEqual(self.post("turn", self.answer_body(session)).status_code, 409)
+        self.assertEqual(self.post("report", dict(req, final_answer="更换末答")).status_code, 409)
+
         self.model.side_effect = model_reply
-        value = self.post("report", req).json()
-        self.assertEqual(len(value["session"]["turns"]), 1)
-        self.assertEqual(value["report"]["answered_count"], 1)
+        response = self.post("report", req)
+        self.assertEqual(response.status_code, 200, response.text)
+        value = response.json()
+        self.assertTrue(value["saved"])
+        self.assertEqual(len(value["session"]["turns"]), 2)
+        self.assertEqual(value["session"]["turns"][-1]["answer"], req["final_answer"])
+        self.assertEqual(value["report"]["answered_count"], 2)
+        calls = self.model.call_count
+        self.assertEqual(value, self.post("report", req).json())
+        self.assertEqual(self.model.call_count, calls)
+        self.assertEqual(len(self.a.get("/api/interview-records").json()["records"]), 1)
+        record = self.a.get("/api/interview-records/" + value["record_id"]).json()["record"]
+        self.assertEqual(len(record["overall_feedback"]["transcript"]), 2)
+        self.assertEqual(record["overall_feedback"]["transcript"][-1]["answer"], req["final_answer"])
 
     def test_save_failure_retains_report_retry_does_not_call_model(self):
         session = self.start(); req = self.end_body(session)

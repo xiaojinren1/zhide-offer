@@ -17,9 +17,9 @@
 ## 接口与协作
 
 - 新增 `POST /api/interview/bank`、`/start`、`/turn`、`/report`，所有写请求携带 expected_user_id 和安全请求头。题库/面试 ID、版本、重试请求 ID 由服务端校验；材料与对话以服务端状态为准。
-- /bank 接收 resume_profile、resume_markdown、jd_text、request_id，返回 bank 对象，其 id 是后续使用的 bank_id，含冻结快照、事实来源和 10–30 题。
+- /bank 接收 resume_profile、resume_markdown、jd_text、request_id，返回 bank 对象，其 id 是后续使用的 bank_id，含冻结快照、事实来源和 10–30 题。全部题目的 source_ids 合集须同时包含简历和 JD 来源，示范回答只引用已确认简历事实；来源校验失败不保存题库，可用原请求体手动重试，成功后重复请求复用原题库。
 - /start 接收 bank_id 或完整的 resume_profile、resume_markdown、jd_text，两种输入互斥；返回会话、入口模式和材料快照，不返回示范或辅导。失败不落地半完成会话；相同请求重试不重复创建。/turn 的 bank_id 开始方式仅为旧客户端兼容保留；后续接收 session_id、version、answer、skip、elapsed_seconds、request_id。失败不提交当前回答。
-- /report 接收 session_id、version、elapsed_seconds、final_answer、request_id，先冻结结束状态及最后一条草稿，生成结构化报告，再写入现有记录表；必须用相同请求体重试，复用已有报告和记录 ID。保存失败时不重新调用评价模型；保存成功后删除的记录不能通过旧请求重新创建。
+- /report 接收 session_id、version、elapsed_seconds、final_answer、request_id，先冻结结束状态及最后一条草稿，生成结构化报告，再写入现有记录表；必须用相同请求体重试，复用已有报告和记录 ID。所有 evidence（包括空分维度的证据）及 answer_excerpt 必须是同一 turn_id 下实际非跳过回答的逐字连续片段，保留空格和标点，不得拼接或改写；来源和主题编号不能充当回答编号。引用校验失败不生成报告或历史，结束状态和末答仍保留，原结束请求重试不重复追加末答。保存失败时不重新调用评价模型；保存成功后删除的记录不能通过旧请求重新创建。
 - 临时题库和会话使用同一账户数据库内的 interview_artifacts 表，超过七天清理，不作为刷新续接功能。每轮最多 100 次对话，到达上限仍可结束复盘。已完成历史不随临时状态过期清理。
 - 新完成历史使用 schema_version: 3，含 mode、snapshot、context（岗位、事实来源、考察主题及简历/JD）、可空 bank、transcript、report、elapsed_seconds。直接面试不产生题库跳转，报告显示练习主题；兼容 schema_version: 2 和旧格式，无需新表。
 - 历史题库只用于回看与定位练习主题；下一轮可以基于当前材料直接开始，也可以重新生成题库。报告未保存成功时禁止替换本轮内容。

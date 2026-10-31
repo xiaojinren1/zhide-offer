@@ -15,6 +15,7 @@ export function UiIcon({ name }: { name: string }) {
     check: <path d="m5 12 4 4L19 6"/>,
     download: <><path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/></>,
     plus: <path d="M12 5v14M5 12h14"/>,
+    chevron: <path d="m9 6 6 6-6 6"/>,
   }
   return <svg className="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name] || paths.file}</svg>
 }

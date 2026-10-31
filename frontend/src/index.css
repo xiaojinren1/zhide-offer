@@ -100,3 +100,20 @@ textarea,input:not([type=checkbox]):not([type=file]),select{border-color:#cbdced
 .page-heading h1,.page-heading p{overflow-wrap:anywhere}
 @media(max-width:1260px){.sidebar{width:230px}.workspace{margin-left:230px}.nav-item{font-size:14px}}
 @media(max-width:800px){.sidebar{width:100%}.workspace{margin-left:0}.nav-item{white-space:normal}.nav-item>span:not(.flow-index):not(.nav-dot){overflow:visible;text-overflow:clip}}
+
+/* Prevent the workbench grid from forcing a wider page on compact desktop viewports. */
+.workspace{min-width:0;overflow-x:hidden}
+.page-heading{min-width:0}
+.page-heading h1{max-width:100%;word-break:break-word}
+@media(max-width:1100px) and (min-width:801px){
+  .sidebar{width:216px;padding-left:12px;padding-right:12px}
+  .workspace{margin-left:216px;padding:30px 24px 24px}
+  .nav-item{font-size:13px;gap:8px;padding-left:10px;padding-right:10px;white-space:normal;min-height:50px;height:auto}
+  .nav-item>span:not(.flow-index):not(.nav-dot){overflow:visible;text-overflow:clip;white-space:normal}
+  .workbench-grid{grid-template-columns:minmax(0,1fr)}
+  .preview-panel{grid-column:auto}
+  .page-heading{display:block}
+  .page-heading h1{font-size:28px;line-height:1.35;margin-right:0}
+  .page-heading p{font-size:14px;line-height:1.8}
+  .heading-badge{display:none}
+}

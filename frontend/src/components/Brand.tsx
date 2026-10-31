@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 export function OwlLogo() {
-  return <svg className="owl-logo" viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="M7 17 5 5l13 7a26 26 0 0 1 12 0l13-7-2 12c3 4 4 8 3 13-2 10-10 15-20 15S6 40 4 30c-1-5 0-9 3-13Z" fill="#1675F8"/><path d="M9 22c0-6 8-10 15-3 7-7 15-3 15 3v5c0 8-9 12-15 7-6 5-15 1-15-7v-5Z" fill="white"/><circle cx="16.5" cy="24" r="4.5" fill="#143461"/><circle cx="31.5" cy="24" r="4.5" fill="#143461"/><circle cx="18" cy="22.5" r="1.4" fill="white"/><circle cx="33" cy="22.5" r="1.4" fill="white"/><path d="m20 30 4 6 4-6h-8Z" fill="#FFBC48"/></svg>
+  return <svg className="owl-logo" viewBox="0 0 160 160" fill="none" aria-hidden="true"><path d="M25 47 22 17 51 33Q80 24 109 33L138 17 135 47C152 67 150 99 133 120Q111 145 80 150Q49 145 27 120C10 99 8 67 25 47Z" fill="#fff" stroke="#222C36" strokeWidth="7" strokeLinejoin="round"/><path d="M31 78C31 56 50 46 68 54L80 61 92 54C110 46 129 56 129 78C129 103 108 114 90 104L80 98 70 104C52 114 31 103 31 78Z" fill="#222C36"/><circle cx="57" cy="79" r="17" stroke="#C88E32" strokeWidth="5"/><circle cx="103" cy="79" r="17" stroke="#C88E32" strokeWidth="5"/><circle cx="60" cy="76" r="4" fill="white"/><circle cx="106" cy="76" r="4" fill="white"/><path d="m72 111 8 10 11-14" stroke="#C88E32" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round"/></svg>
 }
 export function UiIcon({ name }: { name: string }) {
   const paths: Record<string, ReactNode> = {

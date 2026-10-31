@@ -6,6 +6,7 @@ import { interviewClient } from './interview/client'
 import { BankView } from './interview/BankView'
 import { ReportView } from './interview/ReportView'
 import { answerError, formatTime, MAX_ANSWER_LENGTH, PracticeClock } from './interview/practice'
+import { createRequestId } from './interview/requestId'
 import { isBank, isContext, isReport, isSnapshot, isTurn, object } from './interview/types'
 import type { Bank, Session, ReportResponse, Turn } from './interview/types'
 import './interview/interview.css'
@@ -83,7 +84,7 @@ export default function InterviewPage({ userId: suppliedUserId, jdText, profile,
     finally { working.current = false; if (alive.current) setBusy(false) }
   }
   function requestBody(key: string, body: Record<string, unknown>) {
-    if (pending.current?.key !== key) pending.current = { key, body: { ...body, expected_user_id: userId, request_id: crypto.randomUUID() } }
+    if (pending.current?.key !== key) pending.current = { key, body: { ...body, expected_user_id: userId, request_id: createRequestId() } }
     return pending.current!.body
   }
   async function refreshHistory() {
@@ -129,7 +130,7 @@ export default function InterviewPage({ userId: suppliedUserId, jdText, profile,
     if (draft.length > MAX_ANSWER_LENGTH) { setError(answerError(draft) || '回答过长'); return }
     void run(async () => {
       if (!finishBody.current) finishBody.current = {
-        expected_user_id: userId, request_id: crypto.randomUUID(), session_id: session.id, version: session.version,
+        expected_user_id: userId, request_id: createRequestId(), session_id: session.id, version: session.version,
         elapsed_seconds: clock.current.seconds(), final_answer: draft,
       }
       setEnding(true)

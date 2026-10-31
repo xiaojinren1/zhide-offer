@@ -28,6 +28,7 @@ import { bankFixture, reportFixture, sessionFixture } from './interview/test-sup
 
 const profile: ResumeProfile = { name: '虚构同学', experiences: [{ kind: 'project', name: '预约系统', role: '开发', period: '2025', actions: ['编写接口'], results: ['交付原型'], skills: [] }], skills: ['Python'], education: [], user_confirmed: true }
 const fetchMock = vi.fn()
+const getRandomValues = globalThis.crypto.getRandomValues.bind(globalThis.crypto)
 let pageProps: Parameters<typeof InterviewPage>[0]
 function render() { hooks.cursor = 0; hooks.effects = []; return InterviewPage(pageProps) }
 function nodes(value: any): any[] {
@@ -73,6 +74,8 @@ beforeEach(() => {
   hooks.slots = []; hooks.cursor = 0; hooks.effects = []; vi.resetAllMocks()
   pageProps = { userId: 'user-a', profile, jdText: 'Python 开发', markdown: '# 虚构简历' }
   vi.stubGlobal('fetch', fetchMock)
+  // 公网 HTTP 页面没有 randomUUID；所有入口、回答和报告回归均在该环境运行。
+  vi.stubGlobal('crypto', { getRandomValues })
   const target = new EventTarget()
   vi.stubGlobal('window', { addEventListener: target.addEventListener.bind(target), removeEventListener: target.removeEventListener.bind(target), dispatchEvent: target.dispatchEvent.bind(target), setInterval, clearInterval })
   vi.mocked(api.listInterviewRecords).mockResolvedValue({ ok: true, records: [] })
@@ -80,6 +83,22 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('continuous interview page', () => {
+  it('restores preparation buttons after a bank failure and retries the identical request without randomUUID', async () => {
+    expect(globalThis.crypto.randomUUID).toBeUndefined()
+    fetchMock.mockResolvedValueOnce(reply({ detail: '题库超时' }, 504))
+    button('生成个性化题库').props.onClick()
+    await vi.waitFor(() => expect(text(render())).toContain('题库超时'))
+    expect(button('生成个性化题库').props.disabled).toBe(false)
+    expect(button('直接进入全真模拟').props.disabled).toBe(false)
+    const first = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(first.request_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    fetchMock.mockResolvedValueOnce(reply({ ok: true, bank: bankFixture() }))
+    button('生成个性化题库').props.onClick()
+    await vi.waitFor(() => expect(button('从这份题库进入模拟')).toBeDefined())
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual(first)
+    expect(text(render())).not.toContain('题库超时')
+    expect(button('按当前材料重新生成题库').props.disabled).toBe(false)
+  })
   it('shows independent entries and names missing materials without hiding them', () => {
     pageProps = { ...pageProps, profile: null, markdown: '', jdText: '' }
     expect(button('生成个性化题库').props.disabled).toBe(true)

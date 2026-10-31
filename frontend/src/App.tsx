@@ -93,14 +93,19 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
   const { state, update } = persistence
   const { profile, jd_text: jdText, jd_keywords: jdKeywords, markdown, source_text: sourceText, source_name: sourceName } = state
   const [pageOverride, setPageOverride] = useState<'account' | null>(null)
+  const [workbenchEntryStep, setWorkbenchEntryStep] = useState<3 | 4>(3)
   const canOpen = (value: Page) => value === 'account' || value === 'memory' || value === 'workbench'
     || (value === 'diagnose' && Boolean(profile && jdText.trim() && markdown.trim()))
     || (value === 'quality' && Boolean(profile && markdown.trim()))
     || (value === 'interview' && Boolean(profile?.user_confirmed && jdText.trim() && markdown.trim()))
   const requestedPage: Page = pageOverride || state.page
   const page: Page = canOpen(requestedPage) ? requestedPage : 'workbench'
-  const setPage = (value: Page) => {
+  useEffect(() => {
+    if (page === 'workbench') setWorkbenchEntryStep(3)
+  }, [page])
+  const setPage = (value: Page, workbenchStep: 3 | 4 = 3) => {
     if (operationBusy.current || loggingOut || !canOpen(value)) return
+    if (value === 'workbench') setWorkbenchEntryStep(workbenchStep)
     setPageOverride(value === 'account' ? 'account' : null)
     if (value !== 'account') update((previous) => ({ ...previous, page: value }))
   }
@@ -136,9 +141,9 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
       {logoutError && <p className="auth-error account-error" role="alert">退出未成功：{logoutError}</p>}
       <div className="notice" role={persistence.error ? 'alert' : 'status'}><span>{retentionLabel}{persistence.error && `：${persistence.error}`}</span>{persistence.savedAt && persistence.phase === 'saved' && <span className="muted"> · {new Date(persistence.savedAt).toLocaleTimeString('zh-CN')}</span>}{persistence.phase === 'load-error' && <button className="secondary-button" disabled={busy || loggingOut} onClick={restoreWorkspace}>重试恢复</button>}{persistence.phase === 'save-error' && <button className="secondary-button" disabled={loggingOut} onClick={() => void persistence.retrySave().catch(() => undefined)}>重试保存</button>}{persistence.phase === 'conflict' && <button className="secondary-button" disabled={busy || loggingOut} onClick={restoreWorkspace}>放弃本页编辑并加载服务器版本</button>}</div>
       <div inert={!persistence.loaded || loggingOut}>
-      {persistence.loaded && page === 'workbench' && <WorkbenchPage userId={user.id} sourceText={sourceText} setSourceText={setSourceText} sourceName={sourceName} setSourceName={setSourceName} profile={profile} onProfileChange={updateProfile} jdText={jdText} onJdChange={updateJd} markdown={markdown} onMarkdownChange={setMarkdown} jdKeywords={jdKeywords} onJdKeywordsChange={setJdKeywords} busy={busy || loggingOut || !persistence.loaded} onBusyChange={setBusy} onDiagnose={() => setPage('diagnose')} onQuality={() => setPage('quality')} onInterview={() => setPage('interview')} />}
+      {persistence.loaded && page === 'workbench' && <WorkbenchPage initialStep={workbenchEntryStep} userId={user.id} sourceText={sourceText} setSourceText={setSourceText} sourceName={sourceName} setSourceName={setSourceName} profile={profile} onProfileChange={updateProfile} jdText={jdText} onJdChange={updateJd} markdown={markdown} onMarkdownChange={setMarkdown} jdKeywords={jdKeywords} onJdKeywordsChange={setJdKeywords} busy={busy || loggingOut || !persistence.loaded} onBusyChange={setBusy} onDiagnose={() => setPage('diagnose')} onQuality={() => setPage('quality')} onInterview={() => setPage('interview')} />}
       {page === 'diagnose' && <div className="legacy-panel"><DiagnosePage jdText={jdText} setJdText={updateJd} profile={profile} markdown={markdown} onMarkdownChange={setMarkdown} busy={busy || loggingOut || !persistence.loaded} onBusyChange={setBusy} onDone={(_text, keywords) => setJdKeywords(keywords)} onEditResume={() => setPage('workbench')} onNext={() => setPage('quality')} /></div>}
-      {page === 'quality' && <div className="legacy-panel"><QualityPage jdText={jdText} jdKeywords={jdKeywords} profile={profile} markdown={markdown} onMarkdownChange={setMarkdown} busy={busy || loggingOut || !persistence.loaded} onBusyChange={setBusy} onEditResume={() => setPage('workbench')} onNext={() => setPage('workbench')} /></div>}
+      {page === 'quality' && <div className="legacy-panel"><QualityPage jdText={jdText} jdKeywords={jdKeywords} profile={profile} markdown={markdown} onMarkdownChange={setMarkdown} busy={busy || loggingOut || !persistence.loaded} onBusyChange={setBusy} onEditResume={() => setPage('workbench')} onNext={() => setPage('workbench', 4)} /></div>}
       {page === 'interview' && <div className="legacy-panel"><InterviewPage userId={user.id} jdText={jdText} profile={profile} markdown={markdown} /></div>}
       {page === 'memory' && <LibraryPage key={user.id} currentProfile={profile} hasUnsaved={persistence.hasUnsaved()} userId={user.id} markdown={markdown} resumeName={sourceName || profile?.name || '职得offer'} disabled={busy || loggingOut || !persistence.loaded} onLoad={(loadedProfile, meta) => {
         update((previous) => ({

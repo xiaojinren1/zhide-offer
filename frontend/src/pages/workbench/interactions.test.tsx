@@ -63,6 +63,23 @@ beforeEach(() => {
 })
 
 describe('工作台真实事件回调（Mock API）', () => {
+  it('显式预览入口直接展示当前稿，可返回优化且不重新生成', () => {
+    props.markdown = '# 已编辑的最终稿'
+    props.initialStep = 4
+    expect(input(render(), 'id', 'wb-step-4').props.hidden).toBe(false)
+    expect(input(render(), 'id', 'wb-step-3').props.hidden).toBe(true)
+    expect(props.markdown).toBe('# 已编辑的最终稿')
+    expect(api.generateResume).not.toHaveBeenCalled()
+    button(render(), '返回检查与优化').props.onClick()
+    expect(input(render(), 'id', 'wb-step-3').props.hidden).toBe(false)
+    expect(props.markdown).toBe('# 已编辑的最终稿')
+  })
+  it('预览入口仍要求已确认的有效事实和当前稿', () => {
+    props.initialStep = 4
+    props.markdown = '# 保留稿'
+    props.profile = { ...fixture(), user_confirmed: false }
+    expect(input(render(), 'id', 'wb-step-4').props.hidden).toBe(true)
+  })
   it('恢复已有稿进入检查与优化，预览中的普通编辑不自动跳步', () => {
     props.markdown = '# 恢复稿'
     expect(input(render(), 'id', 'wb-step-3').props.hidden).toBe(false)

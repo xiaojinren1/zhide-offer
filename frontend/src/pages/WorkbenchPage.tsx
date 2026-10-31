@@ -15,6 +15,7 @@ import type { TailoringReport } from '../lib/tailoring'
 import './workbench/workbench.css'
 interface Props {
   userId?: string
+  initialStep?: 3 | 4
   sourceText: string; setSourceText: (text: string) => void
   sourceName: string; setSourceName: (name: string) => void
   profile: ResumeProfile | null; onProfileChange: (profile: ResumeProfile | null) => void
@@ -24,7 +25,7 @@ interface Props {
 }
 const SAMPLE = '陈同学\n某大学，本科，2022.09—2026.06\n求职方向：产品经理\n项目：校园活动报名流程优化，2025.03—2025.06\n角色：项目成员\n负责收集同学的报名反馈，整理重复填报、信息分散等问题，绘制报名流程原型，并与开发同学沟通需求。\n产出：需求文档与流程原型，协助完成反馈整理。\n技能：需求分析、原型设计、用户反馈整理、跨团队协作。'
 const SAMPLE_JD = '产品经理（示例岗位）\n工作职责：收集用户需求，分析业务流程，完成产品原型与需求文档，与研发团队沟通并推动方案落地。\n岗位要求：具备需求分析、原型设计和沟通协作能力，有校园项目或实习经历。'
-export default function WorkbenchPage({ userId, sourceText, setSourceText, sourceName, setSourceName, profile, onProfileChange, jdText, onJdChange, markdown, onMarkdownChange, jdKeywords, onJdKeywordsChange, busy, onBusyChange, onDiagnose, onQuality, onInterview }: Props) {
+export default function WorkbenchPage({ userId, initialStep = 3, sourceText, setSourceText, sourceName, setSourceName, profile, onProfileChange, jdText, onJdChange, markdown, onMarkdownChange, jdKeywords, onJdKeywordsChange, busy, onBusyChange, onDiagnose, onQuality, onInterview }: Props) {
   // 保留旧调用方的可选参数，避免队友页面或测试在联调时因接口变化中断。
   void onDiagnose; void onQuality
   const [activity, setActivity] = useState('')
@@ -33,7 +34,7 @@ export default function WorkbenchPage({ userId, sourceText, setSourceText, sourc
   const [previewMode, setPreviewMode] = useState<'preview' | 'edit'>('preview')
   const [retryAction, setRetryAction] = useState<'parse' | 'generate' | null>(null)
   const [waiting, setWaiting] = useState(false)
-  const [activeStep, setActiveStep] = useState(markdown.trim() ? 3 : profile ? 2 : 1)
+  const [activeStep, setActiveStep] = useState(markdown.trim() ? (initialStep === 4 && profile?.user_confirmed && !factIssues(profile).length ? 4 : 3) : profile ? 2 : 1)
   const [optimizationTool, setOptimizationTool] = useState<'quality' | 'match'>('quality')
   const [initialDraft, setInitialDraft] = useState(false)
   const [manuallyEdited, setManuallyEdited] = useState(false)

@@ -78,6 +78,22 @@ describe('模型请求期间的工作台恢复保护', () => {
     workspace.state.profile.user_confirmed = false
     expect(nodes(render()).some(node => node.type === InterviewPage)).toBe(false)
   })
+  it('旧质检的最终简历入口传递预览意图，返回修改仍进入优化且不改稿', () => {
+    workspace.state = { ...workspace.state, page: 'quality', profile: { user_confirmed: true }, markdown: '# 已编辑稿' }
+    workspace.update.mockImplementation(update => { workspace.state = update(workspace.state) })
+    const quality = nodes(render()).find(node => node.type === QualityPage)
+    quality.props.onNext()
+    let workbench = nodes(render()).find(node => node.type === WorkbenchPage)
+    expect(workbench.props.initialStep).toBe(4)
+    expect(workbench.props.markdown).toBe('# 已编辑稿')
+    expect(workspace.state.page).toBe('workbench')
+    expect(workspace.state).not.toHaveProperty('initialStep')
+    workspace.state.page = 'quality'
+    nodes(render()).find(node => node.type === QualityPage).props.onEditResume()
+    workbench = nodes(render()).find(node => node.type === WorkbenchPage)
+    expect(workbench.props.initialStep).toBe(3)
+    expect(workbench.props.markdown).toBe('# 已编辑稿')
+  })
   it.each([
     ['conflict', '放弃本页编辑并加载服务器版本'],
     ['load-error', '重试恢复'],

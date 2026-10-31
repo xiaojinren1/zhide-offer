@@ -82,7 +82,9 @@ export const api = {
   login: (username: string, password: string) =>
     http.post('/auth/login', { username, password }).then((r) => { announceAccountChange(); return r.data }) as Promise<{ ok: true; user: AccountUser }>,
   register: (username: string, password: string) =>
-    http.post('/auth/register', { username, password }).then((r) => { announceAccountChange(); return r.data }) as Promise<{ ok: true; user: AccountUser }>,
+    http.post('/auth/register', { username, password }).then((r) => { announceAccountChange(); return r.data }) as Promise<{ ok: true; user: AccountUser; recovery_code: string }>,
+  resetPassword: (username: string, recovery_code: string, new_password: string) =>
+    http.post('/auth/reset-password', { username, recovery_code, new_password }).then((r) => { announceAccountChange(); return r.data }) as Promise<{ ok: true; user: AccountUser }>,
   logout: () => http.post('/auth/logout').then((r) => { announceAccountChange(); return r.data }) as Promise<{ ok: true }>,
   health: () => http.get('/health').then((r) => r.data),
   loadWorkspace: () => http.get('/workspace').then((r) => r.data) as Promise<WorkspaceResponse>,
@@ -130,6 +132,10 @@ export const api = {
       ok: boolean; error?: string; markdown?: string
       untraceable?: string[]; traceability_passed?: boolean
       slimming?: { total: number; used: number; dropped: string[] }
+    }>,
+  reviseResume: (jd_text: string, resume_profile: ResumeProfile, resume_markdown: string, suggestions: Array<{ id: string; type: string; location: string; detail: string; suggestion: string; severity: string }>) =>
+    http.post('/resume/revise', { jd_text, resume_profile, resume_markdown, suggestions }).then((r) => r.data) as Promise<{
+      ok: boolean; error?: string; markdown?: string; untraceable?: string[]
     }>,
 
   quality: (jd_text: string, resume_profile: ResumeProfile, resume_markdown: string, jd_keywords: string[] = []) =>

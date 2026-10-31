@@ -128,7 +128,7 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
       <div inert={!persistence.loaded || loggingOut}>
       {page === 'workbench' && <WorkbenchPage userId={user.id} sourceText={sourceText} setSourceText={setSourceText} sourceName={sourceName} setSourceName={setSourceName} profile={profile} onProfileChange={updateProfile} jdText={jdText} onJdChange={updateJd} markdown={markdown} onMarkdownChange={setMarkdown} jdKeywords={jdKeywords} busy={busy || loggingOut || !persistence.loaded} onBusyChange={setBusy} onInterview={() => setPage('interview')} />}
       {page === 'diagnose' && <div className="legacy-panel"><DiagnosePage jdText={jdText} setJdText={updateJd} profile={profile} onDone={(_text, keywords) => setJdKeywords(keywords)} /></div>}
-      {page === 'quality' && <div className="legacy-panel"><QualityPage jdText={jdText} jdKeywords={jdKeywords} profile={profile} markdown={markdown} /></div>}
+      {page === 'quality' && <div className="legacy-panel"><QualityPage jdText={jdText} jdKeywords={jdKeywords} profile={profile} markdown={markdown} onMarkdownChange={setMarkdown} /></div>}
       {page === 'interview' && <div className="legacy-panel"><InterviewPage userId={user.id} jdText={jdText} profile={profile} markdown={markdown} /></div>}
       {page === 'memory' && <LibraryPage key={user.id} currentProfile={profile} hasUnsaved={persistence.hasUnsaved()} userId={user.id} markdown={markdown} resumeName={sourceName || profile?.name || '职得offer'} disabled={busy || loggingOut || !persistence.loaded} onLoad={(loadedProfile, meta) => {
         update((previous) => ({

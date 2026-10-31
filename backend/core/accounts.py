@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     avatar_blob BLOB,
     avatar_content_type TEXT,
+    recovery_code_hash TEXT,
     created_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sessions (
@@ -81,6 +82,8 @@ def connection() -> Iterator[sqlite3.Connection]:
             db.execute("ALTER TABLE users ADD COLUMN avatar_blob BLOB")
         if "avatar_content_type" not in user_columns:
             db.execute("ALTER TABLE users ADD COLUMN avatar_content_type TEXT")
+        if "recovery_code_hash" not in user_columns:
+            db.execute("ALTER TABLE users ADD COLUMN recovery_code_hash TEXT")
         with db:
             yield db
     finally:
@@ -120,21 +123,41 @@ def new_session(db: sqlite3.Connection, user_id: str) -> str:
     return token
 
 
-def register(username: str, password: str) -> tuple[dict, str]:
+def register(username: str, password: str) -> tuple[dict, str, str]:
     username = username.lower()
     encoded = password_hash(password)
+    recovery = secrets.token_urlsafe(12)
     user = {"id": uuid4().hex, "username": username}
     with connection() as db:
         try:
             db.execute(
-                "INSERT INTO users(id,username,password_hash,created_at) VALUES(?,?,?,?)",
-                (user["id"], username, encoded, time.time()),
+                "INSERT INTO users(id,username,password_hash,recovery_code_hash,created_at) VALUES(?,?,?,?,?)",
+                (user["id"], username, encoded, password_hash(recovery), time.time()),
             )
         except sqlite3.IntegrityError as exc:
             if db.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
                 raise HTTPException(status_code=409, detail="用户名已存在，请更换或直接登录") from exc
             raise
         token = new_session(db, user["id"])
+    return user, token, recovery
+
+
+def reset_password(username: str, recovery: str, new_password: str) -> tuple[dict, str]:
+    with connection() as db:
+        row = db.execute(
+            "SELECT id,username,recovery_code_hash FROM users WHERE username = ?",
+            (username.lower(),),
+        ).fetchone()
+        valid = bool(row and row["recovery_code_hash"] and verify_password(recovery, row["recovery_code_hash"]))
+        if not valid:
+            raise HTTPException(status_code=401, detail="用户名或恢复码不正确")
+        db.execute(
+            "UPDATE users SET password_hash = ?, recovery_code_hash = NULL WHERE id = ?",
+            (password_hash(new_password), row["id"]),
+        )
+        db.execute("DELETE FROM sessions WHERE user_id = ?", (row["id"],))
+        token = new_session(db, row["id"])
+        user = {"id": row["id"], "username": row["username"]}
     return user, token
 
 

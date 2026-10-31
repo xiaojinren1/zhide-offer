@@ -23,6 +23,12 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=128, strict=True)
 
 
+class ResetPasswordRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9_]+\z", strict=True)
+    recovery_code: str = Field(min_length=8, max_length=128, strict=True)
+    new_password: str = Field(min_length=8, max_length=128, strict=True)
+
+
 MAX_AVATAR_BYTES = 2 * 1024 * 1024
 MAX_AVATAR_DIMENSION = 4096
 AVATAR_FORMATS = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
@@ -54,7 +60,14 @@ def _set_session(request: Request, response: Response, token: str) -> None:
 
 @router.post("/register")
 def register(req: Credentials, request: Request, response: Response):
-    user, token = accounts.register(req.username, req.password)
+    user, token, recovery_code = accounts.register(req.username, req.password)
+    _set_session(request, response, token)
+    return {"ok": True, "user": user, "recovery_code": recovery_code}
+
+
+@router.post("/reset-password")
+def reset_password(req: ResetPasswordRequest, request: Request, response: Response):
+    user, token = accounts.reset_password(req.username, req.recovery_code, req.new_password)
     _set_session(request, response, token)
     return {"ok": True, "user": user}
 

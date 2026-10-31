@@ -26,6 +26,7 @@ export default function WorkbenchPage({ userId, sourceText, setSourceText, sourc
   const [previewMode, setPreviewMode] = useState<'preview' | 'edit'>('preview')
   const [retryAction, setRetryAction] = useState<'parse' | 'generate' | null>(null)
   const [waiting, setWaiting] = useState(false)
+  const [activeStep, setActiveStep] = useState(1)
   const [manuallyEdited, setManuallyEdited] = useState(false)
   const requestLock = useRef(false)
   const lastFile = useRef<File | undefined>(undefined)
@@ -119,14 +120,25 @@ export default function WorkbenchPage({ userId, sourceText, setSourceText, sourc
   const editMarkdown = (text: string) => {
     onMarkdownChange(text); setGenerationCheck(null); setManuallyEdited(true)
   }
+  const stepReady = (step: number) => {
+    if (step === 2) return Boolean(profile)
+    if (step === 3) return Boolean(profile?.user_confirmed && !issues.length)
+    if (step === 4) return Boolean(profile?.user_confirmed && !issues.length && jdText.trim())
+    return true
+  }
+  const canVisitStep = (step: number) => step <= activeStep || stepReady(step)
+  const stepActions = (step: number) => <div className="step-actions">
+    {step > 1 && <button type="button" className="secondary-button" disabled={busy} onClick={() => setActiveStep(step - 1)}>上一步</button>}
+    {step < 4 && <button type="button" className="primary-button" disabled={busy || !stepReady(step + 1)} onClick={() => setActiveStep(step + 1)}>下一步：{['', '确认事实', '岗位 JD', '简历预览'][step]}</button>}
+  </div>
   return <div className="role-b-workbench" aria-busy={busy}>
-    <ol className="stepper" aria-label="求职准备进度">{['材料输入', '确认事实', '岗位 JD', '简历预览'].map((name, i) => <li key={name} aria-current={current.step === i + 1 ? 'step' : undefined} className={current.step === i + 1 ? 'current' : current.step > i + 1 ? 'complete' : ''}><a href={`#wb-step-${i + 1}`}><span className="step-number">{current.step > i + 1 ? <UiIcon name="check" /> : i + 1}</span><span>{name}</span></a>{i < 3 && <span className="step-line" />}</li>)}</ol>
+    <ol className="stepper" aria-label="求职准备进度">{['材料输入', '确认事实', '岗位 JD', '简历预览'].map((name, i) => <li key={name} aria-current={activeStep === i + 1 ? 'step' : undefined} className={activeStep === i + 1 ? 'current' : current.step > i + 1 ? 'complete' : ''}><button type="button" className="step-link" disabled={!canVisitStep(i + 1)} aria-disabled={!canVisitStep(i + 1)} onClick={() => canVisitStep(i + 1) && setActiveStep(i + 1)}><span className="step-number">{current.step > i + 1 ? <UiIcon name="check" /> : i + 1}</span><span>{name}</span></button><a className="step-link-legacy" href={`#wb-step-${i + 1}`} hidden aria-hidden="true" tabIndex={-1}>{name}</a>{i < 3 && <span className="step-line" />}</li>)}</ol>
     <div className="wb-status" role="status"><strong>当前：{markdown.trim() && !blocked && review.warning ? '草稿待核对' : current.label}</strong><p>{blocked || (markdown.trim() ? '简历已生成草稿，请查看质检提示并逐句核对后使用。' : '事实与岗位已就绪，可以生成简历。')}</p></div>
     <p className="wb-hint">离开前请确认页面上方显示工作台已保存；原始上传文件不会留存。演示材料完全虚构，请替换为自己的真实经历。</p>
     {error && <div className="error-banner" role="alert"><strong>这一步没有完成</strong><span>{error}</span>{retryAction && <button className="secondary-button" disabled={busy} onClick={() => retryAction === 'parse' ? void parse(lastFile.current) : void generate()}>重试{retryAction === 'parse' ? '整理材料' : '生成简历'}</button>}<button className="wb-dismiss" onClick={() => setError('')} aria-label="关闭错误提示">×</button></div>}
     {busy && <div className="activity-banner" role="status"><span className="spinner" />{activity || '正在处理…'}<span className="muted">{waiting ? '模型仍在处理，请勿重复提交；若超时会显示重试入口。' : '完成后可继续编辑，请勿刷新页面。'}</span></div>}
-    <div className="workbench-grid">
-      <section id="wb-step-1" tabIndex={-1} className="panel materials-panel"><div className="panel-heading"><div><span className="section-kicker">01 / MATERIALS</span><h2>求职材料</h2></div><UiIcon name="folder" /></div><fieldset disabled={busy}>
+    <div className="workbench-grid step-page-grid">
+      <section id="wb-step-1" hidden={activeStep !== 1} aria-hidden={activeStep !== 1} tabIndex={-1} className="panel materials-panel"><div className="panel-heading"><div><span className="section-kicker">01 / MATERIALS</span><h2>求职材料</h2></div><UiIcon name="folder" /></div><fieldset disabled={busy}>
         <label className="upload-zone"><input aria-label="上传求职材料" type="file" accept={FILE_ACCEPT} onChange={(e) => { const file = e.target.files?.[0]; if (file) void parse(file); e.target.value = '' }} /><span className="upload-icon"><UiIcon name="upload" /></span><strong>上传简历或经历材料</strong><span>DOCX · 文字 PDF · TXT · Markdown · JPG/PNG/WebP</span></label>
         <p className="wb-hint">单文件不超过 10 MB。图片会交给视觉模型整理，结果仍需你逐项确认；语音、旧版 DOC 和扫描 PDF 的 OCR 尚未接入。</p>
         {sourceName && <div className="source-chip"><UiIcon name="file" /><span>{sourceName}</span><span className="tag blue">已整理</span></div>}
@@ -135,8 +147,8 @@ export default function WorkbenchPage({ userId, sourceText, setSourceText, sourc
         <button className="secondary-button full" disabled={!sourceText.trim()} onClick={() => void parse()}><UiIcon name="spark" />{activity === '正在整理材料…' ? activity : profile ? '重新整理文本材料' : '整理文本材料'}</button>
         <p className="wb-hint">重新整理会清空当前事实确认和生成稿。材料只用于整理，请勿填写无依据的经历与数字。</p>
         {!profile && <div className="manual-entry"><p className="wb-hint">不想使用 AI 整理，或解析失败？可以直接填写自己的真实经历。手工录入无需模型，生成简历仍需模型服务。</p><button className="secondary-button full" onClick={startManual}>直接手工填写事实</button></div>}
-      </fieldset></section>
-      <section id="wb-step-2" tabIndex={-1} className="panel facts-panel"><div className="panel-heading"><div><span className="section-kicker">02 / YOUR STORY</span><h2>关键事实，先由你确认</h2></div>{profile && <span className={`tag ${profile.user_confirmed && !issues.length ? 'green' : 'amber'}`}>{profile.user_confirmed && !issues.length ? '已确认' : '待确认'}</span>}</div><p className="panel-description">AI 整理信息，你决定哪些才是事实。也可直接手工填写，无需先调用 AI。</p>
+      </fieldset>{stepActions(1)}</section>
+      <section id="wb-step-2" hidden={activeStep !== 2} aria-hidden={activeStep !== 2} tabIndex={-1} className="panel facts-panel"><div className="panel-heading"><div><span className="section-kicker">02 / YOUR STORY</span><h2>关键事实，先由你确认</h2></div>{profile && <span className={`tag ${profile.user_confirmed && !issues.length ? 'green' : 'amber'}`}>{profile.user_confirmed && !issues.length ? '已确认' : '待确认'}</span>}</div><p className="panel-description">AI 整理信息，你决定哪些才是事实。也可直接手工填写，无需先调用 AI。</p>
         {!profile ? <div className="empty-state"><span className="empty-symbol"><UiIcon name="shield" /></span><h3>每一份好简历<br />都从真实经历开始</h3><p>先在左侧上传材料或粘贴文字。整理后，你可以在这里核对、补充和修改。</p><div className="empty-note">不确定的内容，留空也没关系。</div></div> : <fieldset disabled={busy} className="facts-form">
           <label className="field-label" htmlFor="person-name">姓名</label><input id="person-name" value={profile.name} onChange={(e) => editProfile({ ...profile, name: e.target.value })} placeholder="填写姓名" />
           {profile.experiences.map((exp, index) => <details className="experience-card" key={index} open><summary><span><span className="experience-number">{String(index + 1).padStart(2, '0')}</span>{exp.name || '待补充的经历'}</span><span>⌄</span></summary><div className="experience-fields">
@@ -157,17 +169,17 @@ export default function WorkbenchPage({ userId, sourceText, setSourceText, sourc
 
         </fieldset>}
         {profile && userId && <ImportReview key={JSON.stringify([userId,profile,sourceName])} material={{expected_user_id:userId,profile,source_name:sourceName||'工作台材料'}} disabled={busy||!profile.user_confirmed||issues.length>0}/> }
-        <div className="fact-note"><UiIcon name="shield" /><span>没有依据的经历与成果数字，不写入简历。修改事实或岗位 JD 后，需要重新确认。</span></div>
+        <div className="fact-note"><UiIcon name="shield" /><span>没有依据的经历与成果数字，不写入简历。修改事实或岗位 JD 后，需要重新确认。</span></div>{stepActions(2)}
       </section>
-      <section id="wb-step-3" tabIndex={-1} className="panel wb-jd-panel"><div className="panel-heading"><div><span className="section-kicker">03 / TARGET ROLE</span><h2>目标岗位 JD</h2></div><span className={`tag ${jdText.trim() ? 'green' : 'amber'}`}>{jdText.trim() ? '已填写' : '待填写'}</span></div><fieldset disabled={busy}><label className="field-label" htmlFor="jd-text">岗位职责与任职要求 <span>不限岗位</span></label><textarea id="jd-text" className="jd-text" value={jdText} onChange={(e) => editJd(e.target.value)} placeholder="粘贴完整岗位职责和任职要求，让每次生成都针对具体岗位。" /><p className="wb-hint">可提前填写。修改 JD 会撤销事实确认并清空旧简历，请回到第 2 步重新确认。</p></fieldset></section>
-      <section id="wb-step-4" tabIndex={-1} className="panel preview-panel"><div className="panel-heading"><div><span className="section-kicker">04 / YOUR NEXT OFFER</span><h2>定向简历预览</h2></div><span className={`tag ${markdown && review.warning ? 'amber' : 'blue'}`}>{markdown ? '草稿待核对' : '待生成'}</span></div><p className="panel-description">让与岗位相关的经历，先被看见。</p>
+      <section id="wb-step-3" hidden={activeStep !== 3} aria-hidden={activeStep !== 3} tabIndex={-1} className="panel wb-jd-panel"><div className="panel-heading"><div><span className="section-kicker">03 / TARGET ROLE</span><h2>目标岗位 JD</h2></div><span className={`tag ${jdText.trim() ? 'green' : 'amber'}`}>{jdText.trim() ? '已填写' : '待填写'}</span></div><fieldset disabled={busy}><label className="field-label" htmlFor="jd-text">岗位职责与任职要求 <span>不限岗位</span></label><textarea id="jd-text" className="jd-text" value={jdText} onChange={(e) => editJd(e.target.value)} placeholder="粘贴完整岗位职责和任职要求，让每次生成都针对具体岗位。" /><p className="wb-hint">可提前填写。修改 JD 会撤销确认并清空旧简历，请回到第 2 步重新确认。</p></fieldset>{stepActions(3)}</section>
+      <section id="wb-step-4" hidden={activeStep !== 4} aria-hidden={activeStep !== 4} tabIndex={-1} className="panel preview-panel"><div className="panel-heading"><div><span className="section-kicker">04 / YOUR NEXT OFFER</span><h2>定向简历预览</h2></div><span className={`tag ${markdown && review.warning ? 'amber' : 'blue'}`}>{markdown ? '草稿待核对' : '待生成'}</span></div><p className="panel-description">让与岗位相关的经历，先被看见。</p>
         <button className="primary-button full generate-button" disabled={busy || Boolean(blocked)} onClick={() => void generate()}><UiIcon name="spark" />{activity === '正在生成并检查简历…' ? activity : markdown ? '重新生成简历' : '根据已确认事实生成简历'}</button><p className="wb-hint">{blocked || (markdown ? '重新生成将替换当前稿件，包括手动修改；如需保留请先下载。' : '只改写与排序，不新增经历事实。')}</p>
         {markdown && (blocked ? <p className="warning-note" role="status">以下是保留的草稿，尚不能作为当前已确认结果。请补全事实与岗位、重新确认后生成。</p> : <p className={review.warning ? 'warning-note' : 'wb-success'} role="status">简历已生成草稿，可预览和编辑；请核对下方检查信息后再下载使用。</p>)}
         {markdown && <div className="wb-review warning-note" role="status" aria-label="生成稿检查状态"><strong>{review.title}</strong><p>{review.detail}</p><p>请逐句核对职责、动作、上线/落地、成果和数字。原材料未说明的内容不能因 AI 润色就当成事实；自动检查及数字检查通过也不等于事实认证。</p></div>}
         {markdown ? <><div className="preview-toolbar"><div className="segmented"><button className={previewMode === 'preview' ? 'selected' : ''} disabled={busy} onClick={() => setPreviewMode('preview')}>预览</button><button className={previewMode === 'edit' ? 'selected' : ''} disabled={busy} onClick={() => setPreviewMode('edit')}>编辑</button></div><span className="muted">Markdown</span></div>{previewMode === 'preview' ? <ResumePreview markdown={markdown} /> : <textarea className="markdown-editor" aria-label="编辑简历 Markdown" disabled={busy} value={markdown} onChange={(e) => editMarkdown(e.target.value)} />}
           {manuallyEdited && <p className="warning-note">稿件已手动修改，原数字检查不再代表当前内容，请重新核对所有事实和数字。</p>}
           {numberWarnings.length > 0 && <div className="warning-note" role="status"><strong>数字检查：以下内容缺少材料依据</strong><ul>{numberWarnings.map((item, i) => <li key={i}>{item}</li>)}</ul></div>}<p className="field-hint">初稿及手动修改均需人工核对，数字检查不等于事实认证。</p><button className="secondary-button full" disabled={busy || !markdown.trim()} onClick={download}><UiIcon name="download" />下载 Markdown 简历</button></> : <div className="preview-empty"><div className="paper-skeleton"><span className="skeleton-name" /><span className="skeleton-sub" /><div className="skeleton-divider" /><span className="skeleton-title" /><span /><span /><span className="short" /><div className="skeleton-divider" /><span className="skeleton-title" /><span /><span className="short" /></div><h3>你的下一份简历，从这里开始</h3><p>确认经历并填写岗位后，生成结果会显示在这里。</p></div>}
-        <div className="export-note">本轮支持 Markdown；Word 和 PDF 可在个人记忆页导出。</div>
+        <div className="export-note">本轮支持 Markdown；Word 和 PDF 可在个人记忆页导出。</div>{stepActions(4)}
       </section>
     </div>
     <section className="next-step"><span className="next-icon"><UiIcon name="chat" /></span><div><h3>把简历里的经历，练成面试时的表达</h3><p>生成后，继续准备面试问题与回答要点。</p></div><button className="secondary-button" disabled={busy || !markdown.trim()} onClick={onInterview}>前往面试话术 →</button></section>

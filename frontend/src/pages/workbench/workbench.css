@@ -10,3 +10,10 @@
 .role-b-workbench .resume-paper ul,.role-b-workbench .resume-paper ol{padding-left:22px;margin:8px 0}.role-b-workbench .resume-paper ul{list-style:disc}.role-b-workbench .resume-paper ol{list-style:decimal}.role-b-workbench .resume-paper li{margin:5px 0;line-height:1.8}.role-b-workbench .resume-paper p{white-space:pre-wrap}.role-b-workbench .resume-paper code{background:#f0f4fa;border-radius:3px;padding:1px 4px}.role-b-workbench .resume-paper hr{border:0;border-top:1px solid #e2e9f3;margin:14px 0}
 .role-b-workbench .wb-tailoring{margin:16px 0;padding:14px;border:1px solid #dce5e1;border-radius:12px;overflow-wrap:anywhere}.role-b-workbench .wb-tailoring h3{margin-top:0;font-size:16px}.role-b-workbench .wb-tailoring details{margin:10px 0;padding:10px;background:#f6f9f7;border-radius:8px}.role-b-workbench .wb-tailoring summary{cursor:pointer;line-height:1.6}.role-b-workbench .wb-tailoring ul{padding-left:20px}.role-b-workbench .wb-tailoring p,.role-b-workbench .wb-tailoring li{line-height:1.65;font-size:13px}
 .role-b-workbench .resume-paper p{font-size:13px;line-height:1.8}.role-b-workbench .resume-paper h3{font-size:15px}.role-b-workbench .resume-paper h4{font-size:13px}
+
+/* Material removal is separate from parsing and step navigation. */
+.role-b-workbench .source-chip .source-remove{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:32px;height:32px;padding:0;border:1px solid #d6dfec;border-radius:8px;background:#fff;color:#667d99;font-size:22px;line-height:1;cursor:pointer;margin-left:8px}
+.role-b-workbench .source-chip .source-remove:hover:not(:disabled){color:#b83e46;border-color:#e3a3aa;background:#fff4f4}
+.role-b-workbench .source-remove:focus-visible{outline:3px solid #739fe8;outline-offset:3px}
+.role-b-workbench .source-remove:disabled{opacity:.5;cursor:not-allowed}
+.role-b-workbench .step-actions{flex-wrap:wrap}

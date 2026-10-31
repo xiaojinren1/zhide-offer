@@ -33,7 +33,7 @@ export default function ImportReview({material, disabled = false, onDone}: {mate
     }catch(e){if(epoch.current===token)setError(apiErrorMessage(e))}
     finally{lock.current=false;if(epoch.current===token)setBusy(false)}
   }
-  return <section className="library-review" aria-label="经历导入查重"><h3>导入前查重</h3><p>相同事实跳过；相似项目仅提示候选。请核对归属、时间和数据，再确认保存。系统不会自动扩写事实。</p>
+  return <section className="library-review" aria-label="经历导入查重"><p className="library-import-hint">相同事实跳过；相似项目仅提示候选。请核对归属、时间和数据，再确认保存。系统不会自动扩写事实。</p>
     {busy&&<p role="status">正在处理…</p>}{error&&<p role="alert">{error} <button type="button" onClick={()=>setRetry(v=>v+1)}>重新查重</button></p>}{message&&<p role="status">{message}</p>}
     {disabled&&material.profile&&!material.profile.user_confirmed&&<p className="warning-note">请先在工作台核对并确认事实，再操作导入。</p>}
     {preview&&<fieldset disabled={busy||disabled}>

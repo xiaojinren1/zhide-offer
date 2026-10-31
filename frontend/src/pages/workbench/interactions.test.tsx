@@ -49,7 +49,7 @@ function input(tree: any, key: string, value: unknown) {
 async function settle() { for (let i = 0; i < 6; i++) await Promise.resolve() }
 
 beforeEach(() => {
-  hooks.slots = []; hooks.cursor = 0; vi.clearAllMocks()
+  hooks.slots = []; hooks.cursor = 0; vi.clearAllMocks(); vi.unstubAllGlobals()
   props = { sourceText: '', sourceName: '', setSourceText: (value) => { props.sourceText = value }, setSourceName: (value) => { props.sourceName = value },
     profile: fixture(), jdText: '虚构岗位 JD', markdown: '', jdKeywords: [], busy: false,
     onProfileChange: (value) => { props.profile = value }, onJdChange: (value) => { props.jdText = value },
@@ -61,6 +61,39 @@ beforeEach(() => {
 })
 
 describe('工作台真实事件回调（Mock API）', () => {
+  it('清除文本同时清除来源、事实和旧稿，保留岗位 JD 且阻止下一步', () => {
+    props.sourceText = '虚构材料'; props.sourceName = 'resume.pdf'; props.markdown = '# 旧稿'
+    button(render(), '清除文本').props.onClick()
+    expect(props.sourceText).toBe(''); expect(props.sourceName).toBe('')
+    expect(props.profile).toBeNull(); expect(props.markdown).toBe('')
+    expect(props.jdText).toBe('虚构岗位 JD')
+    expect(button(render(), '下一步：确认事实').props.disabled).toBe(true)
+    expect(button(render(), '清除文本').props.disabled).toBe(true)
+  })
+  it('取消移除保留所有材料，确认后才清空当前工作台', () => {
+    props.sourceText = '虚构材料'; props.sourceName = 'resume.pdf'; props.markdown = '# 旧稿'
+    const confirm = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true)
+    vi.stubGlobal('window', { confirm })
+    const originalProfile = props.profile
+    input(render(), 'aria-label', '移除材料：resume.pdf').props.onClick()
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('resume.pdf'))
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('保留岗位 JD'))
+    expect(props.sourceText).toBe('虚构材料'); expect(props.sourceName).toBe('resume.pdf')
+    expect(props.profile).toBe(originalProfile); expect(props.markdown).toBe('# 旧稿')
+    input(render(), 'aria-label', '移除材料：resume.pdf').props.onClick()
+    expect(props.sourceText).toBe(''); expect(props.sourceName).toBe('')
+    expect(props.profile).toBeNull(); expect(props.markdown).toBe('')
+    expect(props.jdText).toBe('虚构岗位 JD')
+  })
+  it('处理中拒绝清除或移除材料', () => {
+    props.sourceText = '虚构材料'; props.sourceName = 'resume.pdf'; props.busy = true
+    const confirm = vi.fn(); vi.stubGlobal('window', { confirm })
+    expect(button(render(), '清除文本').props.disabled).toBe(true)
+    button(render(), '清除文本').props.onClick()
+    input(render(), 'aria-label', '移除材料：resume.pdf').props.onClick()
+    expect(confirm).not.toHaveBeenCalled(); expect(props.sourceText).toBe('虚构材料')
+    expect(props.sourceName).toBe('resume.pdf'); expect(props.profile).not.toBeNull()
+  })
   const tailored = () => ({ version: 1, selected_experiences: [{ id: 'e1', name: '校园项目' }],
     requirements: [{ id: 'r1', requirement: '整理反馈', priority: 'core', status: 'supported',
       evidence: [{ id: 'e1.actions.1', text: '整理反馈', experience_id: 'e1', experience_name: '校园项目', field: 'actions' }], output_excerpt: '整理反馈' },

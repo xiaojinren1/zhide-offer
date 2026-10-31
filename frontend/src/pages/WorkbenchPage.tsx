@@ -66,6 +66,14 @@ export default function WorkbenchPage({ userId, sourceText, setSourceText, sourc
     setSourceText(text); setSourceName(''); lastFile.current = undefined
     onProfileChange(null); invalidateDraft()
   }
+  const clearMaterial = () => {
+    if (busy || requestLock.current) return
+    editSource(''); setActiveStep(1)
+  }
+  const removeMaterial = () => {
+    if (busy || requestLock.current) return
+    if (window.confirm(`确定从当前工作台移除“${sourceName}”吗？\n同时清除材料文本、解析事实和当前简历稿，保留岗位 JD 及已存入经历库的卡片。`)) clearMaterial()
+  }
   const startManual = () => {
     if (busy || requestLock.current || profile) return
     onProfileChange(manualProfile(sourceText)); invalidateDraft()
@@ -133,6 +141,7 @@ export default function WorkbenchPage({ userId, sourceText, setSourceText, sourc
   }
   const canVisitStep = (step: number) => step <= activeStep || stepReady(step)
   const stepActions = (step: number) => <div className="step-actions">
+    {step === 1 && <button type="button" className="secondary-button" disabled={busy || (!sourceText && !sourceName && !profile && !markdown)} onClick={clearMaterial}>清除文本</button>}
     {step > 1 && <button type="button" className="secondary-button" disabled={busy} onClick={() => setActiveStep(step - 1)}>上一步</button>}
     {step < 4 && <button type="button" className="primary-button" disabled={busy || !stepReady(step + 1)} onClick={() => setActiveStep(step + 1)}>下一步：{['', '确认事实', '岗位 JD', '简历预览'][step]}</button>}
   </div>
@@ -146,7 +155,7 @@ export default function WorkbenchPage({ userId, sourceText, setSourceText, sourc
       <section id="wb-step-1" hidden={activeStep !== 1} aria-hidden={activeStep !== 1} tabIndex={-1} className="panel materials-panel"><div className="panel-heading"><div><span className="section-kicker">01 / MATERIALS</span><h2>求职材料</h2></div><UiIcon name="folder" /></div><fieldset disabled={busy}>
         <label className="upload-zone"><input aria-label="上传求职材料" type="file" accept={FILE_ACCEPT} onChange={(e) => { const file = e.target.files?.[0]; if (file) void parse(file); e.target.value = '' }} /><span className="upload-icon"><UiIcon name="upload" /></span><strong>上传简历或经历材料</strong><span>DOCX · 文字 PDF · TXT · Markdown · JPG/PNG/WebP</span></label>
         <p className="wb-hint">单文件不超过 10 MB。图片会交给视觉模型整理，结果仍需你逐项确认；语音、旧版 DOC 和扫描 PDF 的 OCR 尚未接入。</p>
-        {sourceName && <div className="source-chip"><UiIcon name="file" /><span>{sourceName}</span><span className="tag blue">已整理</span></div>}
+        {sourceName && <div className="source-chip"><UiIcon name="file" /><span>{sourceName}</span><span className="tag blue">已整理</span><button type="button" className="source-remove" aria-label={`移除材料：${sourceName}`} title="移除材料" onClick={removeMaterial}>×</button></div>}
         <div className="field-heading"><label htmlFor="source-text">或粘贴你的经历</label><button className="text-button" onClick={() => { editSource(SAMPLE); onJdChange(SAMPLE_JD) }}>填入演示材料</button></div>
         <textarea id="source-text" className="source-text" value={sourceText} placeholder="项目、实习、工作或校园经历都可以。先写清你做过什么，无需提前润色。" onChange={(e) => editSource(e.target.value)} />
         <button className="secondary-button full" disabled={!sourceText.trim()} onClick={() => void parse()}><UiIcon name="spark" />{activity === '正在整理材料…' ? activity : profile ? '重新整理文本材料' : '整理文本材料'}</button>

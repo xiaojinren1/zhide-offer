@@ -19,7 +19,7 @@ vi.mock('react', async (importOriginal) => ({
   },
   useEffect: () => {},
 }))
-vi.mock('../../lib/api', () => ({ api: { parseResumeText: vi.fn(), parseResumeFile: vi.fn(), generateResume: vi.fn(), diagnose: vi.fn() } }))
+vi.mock('../../lib/api', () => ({ api: { parseResumeText: vi.fn(), parseResumeFile: vi.fn(), generateResume: vi.fn(), diagnose: vi.fn(), saveProfile: vi.fn() } }))
 import { api } from '../../lib/api'
 import WorkbenchPage from '../WorkbenchPage'
 import DiagnosePage from '../DiagnosePage'
@@ -55,6 +55,7 @@ beforeEach(() => {
     onMarkdownChange: (value) => { props.markdown = value }, onBusyChange: (value) => { props.busy = value }, onInterview: vi.fn() }
   vi.mocked(api.parseResumeText).mockResolvedValue({ ok: true, profile: fixture(), raw_text: '虚构经历' })
   vi.mocked(api.generateResume).mockResolvedValue({ ok: true, markdown: '# 虚构同学' })
+  vi.mocked(api.saveProfile).mockResolvedValue({ ok: true, id: 'saved-id', saved_at: '2026-10-31 12:00:00' })
 })
 
 describe('工作台真实事件回调（Mock API）', () => {
@@ -172,6 +173,12 @@ describe('工作台真实事件回调（Mock API）', () => {
     expect(generate.props.disabled).toBe(true)
     generate.props.onClick()
     expect(api.generateResume).not.toHaveBeenCalled()
+  })
+  it('确认事实后可以保存到个人记忆', async () => {
+    button(render(), '保存到个人记忆').props.onClick()
+    await settle()
+    expect(api.saveProfile).toHaveBeenCalledWith('虚构同学', expect.objectContaining({ user_confirmed: true }))
+    expect(text(render())).toContain('经历已保存到个人记忆')
   })
   it.each(['jd', 'fact', 'source'])('修改 %s 会清空旧稿并撤销确认', (kind) => {
     props.markdown = '# 旧稿'

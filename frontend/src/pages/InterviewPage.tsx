@@ -1,13 +1,15 @@
-import { useMemo, useState } from 'react'
-import { api } from '../lib/api'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { api, apiErrorMessage } from '../lib/api'
 import type {
   InterviewQuestion,
   InterviewScore,
   ResumeProfile,
   Suspicion,
 } from '../lib/types'
+import type { InterviewRecord } from '../lib/workspace'
 
 interface Props {
+  userId?: string
   jdText: string
   profile: ResumeProfile | null
   markdown: string
@@ -19,6 +21,12 @@ interface InterviewStartResponse {
   round?: number
   questions?: InterviewQuestion[]
   suspicions?: Suspicion[]
+}
+
+type HistoryItem = Pick<InterviewRecord, 'id' | 'title' | 'saved_at'>
+
+function roundKey(round: number, questions: InterviewQuestion[], scores: Record<string, InterviewScore>) {
+  return `${round}:${questions.map((question) => `${question.id}:${scores[question.id]?.score ?? ''}`).join('|')}`
 }
 
 const categoryLabel: Record<InterviewQuestion['category'], string> = {
@@ -39,7 +47,7 @@ function scoreLabel(score: number) {
   return '需要重练'
 }
 
-export default function InterviewPage({ jdText, profile, markdown }: Props) {
+export default function InterviewPage({ userId = '', jdText, profile, markdown }: Props) {
   const [busy, setBusy] = useState(false)
   const [scoringId, setScoringId] = useState('')
   const [error, setError] = useState('')
@@ -48,6 +56,32 @@ export default function InterviewPage({ jdText, profile, markdown }: Props) {
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [scores, setScores] = useState<Record<string, InterviewScore>>({})
   const [suspicions, setSuspicions] = useState<Suspicion[]>([])
+  const [historyRecords, setHistoryRecords] = useState<HistoryItem[]>([])
+  const [historyBusy, setHistoryBusy] = useState(false)
+  const [historyError, setHistoryError] = useState('')
+  const [saveError, setSaveError] = useState('')
+  const [saveRetry, setSaveRetry] = useState(0)
+  const savedRoundKey = useRef('')
+  const savingRoundKey = useRef('')
+
+  useEffect(() => {
+    let active = true
+    setHistoryRecords([])
+    setHistoryError('')
+    if (!userId) return () => { active = false }
+    setHistoryBusy(true)
+    void api.listInterviewRecords()
+      .then((result) => {
+        if (active) setHistoryRecords(result.records || [])
+      })
+      .catch((cause) => {
+        if (active) setHistoryError(apiErrorMessage(cause))
+      })
+      .finally(() => {
+        if (active) setHistoryBusy(false)
+      })
+    return () => { active = false }
+  }, [userId])
 
   const startRound = async () => {
     if (!profile || !markdown.trim()) {
@@ -58,6 +92,8 @@ export default function InterviewPage({ jdText, profile, markdown }: Props) {
     setError('')
     setScores({})
     setAnswers({})
+    savedRoundKey.current = ''
+    setSaveError('')
     try {
       const response = await api.interview(markdown, profile, jdText) as InterviewStartResponse
       if (!response.ok || !response.questions?.length) {
@@ -82,34 +118,22 @@ export default function InterviewPage({ jdText, profile, markdown }: Props) {
     setScoringId(question.id)
     setError('')
     try {
-      const response = await fetch('/api/interview/score', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        body: JSON.stringify({
-          resume_profile: profile,
-          jd_text: jdText,
-          question,
-          answer,
-        }),
-      })
-      const data = await response.json() as InterviewScore & { ok?: boolean; detail?: string }
-      if (!response.ok || !data.ok) {
+      const data = await api.scoreInterview(profile, jdText, question, answer)
+      if (!data.ok) {
         setError(data.detail || '本题评分失败，请修改回答后重试。')
         return
       }
       setScores((previous) => ({ ...previous, [question.id]: data }))
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '暂时无法连接评分服务。')
+      setError(apiErrorMessage(cause))
     } finally {
       setScoringId('')
     }
   }
 
   const restartQuestion = (question: InterviewQuestion) => {
+    savedRoundKey.current = ''
+    setSaveError('')
     setScores((previous) => {
       const next = { ...previous }
       delete next[question.id]
@@ -126,6 +150,8 @@ export default function InterviewPage({ jdText, profile, markdown }: Props) {
     setAnswers({})
     setSuspicions([])
     setError('')
+    setSaveError('')
+    savedRoundKey.current = ''
   }
 
   const completed = questions.length > 0 && questions.every((question) => scores[question.id])
@@ -136,6 +162,66 @@ export default function InterviewPage({ jdText, profile, markdown }: Props) {
     const issues = Array.from(new Set(values.flatMap((item) => item.issues))).slice(0, 4)
     return { total, issues }
   }, [scores])
+
+  useEffect(() => {
+    if (!userId || !completed || !summary || !questions.length) return
+    const key = roundKey(round, questions, scores)
+    if (savedRoundKey.current === key || savingRoundKey.current === key) return
+    savingRoundKey.current = key
+    setSaveError('')
+    void api.saveInterviewRecord(userId, {
+      title: `文字面试 · 第 ${round} 轮`,
+      jd_text: jdText,
+      questions: questions as unknown as Record<string, unknown>[],
+      answers: questions.map((question) => answers[question.id] || ''),
+      question_scores: questions.map((question) => scores[question.id] as unknown as Record<string, unknown>),
+      overall_feedback: { total: summary.total, issues: summary.issues },
+    }).then((result) => {
+      savedRoundKey.current = key
+      setHistoryRecords((previous) => [{ id: result.id, title: `文字面试 · 第 ${round} 轮`, saved_at: result.saved_at }, ...previous.filter((item) => item.id !== result.id)])
+    }).catch((cause) => {
+      setSaveError(apiErrorMessage(cause))
+    }).finally(() => {
+      if (savingRoundKey.current === key) savingRoundKey.current = ''
+    })
+  }, [answers, completed, jdText, questions, round, saveRetry, scores, summary, userId])
+
+  async function loadHistory(id: string) {
+    setHistoryBusy(true)
+    setHistoryError('')
+    try {
+      const result = await api.loadInterviewRecord(id)
+      const loadedQuestions = (result.record.questions || []) as unknown as InterviewQuestion[]
+      const loadedScores = (result.record.question_scores || []) as unknown as InterviewScore[]
+      const scoreMap = Object.fromEntries(loadedScores.filter((score) => score.question_id).map((score) => [score.question_id, score]))
+      const answerMap = Object.fromEntries(loadedQuestions.map((question, index) => [question.id, result.record.answers?.[index] || '']))
+      setRound(1)
+      setQuestions(loadedQuestions)
+      setAnswers(answerMap)
+      setScores(scoreMap)
+      setSuspicions([])
+      savedRoundKey.current = roundKey(1, loadedQuestions, scoreMap)
+      setSaveError('')
+      setError('')
+    } catch (cause) {
+      setHistoryError(apiErrorMessage(cause))
+    } finally {
+      setHistoryBusy(false)
+    }
+  }
+
+  async function deleteHistory(id: string) {
+    setHistoryBusy(true)
+    setHistoryError('')
+    try {
+      await api.deleteInterviewRecord(id)
+      setHistoryRecords((previous) => previous.filter((item) => item.id !== id))
+    } catch (cause) {
+      setHistoryError(apiErrorMessage(cause))
+    } finally {
+      setHistoryBusy(false)
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -149,6 +235,8 @@ export default function InterviewPage({ jdText, profile, markdown }: Props) {
       </header>
 
       {error && <div className="error-banner" role="alert"><span>{error}</span></div>}
+      {historyError && <div className="error-banner" role="alert"><span>{historyError}</span></div>}
+      {saveError && <div className="notice" role="alert"><span>本轮已完成，但历史保存失败：{saveError}</span><button className="secondary-button" onClick={() => { setSaveError(''); setSaveRetry((value) => value + 1) }}>重试保存</button></div>}
 
       {!questions.length && (
         <section className="panel" style={{ maxWidth: 760 }}>
@@ -175,6 +263,20 @@ export default function InterviewPage({ jdText, profile, markdown }: Props) {
           {(!profile || !markdown.trim()) && (
             <p className="button-hint">请先回到工作台完成事实确认并生成简历。</p>
           )}
+        </section>
+      )}
+
+      {historyRecords.length > 0 && (
+        <section className="panel" aria-label="面试历史">
+          <div className="panel-heading"><div><span className="section-kicker">PRACTICE HISTORY</span><h2>最近的面试记录</h2></div><span className="tag blue">{historyRecords.length} 轮</span></div>
+          <div className="space-y-2">
+            {historyRecords.map((record) => (
+              <div key={record.id} className="next-step" style={{ marginTop: 8 }}>
+                <div><strong>{record.title}</strong><p className="muted">保存于 {record.saved_at}</p></div>
+                <div className="memory-actions"><button className="secondary-button" disabled={historyBusy} onClick={() => void loadHistory(record.id)}>恢复</button><button className="memory-danger" disabled={historyBusy} onClick={() => void deleteHistory(record.id)}>删除</button></div>
+              </div>
+            ))}
+          </div>
         </section>
       )}
 

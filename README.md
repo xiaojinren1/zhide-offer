@@ -8,7 +8,7 @@
 
 当前版本已提供可运行的 FastAPI + React 工作台：文本、DOCX、文字 PDF 材料解析，目标 JD 输入，事实编辑与确认，定向简历生成及 Markdown 下载。真实 API 解析、简历生成和两次质检工具调用已用虚构材料验证；修改 JD 或经历会撤销确认并清除旧稿。
 
-已提供普通账户注册、登录、退出和经历库用户隔离，具体行为见 [ACCOUNT.md](ACCOUNT.md)。工作台新增账户内自动保存与恢复，保存原始文本、JD、结构化经历、确认状态和 Markdown 简历；面试记录存储接口已提供，等待面试页面接入。接口及协作接缝见 [PERSISTENCE.md](PERSISTENCE.md)。文字三题模拟面试、逐题四维规则评分、整轮总结和重练已接入。首次打开需注册账户。长期记忆管理页面、语音与图片输入、Word/PDF 导出和面试页面历史保存仍待实现。当前是本机原型；下述功能表为最终计划，不代表全部完成。启动方式、验证记录与已知缺口见 [RUNBOOK.md](RUNBOOK.md)，今晚开发契约与接口约定见 [TONIGHT.md](TONIGHT.md)。
+已提供普通账户注册、登录、退出和经历库用户隔离，具体行为见 [ACCOUNT.md](ACCOUNT.md)。工作台支持账户内自动保存与恢复，保存原始文本、JD、结构化经历、确认状态和 Markdown 简历；个人记忆页支持查看、载入、删除经历库，Markdown 和 Word 导出；面试页支持三题文字模拟面试、逐题四维规则评分、整轮总结、重练，以及面试历史自动保存、恢复和删除。接口及协作接缝见 [PERSISTENCE.md](PERSISTENCE.md)。首次打开需注册账户。图片与语音输入、PDF 导出仍未实现。当前是本机原型；下述功能表为最终计划，不代表全部完成。启动方式、验证记录与已知缺口见 [RUNBOOK.md](RUNBOOK.md)，今晚开发契约与接口约定见 [TONIGHT.md](TONIGHT.md)。
 
 ## 本机启动
 
@@ -98,7 +98,7 @@ API key 仅保存在服务端本地配置中，不提交到仓库，不发送到
 
 ## 角色 D：个人记忆与导出模块（待 A 接入）
 
-已提供 `MemoryPage`（查看、载入、确认删除）、Markdown 下载和受登录保护的 Word 导出模块。为避免覆盖队友公共文件，本轮未修改 App 导航、api.ts、工作台或 main.py；默认应用仍显示原占位页，Word 路由尚未注册。负责人按 [D 接入说明](frontend/src/pages/memory/BEHAVIOR.md) 完成两处接入后再作整链路验收。PDF 暂不支持。
+已提供 `MemoryPage`（查看、载入、确认删除）、Markdown 下载和受登录保护的 Word 导出模块，已接入默认应用导航与生产路由。PDF 暂不支持。
 
 - [虚构材料](tests/fixtures/role-d/materials.md)、[虚构 JD](tests/fixtures/role-d/jd.md)、[格式演示简历](tests/fixtures/role-d/resume.md) 可用于演示，不能作为真实个人履历使用。
 - [D 验收记录与演示步骤](frontend/src/pages/memory/ACCEPTANCE.md) 区分模块测试、待接入项目和未验证项。

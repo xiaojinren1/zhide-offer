@@ -1,7 +1,7 @@
 import axios from 'axios'
 import type { InternalAxiosRequestConfig } from 'axios'
 import type {
-  MatchReport, ParsedJD, QualityReport, ResumeProfile, Suspicion,
+  InterviewQuestion, InterviewScore, MatchReport, ParsedJD, QualityReport, ResumeProfile, Suspicion,
 } from './types'
 import type { InterviewRecord, InterviewRecordInput, WorkspaceResponse, WorkspaceState } from './workspace'
 
@@ -135,6 +135,8 @@ export const api = {
         question: string; trap: string; answer_key: string; source_suspicion: string
       }>; suspicions?: Suspicion[]
     }>,
+  scoreInterview: (resume_profile: ResumeProfile | null, jd_text: string, question: InterviewQuestion, answer: string) =>
+    http.post('/interview/score', { resume_profile, jd_text, question, answer }).then((r) => r.data) as Promise<InterviewScore & { ok?: boolean; detail?: string }>,
 
   // 长期记忆：经历库持久化
   saveProfile: (name: string, profile: ResumeProfile) =>

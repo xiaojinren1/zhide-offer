@@ -72,7 +72,7 @@ from api.auth import router as auth_router  # noqa: E402
 app.include_router(auth_router)
 
 for module_path in ("api.diagnose", "api.resume", "api.quality", "api.interview", "api.profiles",
-                    "api.workspace", "api.interview_records"):
+                    "api.workspace", "api.interview_records", "api.export"):
     module = __import__(module_path, fromlist=["router"])
     app.include_router(module.router, dependencies=[Depends(accounts.require_user), Depends(accounts.require_csrf)])
 

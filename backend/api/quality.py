@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from core import events
 from engine.jd_parser import parse_jd
@@ -36,6 +36,13 @@ class QualityRequest(BaseModel):
     resume_profile: dict
     resume_markdown: str = ""      # J2 产物；为空则只检经历库
     jd_keywords: list[str] = []    # 前端从诊断步带过来，有就跳过重复解析
+
+    @field_validator("jd_text")
+    @classmethod
+    def require_jd_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("JD 文本不能为空")
+        return value
 
 
 def _cliche_hits(text: str) -> list[str]:
@@ -70,16 +77,14 @@ def quality(req: QualityRequest):
     profile = profile_from_dict(req.resume_profile)
 
     # 关键词覆盖率：优先用前端从诊断步带过来的 jd_keywords（省一次 LLM 解析，
-    # 10~20 秒 + 一份 token）；没带才自己解析，解析失败则降级为 0 而非报错。
+    # 10~20 秒 + 一份 token）；没带才自己解析。解析失败必须传播，不能伪装成
+    # 关键词覆盖率为 0 的成功报告。
     keyword_coverage = 0.0
     if req.jd_keywords:
         jd_keywords = list(req.jd_keywords)
     else:
-        try:
-            jd = parse_jd(req.jd_text)
-            jd_keywords = jd.keywords
-        except Exception:
-            jd_keywords = []
+        jd = parse_jd(req.jd_text)
+        jd_keywords = jd.keywords
     if jd_keywords:
         md_tokens = _tokenize(req.resume_markdown or "")
         hits = sum(1 for k in jd_keywords if k.lower() in md_tokens or k.lower() in (req.resume_markdown or "").lower())

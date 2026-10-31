@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api } from '../lib/api'
+import { api, apiErrorMessage } from '../lib/api'
 import type { Experience, ResumeProfile } from '../lib/types'
 import { UiIcon } from '../components/Brand'
 import ResumePreview from './workbench/ResumePreview'
@@ -22,6 +22,8 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
   const [previewMode, setPreviewMode] = useState<'preview' | 'edit'>('preview')
   const [retryAction, setRetryAction] = useState<'parse' | 'generate' | null>(null)
   const [waiting, setWaiting] = useState(false)
+  const [memoryBusy, setMemoryBusy] = useState(false)
+  const [memoryMessage, setMemoryMessage] = useState('')
   const [manuallyEdited, setManuallyEdited] = useState(false)
   const requestLock = useRef(false)
   const lastFile = useRef<File | undefined>(undefined)
@@ -62,6 +64,19 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
     try {
       onProfileChange(checked ? confirmedProfile(profile) : changedFacts(profile)); invalidateDraft()
     } catch (reason) { setError(operationError(reason)) }
+  }
+  const saveMemory = async () => {
+    if (busy || requestLock.current || memoryBusy || !profile || !profile.user_confirmed || issues.length > 0) return
+    setMemoryBusy(true); setMemoryMessage('')
+    try {
+      const result = await api.saveProfile(profile.name || sourceName || '未命名经历库', { ...profile, user_confirmed: true })
+      if (!result.ok) throw new Error(result.error || '保存经历库失败，请重试。')
+      setMemoryMessage('经历已保存到个人记忆，可从左侧“个人记忆”查看。')
+    } catch (cause) {
+      setMemoryMessage(apiErrorMessage(cause))
+    } finally {
+      setMemoryBusy(false)
+    }
   }
   const editExperience = (index: number, patch: Partial<Experience>) => {
     if (profile) editProfile({ ...profile, experiences: profile.experiences.map((item, i) => i === index ? { ...item, ...patch } : item) })
@@ -140,7 +155,8 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
           <label className="field-label" htmlFor="education">教育背景 · 每行一条</label><textarea id="education" rows={2} value={profile.education.join('\n')} onChange={(e) => editProfile({ ...profile, education: e.target.value.split('\n') })} />
           <details className="source-details"><summary>查看与修正原始材料</summary><textarea aria-label="原始材料" rows={5} value={sourceText} onChange={(e) => { setSourceText(e.target.value); setSourceName(''); lastFile.current = undefined; editProfile({ ...profile, raw_text: e.target.value }) }} /><p className="wb-hint">修改会同步材料区、撤销确认并清空旧稿，但不会自动改写上述事实。请人工核对，或回到第 1 步重新整理。</p></details>
           {issues.length > 0 && <div id="wb-fact-issues" className="warning-note" role="status"><strong>确认前请补充</strong><ul>{issues.map((issue) => <li key={issue}>{issue}</li>)}</ul></div>}
-          <label className="confirmation-check"><input type="checkbox" aria-describedby={issues.length ? 'wb-fact-issues' : undefined} disabled={issues.length > 0 && !profile.user_confirmed} checked={!!profile.user_confirmed && !issues.length} onChange={(e) => confirmFacts(e.target.checked)} /><span>我已核对以上内容，确认可用于本次简历生成。</span></label>
+          <label className="confirmation-check"><input type="checkbox" aria-describedby={issues.length ? 'wb-fact-issues' : undefined} disabled={issues.length > 0 && !profile.user_confirmed} checked={!!profile.user_confirmed && !issues.length} onChange={(e) => { confirmFacts(e.target.checked); setMemoryMessage('') }} /><span>我已核对以上内容，确认可用于本次简历生成。</span></label>
+          {profile.user_confirmed && !issues.length && <div className="memory-save-row"><button type="button" className="secondary-button" disabled={busy || memoryBusy} onClick={() => void saveMemory()}>{memoryBusy ? '保存中…' : '保存到个人记忆'}</button>{memoryMessage && <span className="field-hint" role="status">{memoryMessage}</span>}</div>}
         </fieldset>}
         <div className="fact-note"><UiIcon name="shield" /><span>没有依据的经历与成果数字，不写入简历。修改事实或岗位 JD 后，需要重新确认。</span></div>
       </section>
@@ -151,7 +167,7 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
         {markdown ? <><div className="preview-toolbar"><div className="segmented"><button className={previewMode === 'preview' ? 'selected' : ''} disabled={busy} onClick={() => setPreviewMode('preview')}>预览</button><button className={previewMode === 'edit' ? 'selected' : ''} disabled={busy} onClick={() => setPreviewMode('edit')}>编辑</button></div><span className="muted">Markdown</span></div>{previewMode === 'preview' ? <ResumePreview markdown={markdown} /> : <textarea className="markdown-editor" aria-label="编辑简历 Markdown" disabled={busy} value={markdown} onChange={(e) => editMarkdown(e.target.value)} />}
           {manuallyEdited && <p className="warning-note">稿件已手动修改，原数字检查不再代表当前内容，请重新核对所有事实和数字。</p>}
           {numberWarnings.length > 0 && <div className="warning-note" role="status"><strong>数字检查：以下内容缺少材料依据</strong><ul>{numberWarnings.map((item, i) => <li key={i}>{item}</li>)}</ul></div>}<p className="field-hint">初稿及手动修改均需人工核对，数字检查不等于事实认证。</p><button className="secondary-button full" disabled={busy || !markdown.trim()} onClick={download}><UiIcon name="download" />下载 Markdown 简历</button></> : <div className="preview-empty"><div className="paper-skeleton"><span className="skeleton-name" /><span className="skeleton-sub" /><div className="skeleton-divider" /><span className="skeleton-title" /><span /><span /><span className="short" /><div className="skeleton-divider" /><span className="skeleton-title" /><span /><span className="short" /></div><h3>你的下一份简历，从这里开始</h3><p>确认经历并填写岗位后，生成结果会显示在这里。</p></div>}
-        <div className="export-note">本轮支持 Markdown；Word / PDF 导出待接入。</div>
+        <div className="export-note">本轮支持 Markdown；Word 可在个人记忆页导出，PDF 暂不支持。</div>
       </section>
     </div>
     <section className="next-step"><span className="next-icon"><UiIcon name="chat" /></span><div><h3>把简历里的经历，练成面试时的表达</h3><p>生成后，继续准备面试问题与回答要点。</p></div><button className="secondary-button" disabled={busy || !markdown.trim()} onClick={onInterview}>前往面试话术 →</button></section>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import DiagnosePage from './pages/DiagnosePage'
 import QualityPage from './pages/QualityPage'
 import InterviewPage from './pages/InterviewPage'
+import MemoryPage from './pages/MemoryPage'
 import WorkbenchPage from './pages/WorkbenchPage'
 import AuthPage from './pages/AuthPage'
 import AccountPage from './pages/AccountPage'
@@ -128,8 +129,17 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
       {page === 'workbench' && <WorkbenchPage sourceText={sourceText} setSourceText={setSourceText} sourceName={sourceName} setSourceName={setSourceName} profile={profile} onProfileChange={updateProfile} jdText={jdText} onJdChange={updateJd} markdown={markdown} onMarkdownChange={setMarkdown} jdKeywords={jdKeywords} busy={busy || loggingOut || !persistence.loaded} onBusyChange={setBusy} onInterview={() => setPage('interview')} />}
       {page === 'diagnose' && <div className="legacy-panel"><DiagnosePage jdText={jdText} setJdText={updateJd} profile={profile} onDone={(_text, keywords) => setJdKeywords(keywords)} /></div>}
       {page === 'quality' && <div className="legacy-panel"><QualityPage jdText={jdText} jdKeywords={jdKeywords} profile={profile} markdown={markdown} /></div>}
-      {page === 'interview' && <div className="legacy-panel"><div className="notice">当前提供面试题与回答要点。逐题作答、评分和语音将在后续接入。</div><InterviewPage jdText={jdText} profile={profile} markdown={markdown} /></div>}
-      {page === 'memory' && <section className="memory-placeholder"><span className="empty-symbol"><UiIcon name="folder" /></span><h2>让经历成为下一次准备的起点</h2><p>工作台已支持自动保存和恢复。可管理的长期记忆与面试历史页面由团队继续接入。</p><p className="muted">离开前确认工作台已保存。原始上传文件暂不留存，仅保留解析文字和材料名称。</p><button className="primary-button" onClick={() => setPage('workbench')}>返回简历工作台 →</button></section>}
+      {page === 'interview' && <div className="legacy-panel"><InterviewPage userId={user.id} jdText={jdText} profile={profile} markdown={markdown} /></div>}
+      {page === 'memory' && <MemoryPage userId={user.id} markdown={markdown} resumeName={sourceName || profile?.name || '职得offer'} disabled={busy || loggingOut || !persistence.loaded} onLoad={(loadedProfile, meta) => {
+        update((previous) => ({
+          ...previous,
+          profile: loadedProfile,
+          source_text: loadedProfile.raw_text || '',
+          source_name: meta.name || '已保存经历库',
+          markdown: '',
+          page: 'workbench',
+        }))
+      }} />}
       {page === 'account' && <AccountPage user={user} onUserChange={onUserUpdated} />}
       </div>
       <footer className="workspace-footer"><span>职得offer · 让每一段真实经历被看见</span><span>开发预览 · 内容请在使用前核对</span></footer>

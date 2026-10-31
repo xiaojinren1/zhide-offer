@@ -9,12 +9,11 @@ from unittest.mock import patch
 from zipfile import ZipFile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from docx import Document
-from api.auth import router as auth_router
-from api.export import router as export_router, MIME
+from api.export import MIME
 from core import accounts
+from main import app
 
 HEADER = {"X-Requested-With": "XMLHttpRequest"}
 FIXTURE = Path(__file__).parent / "fixtures" / "role-d" / "resume.md"
@@ -28,9 +27,6 @@ class ExportContract(unittest.TestCase):
         override = patch.object(accounts, "DATABASE_PATH", self.root / "accounts.sqlite3")
         override.start()
         self.addCleanup(override.stop)
-        app = FastAPI()
-        app.include_router(auth_router)
-        app.include_router(export_router)
         self.client = TestClient(app, headers=HEADER)
         self.addCleanup(self.client.close)
         self.payload = {"markdown": FIXTURE.read_text(encoding="utf-8-sig"), "name": "林小禾（虚构）"}

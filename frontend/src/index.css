@@ -89,3 +89,14 @@ textarea,input:not([type=checkbox]):not([type=file]),select{border-color:#cbdced
 .workspace .page-heading h1{font-size:32px}.workspace .page-heading p{font-size:15px}.workspace .panel h2{font-size:21px}.workspace .panel-description{font-size:14px}.workspace .field-label,.workspace .field-heading{font-size:14px}.workspace .primary-button,.workspace .secondary-button{font-size:14px;min-height:42px}.workspace .field-hint,.workspace .button-hint{font-size:12px}
 @media(max-width:800px){.workspace .page-heading h1{font-size:27px}.workspace .page-heading p{font-size:14px}.workspace .panel h2{font-size:19px}.workspace .panel-description{font-size:13px}.workspace .primary-button,.workspace .secondary-button{font-size:13px;min-height:40px}}
 @media(max-width:590px){.workspace .page-heading h1{font-size:24px}.workspace .page-heading p{font-size:13px}.workspace .panel h2{font-size:18px}.workspace .panel-description{font-size:12px}}
+
+/* Stabilize the desktop shell: workflow labels stay on one readable line. */
+.sidebar{width:250px;padding-left:18px;padding-right:18px}
+.workspace{margin-left:250px}
+.nav-item{gap:10px;padding-left:13px;padding-right:13px;white-space:nowrap;line-height:1.35}
+.nav-item>span:not(.flow-index):not(.nav-dot){min-width:0;overflow:hidden;text-overflow:ellipsis}
+.flow-index{width:26px;height:26px;flex-basis:26px}
+.page-heading>div:first-child{min-width:0}
+.page-heading h1,.page-heading p{overflow-wrap:anywhere}
+@media(max-width:1260px){.sidebar{width:230px}.workspace{margin-left:230px}.nav-item{font-size:14px}}
+@media(max-width:800px){.sidebar{width:100%}.workspace{margin-left:0}.nav-item{white-space:normal}.nav-item>span:not(.flow-index):not(.nav-dot){overflow:visible;text-overflow:clip}}

@@ -133,6 +133,10 @@ export const api = {
       untraceable?: string[]; traceability_passed?: boolean
       slimming?: { total: number; used: number; dropped: string[] }
     }>,
+  reviseResume: (jd_text: string, resume_profile: ResumeProfile, resume_markdown: string, suggestions: Array<{ id: string; type: string; location: string; detail: string; suggestion: string; severity: string }>) =>
+    http.post('/resume/revise', { jd_text, resume_profile, resume_markdown, suggestions }).then((r) => r.data) as Promise<{
+      ok: boolean; error?: string; markdown?: string; untraceable?: string[]
+    }>,
 
   quality: (jd_text: string, resume_profile: ResumeProfile, resume_markdown: string, jd_keywords: string[] = []) =>
     http.post('/quality', { jd_text, resume_profile, resume_markdown, jd_keywords }).then((r) => r.data) as Promise<{

@@ -146,15 +146,16 @@ export default function WorkbenchPage({ sourceText, setSourceText, sourceName, s
   const stepReady = (step: number) => {
     if (step === 2) return Boolean(profile)
     if (step === 3) return Boolean(profile?.user_confirmed && !issues.length)
-    if (step === 4) return Boolean(jdText.trim())
+    if (step === 4) return Boolean(profile?.user_confirmed && !issues.length && jdText.trim())
     return true
   }
+  const canVisitStep = (step: number) => step <= activeStep || stepReady(step)
   const stepActions = (step: number) => <div className="step-actions">
     {step > 1 && <button type="button" className="secondary-button" disabled={busy} onClick={() => setActiveStep(step - 1)}>上一步</button>}
     {step < 4 && <button type="button" className="primary-button" disabled={busy || !stepReady(step + 1)} onClick={() => setActiveStep(step + 1)}>下一步：{['', '确认事实', '岗位 JD', '简历预览'][step]}</button>}
   </div>
   return <div className="role-b-workbench" aria-busy={busy}>
-    <ol className="stepper" aria-label="求职准备进度">{['材料输入', '确认事实', '岗位 JD', '简历预览'].map((name, i) => <li key={name} aria-current={activeStep === i + 1 ? 'step' : undefined} className={activeStep === i + 1 ? 'current' : current.step > i + 1 ? 'complete' : ''}><button type="button" className="step-link" onClick={() => setActiveStep(i + 1)}><span className="step-number">{current.step > i + 1 ? <UiIcon name="check" /> : i + 1}</span><span>{name}</span></button><a className="step-link-legacy" href={`#wb-step-${i + 1}`} hidden aria-hidden="true" tabIndex={-1}>{name}</a>{i < 3 && <span className="step-line" />}</li>)}</ol>
+    <ol className="stepper" aria-label="求职准备进度">{['材料输入', '确认事实', '岗位 JD', '简历预览'].map((name, i) => <li key={name} aria-current={activeStep === i + 1 ? 'step' : undefined} className={activeStep === i + 1 ? 'current' : current.step > i + 1 ? 'complete' : ''}><button type="button" className="step-link" disabled={!canVisitStep(i + 1)} aria-disabled={!canVisitStep(i + 1)} onClick={() => canVisitStep(i + 1) && setActiveStep(i + 1)}><span className="step-number">{current.step > i + 1 ? <UiIcon name="check" /> : i + 1}</span><span>{name}</span></button><a className="step-link-legacy" href={`#wb-step-${i + 1}`} hidden aria-hidden="true" tabIndex={-1}>{name}</a>{i < 3 && <span className="step-line" />}</li>)}</ol>
     <div className="wb-status" role="status"><strong>当前：{markdown.trim() && !blocked && review.warning ? '草稿待核对' : current.label}</strong><p>{blocked || (markdown.trim() ? '简历已生成草稿，请查看质检提示并逐句核对后使用。' : '事实与岗位已就绪，可以生成简历。')}</p></div>
     <p className="wb-hint">离开前请确认页面上方显示工作台已保存；原始上传文件不会留存。演示材料完全虚构，请替换为自己的真实经历。</p>
     {error && <div className="error-banner" role="alert"><strong>这一步没有完成</strong><span>{error}</span>{retryAction && <button className="secondary-button" disabled={busy} onClick={() => retryAction === 'parse' ? void parse(lastFile.current) : void generate()}>重试{retryAction === 'parse' ? '整理材料' : '生成简历'}</button>}<button className="wb-dismiss" onClick={() => setError('')} aria-label="关闭错误提示">×</button></div>}

@@ -151,7 +151,12 @@ export const api = {
   loadProfile: (id: string) =>
     http.get(`/profiles/${encodeURIComponent(id)}`).then((r) => r.data) as Promise<{
       ok: boolean; error?: string; profile?: ResumeProfile
-      meta?: { id: string; name: string; saved_at: string }
+      meta?: { id: string; name: string; saved_at: string; revision?: string }
+    }>,
+  updateProfile: (id: string, name: string, expected_revision: string, profile?: ResumeProfile) =>
+    http.patch(`/profiles/${encodeURIComponent(id)}`, { name, expected_revision, profile }).then((r) => r.data) as Promise<{
+      ok: boolean; error?: string; profile?: ResumeProfile
+      meta?: { id: string; name: string; saved_at: string; revision?: string }
     }>,
   deleteProfile: (id: string) =>
     http.delete(`/profiles/${encodeURIComponent(id)}`).then((r) => r.data) as Promise<{ ok: boolean; error?: string }>,

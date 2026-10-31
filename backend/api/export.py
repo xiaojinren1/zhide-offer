@@ -67,6 +67,19 @@ def build_docx(markdown: str) -> BytesIO:
     normal.font.size = Pt(10.5)
     normal.paragraph_format.space_after = Pt(5)
     normal.paragraph_format.line_spacing = 1.15
+    normal.paragraph_format.widow_control = True
+    for name, size in (("Heading 1", 18), ("Heading 2", 13), ("Heading 3", 11)):
+        style = document.styles[name]
+        style.font.size = Pt(size)
+        style.paragraph_format.keep_with_next = True
+        style.paragraph_format.keep_together = True
+        style.paragraph_format.space_before = Pt(10)
+        style.paragraph_format.space_after = Pt(5)
+    for name in ("List Bullet", "List Number"):
+        style = document.styles[name]
+        style.font.size = Pt(10.5)
+        style.paragraph_format.space_after = Pt(3)
+        style.paragraph_format.widow_control = True
     fenced = False
     for line in markdown.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         stripped = line.strip()

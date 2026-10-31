@@ -130,7 +130,7 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
       {page === 'diagnose' && <div className="legacy-panel"><DiagnosePage jdText={jdText} setJdText={updateJd} profile={profile} onDone={(_text, keywords) => setJdKeywords(keywords)} /></div>}
       {page === 'quality' && <div className="legacy-panel"><QualityPage jdText={jdText} jdKeywords={jdKeywords} profile={profile} markdown={markdown} /></div>}
       {page === 'interview' && <div className="legacy-panel"><InterviewPage userId={user.id} jdText={jdText} profile={profile} markdown={markdown} /></div>}
-      {page === 'memory' && <MemoryPage userId={user.id} markdown={markdown} resumeName={sourceName || profile?.name || '职得offer'} disabled={busy || loggingOut || !persistence.loaded} onLoad={(loadedProfile, meta) => {
+      {page === 'memory' && <MemoryPage key={user.id} currentProfile={profile} hasUnsaved={persistence.hasUnsaved()} userId={user.id} markdown={markdown} resumeName={sourceName || profile?.name || '职得offer'} disabled={busy || loggingOut || !persistence.loaded} onLoad={(loadedProfile, meta) => {
         update((previous) => ({
           ...previous,
           profile: loadedProfile,

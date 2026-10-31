@@ -37,7 +37,7 @@ _SYSTEM = """你是简历结构化抽取器。把用户简历原文解析成 JSO
 1. period 必须逐字保留原文的时间写法，不要改写格式。
 2. actions/results 忠于原文，可以合并半句话，但**不许新增原文没有的事实**。
 3. 原文没提到的字段给空数组/空串，不许编造。
-4. education 类的经历也放进 experiences（kind=education）。"""
+4. education 类的经历也放进 experiences（kind=education），name 为学校，role 为专业/学历，period 为起止时间；actions/results/skills 必须为空数组。不添加任何教育描述。顶层 education 返回空数组。"""
 
 _IMAGE_SYSTEM = _SYSTEM + """
 
@@ -115,6 +115,8 @@ def extract_text(filename: str, content: bytes) -> str:
 def _fill_periods(experiences: list[Experience]) -> list[Experience]:
     """用程序补全 start/end（E4 的时间线检测依赖它）。"""
     for e in experiences:
+        if e.kind == "education":
+            e.actions, e.results, e.skills = [], [], []
         start, end, _ok = parse_period(e.period or "")
         e.start = start
         e.end = end

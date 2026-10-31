@@ -18,7 +18,7 @@ vi.mock('react', async (original) => ({
   useEffect: (effect: () => void | (() => void)) => { hooks.effect = effect },
 }))
 vi.mock('../lib/api', () => ({
-  api: { listProfiles: vi.fn(), loadProfile: vi.fn(), deleteProfile: vi.fn() },
+  api: { listProfiles: vi.fn(), loadProfile: vi.fn(), deleteProfile: vi.fn(), updateProfile: vi.fn(), saveProfile: vi.fn() },
   apiErrorMessage: (error: unknown) => error instanceof Error ? error.message : '失败',
   ACCOUNT_CHANGED_EVENT: 'zhide:account-changed', SESSION_EXPIRED_EVENT: 'zhide:session-expired',
 }))
@@ -26,7 +26,7 @@ import { api } from '../lib/api'
 import MemoryPage, { profileForWorkbench } from './MemoryPage'
 
 const profile = (): ResumeProfile => ({ name: '虚构同学', experiences: [{ kind: 'project', name: '示例项目', role: '成员', period: '2026', actions: ['整理需求'], results: ['输出文档'], skills: [] }], education: [], skills: [], user_confirmed: true })
-const item = { id: 'demo-id', name: '虚构经历库', saved_at: '2026-10-31 10:00:00', experience_count: 1 }
+const item = { id: 'demo-id', name: '虚构经历库', saved_at: '2026-10-31 10:00:00', experience_count: 1, revision: 'a'.repeat(64) }
 let props: Parameters<typeof MemoryPage>[0]
 let cleanup: (() => void) | void
 function render() { hooks.cursor = 0; return MemoryPage(props) }
@@ -79,7 +79,7 @@ describe('personal memory', () => {
     await mount(); click('查看 虚构'); await settle()
     expect(props.onLoad).not.toHaveBeenCalled()
     expect(text(render())).toContain('整理需求')
-    click('确认替换材料并载入')
+    click('载入到工作台'); expect(props.onLoad).not.toHaveBeenCalled(); click('确认替换材料并载入')
     expect(props.onLoad).toHaveBeenCalledWith(expect.objectContaining({ user_confirmed: false }), item)
     const saved = profile(); const clone = profileForWorkbench(saved)
     clone.experiences[0].actions.push('独立修改')
@@ -129,5 +129,44 @@ describe('personal memory', () => {
       const button = nodes(render()).find(node => node.type === 'button' && text(node).includes(label))
       expect(button.props.disabled).toBe(true)
     }
+  })
+})
+
+
+describe('memory maintenance', () => {
+  it('renames in place and retains the original record on failure', async () => {
+    await mount(); click('查看'); await settle()
+    const input = nodes(render()).find(n => n.props?.['aria-label'] === '经历库名称')
+    input.props.onChange({ target: { value: '新的名称' } })
+    vi.mocked(api.updateProfile).mockRejectedValueOnce(new Error('经历库已在其他页面修改'))
+    click('保存名称'); await settle()
+    expect(text(render())).toContain('经历库已在其他页面修改')
+    expect(text(render())).toContain('虚构经历库')
+    vi.mocked(api.updateProfile).mockResolvedValueOnce({ ok: true, profile: profile(), meta: { ...item, name: '新的名称', revision: 'b'.repeat(64) } })
+    click('保存名称'); await settle()
+    expect(api.updateProfile).toHaveBeenLastCalledWith(item.id, '新的名称', item.revision, undefined)
+    expect(text(render())).toContain('经历库已重命名')
+  })
+  it('requires confirmation before overwriting and supports a separate copy', async () => {
+    props.currentProfile = profile()
+    await mount(); click('查看'); await settle()
+    click('用当前工作台更新此记录')
+    expect(api.updateProfile).not.toHaveBeenCalled()
+    click('取消替换'); expect(api.updateProfile).not.toHaveBeenCalled()
+    click('用当前工作台更新此记录')
+    vi.mocked(api.updateProfile).mockResolvedValueOnce({ ok: true, profile: profile(), meta: item })
+    click('确认更新记录'); await settle()
+    expect(api.updateProfile).toHaveBeenCalledWith(item.id, item.name, item.revision, props.currentProfile)
+    vi.mocked(api.saveProfile).mockResolvedValueOnce({ ok: true, id: 'copy', saved_at: item.saved_at })
+    click('将当前工作台另存'); await settle()
+    expect(api.saveProfile).toHaveBeenCalledWith(item.name, props.currentProfile)
+    expect(api.deleteProfile).not.toHaveBeenCalled()
+    expect(text(render())).toContain('已另存为新经历库')
+  })
+  it('warns about unsaved edits and cancellation never loads', async () => {
+    props.hasUnsaved = true
+    await mount(); click('查看'); await settle(); click('载入到工作台')
+    expect(text(render())).toContain('尚未保存的修改')
+    click('取消替换'); expect(props.onLoad).not.toHaveBeenCalled()
   })
 })

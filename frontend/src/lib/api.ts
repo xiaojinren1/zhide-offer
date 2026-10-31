@@ -4,6 +4,7 @@ import type {
   InterviewQuestion, InterviewScore, MatchReport, ParsedJD, QualityReport, ResumeProfile, Suspicion,
 } from './types'
 import type { InterviewRecord, InterviewRecordInput, WorkspaceResponse, WorkspaceState } from './workspace'
+import type { TailoringReport } from './tailoring'
 
 export type AccountUser = { id: string; username: string; avatar_url?: string | null }
 export const SESSION_EXPIRED_EVENT = 'zhide:session-expired'
@@ -131,6 +132,7 @@ export const api = {
     http.post('/resume/generate', { jd_text, resume_profile, jd_keywords }).then((r) => r.data) as Promise<{
       ok: boolean; error?: string; markdown?: string
       untraceable?: string[]; traceability_passed?: boolean
+      tailoring?: TailoringReport
       slimming?: { total: number; used: number; dropped: string[] }
     }>,
   reviseResume: (jd_text: string, resume_profile: ResumeProfile, resume_markdown: string, suggestions: Array<{ id: string; type: string; location: string; detail: string; suggestion: string; severity: string }>) =>
@@ -165,8 +167,21 @@ export const api = {
   loadProfile: (id: string) =>
     http.get(`/profiles/${encodeURIComponent(id)}`).then((r) => r.data) as Promise<{
       ok: boolean; error?: string; profile?: ResumeProfile
-      meta?: { id: string; name: string; saved_at: string }
+      meta?: { id: string; name: string; saved_at: string; revision?: string }
+    }>,
+  updateProfile: (id: string, name: string, expected_revision: string, profile?: ResumeProfile) =>
+    http.patch(`/profiles/${encodeURIComponent(id)}`, { name, expected_revision, profile }).then((r) => r.data) as Promise<{
+      ok: boolean; error?: string; profile?: ResumeProfile
+      meta?: { id: string; name: string; saved_at: string; revision?: string }
     }>,
   deleteProfile: (id: string) =>
     http.delete(`/profiles/${encodeURIComponent(id)}`).then((r) => r.data) as Promise<{ ok: boolean; error?: string }>,
+}
+
+// Uses the same account-generation and CSRF protections as the workbench.
+export const libraryApi = {
+  list: () => http.get('/library').then(r => r.data) as Promise<import('./library').Bank>,
+  preview: (material: import('./library').Material) => http.post('/library/preview', material).then(r => r.data) as Promise<import('./library').Preview>,
+  apply: (material: import('./library').Material, revision: number, choices: import('./library').Choice[]) => http.post('/library/import', {...material, revision, choices, facts_confirmed: true}).then(r => r.data) as Promise<{changed: number}>,
+  action: (id: string, expected_user_id: string, revision: number, action: 'delete' | 'restore' | 'revert', version?: number) => http.post('/library/'+encodeURIComponent(id)+'/action', {expected_user_id,revision,action,version}).then(r => r.data),
 }

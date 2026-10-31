@@ -11,7 +11,10 @@ from zipfile import ZipFile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 from fastapi.testclient import TestClient
 from docx import Document
+from docx.oxml.ns import qn
+from docx.shared import Cm
 from api.export import MIME, MIME_PDF
+
 from core import accounts
 from main import app
 
@@ -61,6 +64,21 @@ class ExportContract(unittest.TestCase):
         self.assertTrue(any(r.bold and "产品协作成员" in r.text for p in paragraphs for r in p.runs))
         self.assertEqual(list(self.root.glob("*.docx")), [])
 
+    def test_export_page_and_heading_layout_contract(self):
+        self.register()
+        response = self.client.post("/api/export/docx", json=self.payload)
+        self.assertEqual(response.status_code, 200)
+        doc = Document(BytesIO(response.content))
+        self.assertAlmostEqual(doc.sections[0].page_width / Cm(1), 21, places=2)
+        self.assertAlmostEqual(doc.sections[0].page_height / Cm(1), 29.7, places=2)
+        self.assertTrue(doc.styles["Normal"].paragraph_format.widow_control)
+        for name in ("Heading 1", "Heading 2", "Heading 3"):
+            with self.subTest(style=name):
+                style = doc.styles[name]
+                self.assertTrue(style.paragraph_format.keep_with_next)
+                self.assertTrue(style.paragraph_format.keep_together)
+                self.assertEqual(style.element.rPr.rFonts.get(qn("w:eastAsia")), "Microsoft YaHei")
+
     def test_actual_pdf_has_pdf_signature_and_no_saved_file(self):
         self.register()
         response = self.client.post("/api/export/pdf", json=self.payload)
@@ -79,6 +97,7 @@ class ExportContract(unittest.TestCase):
             with self.subTest(value=repr(value[:12])):
                 response = self.client.post("/api/export/pdf", content=json.dumps({"markdown": value}), headers={"Content-Type": "application/json"})
                 self.assertEqual(response.status_code, 422)
+
 
     def test_blank_oversized_and_invalid_xml_are_rejected(self):
         self.register()

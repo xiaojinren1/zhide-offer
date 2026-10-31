@@ -53,6 +53,47 @@ class GenerateRequest(BaseModel):
     use_examples: bool = True       # 是否启用范例库检索（可关闭做对照实验）
 
 
+class ReviseRequest(BaseModel):
+    jd_text: str
+    resume_profile: dict
+    resume_markdown: str
+    suggestions: list[dict]
+
+
+_REVISE_SYSTEM = """你是简历质检后的修订器。请根据候选人的原始简历、真实经历库、目标 JD 和用户选中的质检建议，输出修订后的完整 Markdown 简历。
+规则：只能改写、删减、重排已有事实，绝不能新增经历、公司、项目、数字或联系方式；无法安全自动修复的建议保留原文并不要编造。保留简历整体结构，直接输出完整 Markdown，不要解释修改过程。"""
+
+
+@router.post("/revise")
+def revise(req: ReviseRequest):
+    if not req.resume_profile.get("user_confirmed"):
+        raise HTTPException(status_code=422, detail="请先核对并确认经历事实，再应用检查建议")
+    if not req.resume_markdown.strip():
+        raise HTTPException(status_code=422, detail="当前没有可修改的简历")
+    if not req.suggestions:
+        raise HTTPException(status_code=422, detail="请至少选择一条检查建议")
+    if not is_configured():
+        raise HTTPException(status_code=503, detail="请在 backend/.env 配置应用 API key 后再应用建议")
+    profile = profile_from_dict(req.resume_profile)
+    payload = {
+        "jd": req.jd_text,
+        "profile": profile.to_dict(),
+        "resume_markdown": req.resume_markdown,
+        "selected_suggestions": req.suggestions[:30],
+    }
+    try:
+        markdown = chat(_REVISE_SYSTEM + agent_rules(), f"输入：{payload}", temperature=0.2)
+    except LLMError:
+        raise
+    except Exception as exc:
+        events.emit_error("resume_revise", exc)
+        raise HTTPException(status_code=502, detail="简历修订失败，请重试") from exc
+    if not markdown.strip():
+        raise HTTPException(status_code=502, detail="模型返回了空简历，请重试")
+    untraceable = untraceable_numbers(markdown, profile)
+    return {"ok": True, "markdown": markdown, "untraceable": untraceable}
+
+
 # --------------------------------------------------------------------------
 # 上下文瘦身（借鉴 Pi 的核心实证：上下文体积就是成本和质量）
 # --------------------------------------------------------------------------

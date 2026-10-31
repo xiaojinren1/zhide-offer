@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { api } from '../lib/api'
+import { api, apiErrorMessage } from '../lib/api'
 import type { QualityReport, ResumeProfile, Suspicion } from '../lib/types'
 
 interface Props {
@@ -7,6 +7,7 @@ interface Props {
   jdKeywords: string[]
   profile: ResumeProfile | null
   markdown: string
+  onMarkdownChange: (text: string) => void
 }
 
 const SEV: Record<string, string> = {
@@ -30,18 +31,42 @@ function Bar({ label, value }: { label: string; value: number }) {
   )
 }
 
-export default function QualityPage({ jdText, jdKeywords, profile, markdown }: Props) {
+export default function QualityPage({ jdText, jdKeywords, profile, markdown, onMarkdownChange }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [report, setReport] = useState<QualityReport | null>(null)
+  const [selected, setSelected] = useState<string[]>([])
+  const [applying, setApplying] = useState(false)
+  const [applyMessage, setApplyMessage] = useState('')
 
   const run = async () => {
     if (!profile) return
     setBusy(true); setError('')
     try {
       const r = await api.quality(jdText, profile, markdown, jdKeywords)
-      if (r.ok) { setReport(r) } else { setError(r.error || '质检失败') }
-    } catch (e) { setError(String(e)) } finally { setBusy(false) }
+      if (r.ok) { setReport(r); setSelected([]); setApplyMessage('') } else { setError(r.error || '质检失败') }
+    } catch (e) { setError(apiErrorMessage(e)) } finally { setBusy(false) }
+  }
+
+  const suggestions = report ? [
+    ...report.suspicions.map((x, index) => ({ ...x, id: `suspicion-${index}` })),
+    ...report.cliche_hits.map((x, index) => ({ id: `cliche-${index}`, type: 'cliche', location: '简历正文', detail: `命中套话：${x}`, suggestion: `删除或改写“${x}”，换成真实行动和结果。`, severity: 'medium' as const, program_verified: true })),
+    ...report.ats_issues.map((x, index) => ({ id: `ats-${index}`, type: 'ats', location: '简历格式', detail: x, suggestion: '调整简历内容以改善 ATS 解析；缺少联系方式时请先在原始材料中补充真实信息。', severity: 'medium' as const, program_verified: true })),
+    ...report.consistency_issues.map((x, index) => ({ id: `consistency-${index}`, type: 'consistency', location: '简历正文', detail: x, suggestion: '删除无法从经历库核实的数字或内容，不要补造事实。', severity: 'high' as const, program_verified: true })),
+  ] : []
+  const toggleSuggestion = (id: string) => setSelected((previous) => previous.includes(id) ? previous.filter((item) => item !== id) : [...previous, id])
+  const applySuggestions = async (all = false) => {
+    if (!profile || !markdown.trim() || applying) return
+    const chosen = all ? suggestions : suggestions.filter((item) => selected.includes(item.id))
+    if (!chosen.length) { setApplyMessage('请先选择至少一条建议。'); return }
+    setApplying(true); setError(''); setApplyMessage('')
+    try {
+      const result = await api.reviseResume(jdText, profile, markdown, chosen)
+      if (!result.ok || !result.markdown?.trim()) throw new Error(result.error || '未生成新的简历')
+      onMarkdownChange(result.markdown)
+      setApplyMessage(`已应用 ${chosen.length} 条建议，请重新运行质检确认结果。`)
+      setSelected([])
+    } catch (reason) { setError(apiErrorMessage(reason)) } finally { setApplying(false) }
   }
 
   const s = (x: Suspicion) => (
@@ -84,12 +109,7 @@ export default function QualityPage({ jdText, jdKeywords, profile, markdown }: P
             <Bar label="量化表述密度" value={report.quantified_ratio} />
           </div>
 
-          {report.cliche_hits.length > 0 && (
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h3 className="text-sm font-medium">套话命中（{report.cliche_hits.length}）</h3>
-              <p className="text-sm text-gray-600 mt-1">{report.cliche_hits.join('、')}</p>
-            </div>
-          )}
+          {suggestions.length > 0 && <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-medium text-blue-900">可采纳建议（{suggestions.length}）</h3><p className="text-sm text-blue-800 mt-1">选择后应用到当前简历，也可以一次性全部采纳。</p></div><div className="flex gap-2"><button className="px-3 py-1.5 text-sm border border-blue-300 rounded-lg bg-white" disabled={applying || !markdown.trim()} onClick={() => setSelected(suggestions.map((item) => item.id))}>全选</button><button className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg disabled:bg-gray-300" disabled={applying || !markdown.trim()} onClick={() => void applySuggestions(true)}>{applying ? '应用中…' : '全部采纳并修改简历'}</button></div></div>{suggestions.map((item) => <label key={item.id} className="block bg-white border border-blue-100 rounded-lg p-3 cursor-pointer"><div className="flex gap-2"><input type="checkbox" checked={selected.includes(item.id)} disabled={applying || !markdown.trim()} onChange={() => toggleSuggestion(item.id)} /><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={`text-xs px-1.5 py-0.5 rounded ${SEV[item.severity] || ''}`}>{item.severity}</span><strong className="text-sm">{item.type}</strong><span className="text-xs text-gray-500">{item.location}</span></div><p className="text-sm text-gray-700 mt-1">{item.detail}</p><p className="text-sm text-teal-700 mt-1">建议：{item.suggestion}</p></div></div></label>)}<button className="w-full px-4 py-2 bg-teal-600 text-white rounded-lg disabled:bg-gray-300" disabled={applying || !markdown.trim() || selected.length === 0} onClick={() => void applySuggestions()}>{applying ? '正在按建议修改简历…' : `采纳选中建议并修改简历（${selected.length}）`}</button>{applyMessage && <p className="text-sm text-teal-700" role="status">{applyMessage}</p>}</div>}
           {report.ats_issues.length > 0 && (
             <div className="bg-white border border-gray-200 rounded-xl p-4">
               <h3 className="text-sm font-medium">ATS 友好度问题</h3>

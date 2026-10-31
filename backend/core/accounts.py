@@ -51,6 +51,11 @@ CREATE TABLE IF NOT EXISTS workspaces (
     saved_at TEXT NOT NULL,
     state_json TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS evidence_banks (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL,
+    state_json TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS interview_records (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

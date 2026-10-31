@@ -71,7 +71,7 @@ def check_markdown(md: str, profile: ResumeProfile, jd_keywords: list[str] | Non
         issues.append({
             "type": "low_keyword_coverage", "severity": "medium",
             "detail": f"JD 关键词覆盖率仅 {round(cov * 100)}%",
-            "fix": "把未覆盖的关键词织进具体经历描述，不要堆在技能清单",
+            "fix": "仅当已确认事实支持时，在相关行动中使用岗位术语；没有事实依据的关键词是缺口，不得编造或硬塞进技能清单",
         })
     for s in run_all(profile, jd_keywords):
         if s.type == "no_quantification":

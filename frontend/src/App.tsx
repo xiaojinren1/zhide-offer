@@ -35,7 +35,9 @@ export default function App() {
     setChecking(true)
     setCheckError('')
     try {
-      const result = await api.me()
+      // Hydrate the full account profile so the persisted avatar is available
+      // before the top bar renders after a refresh.
+      const result = await api.profile()
       if (generation === identityCheck.current) setUser(result.user)
     } catch (reason) {
       if (generation !== identityCheck.current) return

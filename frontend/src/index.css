@@ -26,6 +26,28 @@ textarea,input:not([type=checkbox]):not([type=file]),select{width:100%;border:1p
 .workspace-footer p{margin:0;max-width:100%;overflow-wrap:anywhere}
 .workspace-footer strong{color:#435b78;font-weight:650}
 .workspace-footer .footer-brand{font-weight:600;color:#536b87}
+/* Keep the main workspace readable at normal desktop viewing distance. */
+.nav-item{font-size:14px}
+.workspace .page-heading h1{font-size:29px}
+.workspace .page-heading p{font-size:13px}
+.workspace .panel h2{font-size:19px}
+.workspace .panel-description{font-size:13px}
+.workspace .field-label,.workspace .field-heading{font-size:13px}
+.workspace .primary-button,.workspace .secondary-button{font-size:13px}
+.workspace .tag{font-size:11px}
+.workspace .muted{font-size:12px}
+.workspace .field-hint,.workspace .button-hint{font-size:11px}
+.interview-page h1{font-size:30px}
+.interview-page h2{font-size:21px}
+.interview-page .eyebrow,.interview-page .section-kicker{font-size:11px}
+.interview-page .panel-description,.interview-page .notice,.interview-page p,.interview-page label,.interview-page textarea{font-size:14px}
+.interview-page textarea{line-height:1.8}
+.interview-page .tag{font-size:12px}
+.interview-page .muted{font-size:13px}
+.interview-page .text-sm{font-size:14px}
+.interview-page .text-xs{font-size:12px}
+@media(max-width:800px){.nav-item{font-size:12px}.workspace .page-heading h1{font-size:24px}.workspace .page-heading p{font-size:12px}.workspace .panel h2{font-size:18px}.workspace .panel-description{font-size:12px}.interview-page h1{font-size:25px}.interview-page h2{font-size:19px}.interview-page .panel-description,.interview-page .notice,.interview-page p,.interview-page label,.interview-page textarea{font-size:13px}}
+@media(max-width:590px){.workspace .page-heading h1{font-size:22px}.workspace .page-heading p{font-size:11px}.workspace .panel h2{font-size:17px}.workspace .panel-description{font-size:11px}.interview-page h1{font-size:23px}.interview-page h2{font-size:18px}.interview-page .panel-description,.interview-page .notice,.interview-page p,.interview-page label,.interview-page textarea{font-size:12px}}
 
 /* 账户入口沿用工作台的蓝白色与品牌元素。 */
 .auth-shell{min-height:100vh;display:flex;flex-direction:column;background:radial-gradient(ellipse at 15% 25%,#e7f0ff 0,transparent 55%),#f5f8fd;padding:48px 32px 20px}

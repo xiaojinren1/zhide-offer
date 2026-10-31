@@ -170,7 +170,7 @@ export default function InterviewPage({ userId = '', jdText, profile, markdown }
     savingRoundKey.current = key
     setSaveError('')
     void api.saveInterviewRecord(userId, {
-      title: `文字面试 · 第 ${round} 轮`,
+      title: `模拟面试 · 第 ${round} 轮`,
       jd_text: jdText,
       questions: questions as unknown as Record<string, unknown>[],
       answers: questions.map((question) => answers[question.id] || ''),
@@ -178,7 +178,7 @@ export default function InterviewPage({ userId = '', jdText, profile, markdown }
       overall_feedback: { total: summary.total, issues: summary.issues },
     }).then((result) => {
       savedRoundKey.current = key
-      setHistoryRecords((previous) => [{ id: result.id, title: `文字面试 · 第 ${round} 轮`, saved_at: result.saved_at }, ...previous.filter((item) => item.id !== result.id)])
+      setHistoryRecords((previous) => [{ id: result.id, title: `模拟面试 · 第 ${round} 轮`, saved_at: result.saved_at }, ...previous.filter((item) => item.id !== result.id)])
     }).catch((cause) => {
       setSaveError(apiErrorMessage(cause))
     }).finally(() => {
@@ -224,14 +224,14 @@ export default function InterviewPage({ userId = '', jdText, profile, markdown }
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 interview-page">
       <header className="page-heading" style={{ marginBottom: 0 }}>
         <div>
           <span className="eyebrow">INTERVIEW PRACTICE · ROUND {round}</span>
           <h1>三题模拟面试</h1>
           <p>按真实经历回答，提交后查看事实依据、岗位匹配、表达清晰度和结构完整度。</p>
         </div>
-        <span className="heading-badge">文字流程已就绪 · 语音为加分项</span>
+        <span className="heading-badge">文字模拟已就绪 · 语音为加分项</span>
       </header>
 
       {error && <div className="error-banner" role="alert"><span>{error}</span></div>}

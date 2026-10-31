@@ -1,0 +1,275 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { AxiosError, AxiosHeaders } from 'axios'
+import type { ResumeProfile } from '../../lib/types'
+
+// 无额外 DOM 依赖的处理器测试：真实页面函数与事件回调，模拟 hook 重渲染及 API。
+// 不替代浏览器布局、焦点或真实模型验收。
+const hooks = vi.hoisted(() => ({ slots: [] as any[], cursor: 0 }))
+vi.mock('react', async (importOriginal) => ({
+  ...await importOriginal<typeof import('react')>(),
+  useState: (initial: unknown) => {
+    const index = hooks.cursor++
+    if (!(index in hooks.slots)) hooks.slots[index] = initial
+    return [hooks.slots[index], (next: any) => { hooks.slots[index] = typeof next === 'function' ? next(hooks.slots[index]) : next }]
+  },
+  useRef: (initial: unknown) => {
+    const index = hooks.cursor++
+    if (!(index in hooks.slots)) hooks.slots[index] = { current: initial }
+    return hooks.slots[index]
+  },
+  useEffect: () => {},
+}))
+vi.mock('../../lib/api', () => ({ api: { parseResumeText: vi.fn(), parseResumeFile: vi.fn(), generateResume: vi.fn(), diagnose: vi.fn() } }))
+import { api } from '../../lib/api'
+import WorkbenchPage from '../WorkbenchPage'
+import DiagnosePage from '../DiagnosePage'
+
+const fixture = (): ResumeProfile => ({ name: '虚构同学', experiences: [{ kind: 'project', name: '校园项目', role: '成员', period: '', actions: ['整理反馈'], results: ['输出文档'], skills: [] }], skills: [], education: [], user_confirmed: true })
+let props: Parameters<typeof WorkbenchPage>[0]
+function render() { hooks.cursor = 0; return WorkbenchPage(props) }
+function nodes(node: any): any[] {
+  if (!node || typeof node !== 'object') return []
+  if (Array.isArray(node)) return node.flatMap(nodes)
+  return [node, ...nodes(node.props?.children)]
+}
+function text(node: any): string {
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(text).join('')
+  return node?.props ? text(node.props.children) : ''
+}
+function button(tree: any, label: string) {
+  const found = nodes(tree).find((n) => n.type === 'button' && text(n).includes(label))
+  if (!found) throw new Error(`未找到按钮：${label}`)
+  return found
+}
+function input(tree: any, key: string, value: unknown) {
+  return nodes(tree).find((n) => n.props?.[key] === value)
+}
+async function settle() { for (let i = 0; i < 6; i++) await Promise.resolve() }
+
+beforeEach(() => {
+  hooks.slots = []; hooks.cursor = 0; vi.clearAllMocks()
+  props = { sourceText: '', sourceName: '', setSourceText: (value) => { props.sourceText = value }, setSourceName: (value) => { props.sourceName = value },
+    profile: fixture(), jdText: '虚构岗位 JD', markdown: '', jdKeywords: [], busy: false,
+    onProfileChange: (value) => { props.profile = value }, onJdChange: (value) => { props.jdText = value },
+    onMarkdownChange: (value) => { props.markdown = value }, onBusyChange: (value) => { props.busy = value }, onInterview: vi.fn() }
+  vi.mocked(api.parseResumeText).mockResolvedValue({ ok: true, profile: fixture(), raw_text: '虚构经历' })
+  vi.mocked(api.generateResume).mockResolvedValue({ ok: true, markdown: '# 虚构同学' })
+})
+
+describe('工作台真实事件回调（Mock API）', () => {
+  it('不调用解析 API 也能手工填写、确认并生成', async () => {
+    props.profile = null; props.sourceText = '原始虚构经历'
+    button(render(), '直接手工填写事实').props.onClick()
+    expect(props.profile).toMatchObject({ raw_text: '原始虚构经历' })
+    expect(input(render(), 'type', 'checkbox').props.disabled).toBe(true)
+    input(render(), 'aria-label', '经历1名称').props.onChange({ target: { value: '校园项目' } })
+    input(render(), 'aria-label', '经历1行动').props.onChange({ target: { value: '整理反馈\n\n' } })
+    input(render(), 'type', 'checkbox').props.onChange({ target: { checked: true } })
+    expect(props.profile).toMatchObject({ experiences: [{ actions: ['整理反馈'] }], user_confirmed: true })
+    button(render(), '根据已确认事实生成简历').props.onClick()
+    await settle()
+    expect(api.parseResumeText).not.toHaveBeenCalled()
+    expect(api.parseResumeFile).not.toHaveBeenCalled()
+    expect(props.markdown).toBe('# 虚构同学')
+  })
+  it('解析失败后可改用手工录入且清除旧错误', async () => {
+    props.profile = null; props.sourceText = '待整理材料'
+    vi.mocked(api.parseResumeText).mockRejectedValueOnce(new Error('解析服务不可用'))
+    button(render(), '整理文本材料').props.onClick(); await settle()
+    expect(text(render())).toContain('解析服务不可用')
+    button(render(), '直接手工填写事实').props.onClick()
+    expect(text(render())).not.toContain('解析服务不可用')
+    expect(props.profile).toMatchObject({ user_confirmed: false })
+  })
+  it('空白经历不能绕过确认处理器，补齐前禁止生成', () => {
+    button(render(), '补充一段经历').props.onClick()
+    expect(input(render(), 'type', 'checkbox').props.disabled).toBe(true)
+    input(render(), 'type', 'checkbox').props.onChange({ target: { checked: true } })
+    expect(props.profile?.user_confirmed).toBe(false)
+    expect(text(render())).toContain('第 2 段经历')
+    button(render(), '根据已确认事实生成简历').props.onClick()
+    expect(api.generateResume).not.toHaveBeenCalled()
+  })
+  it('修正原始材料同步受控文字、撤销确认并保留结构化事实', () => {
+    props.markdown = '# 旧稿'; props.sourceName = '旧材料.txt'
+    input(render(), 'aria-label', '原始材料').props.onChange({ target: { value: '修正后的虚构材料' } })
+    expect(props.sourceText).toBe('修正后的虚构材料')
+    expect(props.sourceName).toBe('')
+    expect(props.profile).toMatchObject({ raw_text: props.sourceText, user_confirmed: false })
+    expect(props.profile?.experiences).toHaveLength(1)
+    expect(props.markdown).toBe('')
+    expect(input(render(), 'id', 'source-text').props.value).toBe(props.sourceText)
+  })
+  it('四步导航都指向实际可聚焦区域', () => {
+    const tree = render()
+    for (let step = 1; step <= 4; step++) {
+      expect(input(tree, 'href', `#wb-step-${step}`)).toBeDefined()
+      expect(input(tree, 'id', `wb-step-${step}`).props.tabIndex).toBe(-1)
+    }
+  })
+  it.each(['parse', 'generate'])('%s 迟到响应不能覆盖服务器恢复的工作台', async (operation) => {
+    let finish!: (value: any) => void
+    if (operation === 'parse') {
+      props.sourceText = '旧材料'
+      vi.mocked(api.parseResumeText).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+      button(render(), '整理文本材料').props.onClick()
+    } else {
+      vi.mocked(api.generateResume).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+      button(render(), '根据已确认事实生成简历').props.onClick()
+    }
+    props.sourceText = '恢复的材料'; props.profile = { ...fixture(), name: '服务器版本' }; props.markdown = '# 恢复的简历'
+    render()
+    finish({ ok: true, profile: fixture(), raw_text: '旧返回', markdown: '# 过期输出' })
+    await settle()
+    expect(props.profile?.name).toBe('服务器版本')
+    expect(props.sourceText).toBe('恢复的材料')
+    expect(props.markdown).toBe('# 恢复的简历')
+    expect(props.busy).toBe(false)
+  })
+  it.each(['parse', 'generate'])('%s 正常请求的处理中重渲染不会错误丢弃结果', async (operation) => {
+    let finish!: (value: any) => void
+    if (operation === 'parse') {
+      props.sourceText = '原始材料'
+      vi.mocked(api.parseResumeText).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+      button(render(), '整理文本材料').props.onClick()
+    } else {
+      props.markdown = '# 上一版'
+      vi.mocked(api.generateResume).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+      button(render(), '重新生成简历').props.onClick()
+    }
+    render()
+    finish({ ok: true, profile: fixture(), raw_text: '新整理材料', markdown: '# 新稿' })
+    await settle()
+    if (operation === 'parse') expect(props.sourceText).toBe('新整理材料')
+    else expect(props.markdown).toBe('# 新稿')
+    expect(props.busy).toBe(false)
+  })
+  it('使用账户工作台恢复的材料文字与名称', () => {
+    props.sourceText = '已保存的虚构材料'
+    props.sourceName = '演示材料.txt'
+    expect(input(render(), 'id', 'source-text').props.value).toBe('已保存的虚构材料')
+    expect(text(render())).toContain('演示材料.txt')
+    props.sourceText = '从服务器恢复的新版本'
+    expect(input(render(), 'id', 'source-text').props.value).toBe('从服务器恢复的新版本')
+  })
+  it('输入材料、解析、编辑并确认，再生成', async () => {
+    input(render(), 'id', 'source-text').props.onChange({ target: { value: '虚构经历' } })
+    expect(props.profile).toBeNull()
+    button(render(), '整理文本材料').props.onClick()
+    await settle()
+    expect(props.profile?.user_confirmed).toBe(false)
+    input(render(), 'id', 'person-name').props.onChange({ target: { value: '测试同学' } })
+    input(render(), 'type', 'checkbox').props.onChange({ target: { checked: true } })
+    button(render(), '根据已确认事实生成简历').props.onClick()
+    await settle()
+    expect(api.generateResume).toHaveBeenCalledWith('虚构岗位 JD', expect.objectContaining({ name: '测试同学', user_confirmed: true }), [])
+    expect(text(render())).toContain('简历已生成')
+  })
+  it('未确认即使直接调用处理器也不会生成', () => {
+    props.profile = { ...fixture(), user_confirmed: false }
+    const generate = button(render(), '根据已确认事实生成简历')
+    expect(generate.props.disabled).toBe(true)
+    generate.props.onClick()
+    expect(api.generateResume).not.toHaveBeenCalled()
+  })
+  it.each(['jd', 'fact', 'source'])('修改 %s 会清空旧稿并撤销确认', (kind) => {
+    props.markdown = '# 旧稿'
+    const tree = render()
+    if (kind === 'jd') input(tree, 'id', 'jd-text').props.onChange({ target: { value: '新岗位' } })
+    if (kind === 'fact') input(tree, 'id', 'person-name').props.onChange({ target: { value: '新姓名' } })
+    if (kind === 'source') input(tree, 'id', 'source-text').props.onChange({ target: { value: '新材料' } })
+    expect(props.markdown).toBe('')
+    expect(props.profile?.user_confirmed).not.toBe(true)
+  })
+  it('失败恢复按钮，提供重试且不保留旧稿', async () => {
+    props.markdown = '# 旧稿'
+    vi.mocked(api.generateResume).mockRejectedValueOnce(new Error('模型生成失败'))
+    button(render(), '重新生成简历').props.onClick()
+    expect(props.markdown).toBe('')
+    expect(props.busy).toBe(true)
+    expect(nodes(render()).filter((n) => n.type === 'fieldset').every((n) => n.props.disabled)).toBe(true)
+    await settle()
+    expect(props.busy).toBe(false)
+    expect(text(render())).toContain('模型生成失败')
+    button(render(), '重试生成简历').props.onClick()
+    await settle()
+    expect(props.markdown).toBe('# 虚构同学')
+  })
+  it('解析无经历不是成功，能重试原文本', async () => {
+    vi.mocked(api.parseResumeText).mockResolvedValueOnce({ ok: true, profile: { ...fixture(), experiences: [] } })
+    input(render(), 'id', 'source-text').props.onChange({ target: { value: '空洞材料' } })
+    button(render(), '整理文本材料').props.onClick()
+    await settle()
+    expect(props.profile).toBeNull()
+    expect(text(render())).toContain('没有识别到经历')
+    button(render(), '重试整理材料').props.onClick()
+    await settle()
+    expect(api.parseResumeText).toHaveBeenLastCalledWith('空洞材料')
+    expect(props.profile?.user_confirmed).toBe(false)
+  })
+  it('拒绝不支持的文件，不向后端上传', () => {
+    input(render(), 'type', 'file').props.onChange({ target: { files: [{ name: '材料.png', size: 10 }], value: '材料.png' } })
+    expect(api.parseResumeFile).not.toHaveBeenCalled()
+    expect(text(render())).toContain('暂不支持此格式')
+  })
+  it('重复点击只发出一个请求，空正文不算成功', async () => {
+    vi.mocked(api.generateResume).mockResolvedValueOnce({ ok: true, markdown: ' ' })
+    const generate = button(render(), '根据已确认事实生成简历')
+    generate.props.onClick(); generate.props.onClick()
+    await settle()
+    expect(api.generateResume).toHaveBeenCalledTimes(1)
+    expect(props.markdown).toBe('')
+    expect(text(render())).toContain('未返回简历正文')
+  })
+  it('HTTP 504 展示中文超时，恢复后可重试', async () => {
+    vi.mocked(api.generateResume).mockRejectedValueOnce(new AxiosError('Request failed', undefined, undefined, undefined, {
+      status: 504, statusText: '', headers: {}, config: { headers: new AxiosHeaders() }, data: { detail: 'upstream timeout' },
+    }))
+    button(render(), '根据已确认事实生成简历').props.onClick()
+    await settle()
+    expect(props.busy).toBe(false)
+    expect(text(render())).toContain('处理超时')
+    button(render(), '重试生成简历').props.onClick()
+    await settle()
+    expect(props.markdown).toBe('# 虚构同学')
+  })
+  it('上传失败后重试原文件，不误用文本材料', async () => {
+    const file = { name: '虚构材料.docx', size: 40 }
+    vi.mocked(api.parseResumeFile).mockRejectedValueOnce(new Error('上传失败'))
+      .mockResolvedValueOnce({ ok: true, profile: fixture() })
+    input(render(), 'type', 'file').props.onChange({ target: { files: [file], value: file.name } })
+    await settle()
+    button(render(), '重试整理材料').props.onClick()
+    await settle()
+    expect(api.parseResumeFile).toHaveBeenLastCalledWith(file)
+    expect(api.parseResumeText).not.toHaveBeenCalled()
+    expect(props.profile?.user_confirmed).toBe(false)
+  })
+  it('手动修改稿件后数字警告不沿用旧检查', async () => {
+    vi.mocked(api.generateResume).mockResolvedValueOnce({ ok: true, markdown: '# 虚构同学', untraceable: ['旧数字警告'] })
+    button(render(), '根据已确认事实生成简历').props.onClick()
+    await settle()
+    expect(text(render())).toContain('旧数字警告')
+    button(render(), '编辑').props.onClick()
+    input(render(), 'aria-label', '编辑简历 Markdown').props.onChange({ target: { value: '# 手动修改稿件' } })
+    expect(text(render())).not.toContain('旧数字警告')
+    expect(text(render())).toContain('稿件已手动修改')
+  })
+})
+
+describe('岗位匹配输入保护', () => {
+  it('输入变化后丢弃迟到的旧报告', async () => {
+    let finish!: (value: any) => void
+    vi.mocked(api.diagnose).mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    const done = vi.fn()
+    let jd = '原岗位'
+    const view = () => { hooks.cursor = 0; return DiagnosePage({ jdText: jd, setJdText: (value) => { jd = value }, profile: fixture(), onDone: done }) }
+    button(view(), '开始诊断').props.onClick()
+    jd = '新岗位'; view()
+    finish({ ok: true, coverage: 1, items: [{ requirement: '旧要求', status: 'covered' }], missing_hard: [] })
+    await settle()
+    expect(done).not.toHaveBeenCalled()
+    expect(text(view())).not.toContain('旧要求')
+  })
+})

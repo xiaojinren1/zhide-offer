@@ -2,6 +2,10 @@
 
 这份文件是 2026 年 10 月 31 日黑客松当天的执行说明。
 
+角色 A 的工作台持久化与面试记录接口扩展见 [PERSISTENCE.md](PERSISTENCE.md)。B 改造工作台时保留受控的原始材料属性；C 使用文档中的面试记录 API，页面生成和评分仍按原分工完成。A 的新后端文件为 `backend/api/workspace.py` 和 `backend/api/interview_records.py`，不占用 C 的 `backend/api/interview.py` 或 D 的导出模块。
+
+模型错误的公共接口约定见 [MODEL_ERRORS.md](MODEL_ERRORS.md)。简历与 JD 接口使用 HTTP 错误状态；前端继续保留成功返回字段。C 的面试模块接入方式见该文档，仍由 C 完成题目和评分相关改造。
+
 队员不需要先理解全部代码。拉取仓库后，先阅读本文件和 `README.md`，找到自己的角色，把对应的“首条 Codex 任务提示词”直接发给 Codex。Codex 完成后，按照验收标准检查；发现功能不对、页面不符合预期或存在遗漏，继续在同一个任务中把问题和复现步骤发给 Codex，直到达到验收标准。
 
 ## 共同规则

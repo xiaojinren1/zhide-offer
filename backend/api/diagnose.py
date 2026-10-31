@@ -1,10 +1,11 @@
 """J1 JD 匹配诊断 API（E3 的展示层）。"""
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from core import events
+from core.llm import LLMError
 from engine.jd_parser import parse_jd
 from engine.matcher import match
 from engine.resume_parser import profile_from_dict
@@ -20,10 +21,14 @@ class DiagnoseRequest(BaseModel):
 @router.post("")
 def diagnose(req: DiagnoseRequest):
     events.emit("diagnose_started", jd_len=len(req.jd_text or ""))
+    if not req.jd_text.strip():
+        raise HTTPException(status_code=422, detail="请先填写目标岗位 JD")
     try:
         jd = parse_jd(req.jd_text)
         resume = profile_from_dict(req.resume_profile)
         report = match(jd, resume)
+    except LLMError:
+        raise
     except Exception as exc:
         events.emit_error("diagnose", exc)
         return {"ok": False, "error": str(exc)}
@@ -44,8 +49,12 @@ class ParseJdRequest(BaseModel):
 @router.post("/parse-jd")
 def parse_jd_only(req: ParseJdRequest):
     """只解析 JD（前端上传 JD 后先展示解析结果供确认）。"""
+    if not req.jd_text.strip():
+        raise HTTPException(status_code=422, detail="请先填写目标岗位 JD")
     try:
         jd = parse_jd(req.jd_text)
+    except LLMError:
+        raise
     except Exception as exc:
         events.emit_error("parse_jd", exc)
         return {"ok": False, "error": str(exc)}

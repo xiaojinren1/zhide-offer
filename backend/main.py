@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 from core import accounts, budget, events  # noqa: E402
 from core.config import settings  # noqa: E402
+from core.llm import LLMError  # noqa: E402
 
 
 @asynccontextmanager
@@ -31,6 +32,19 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="职得offer", version="0.1.0", lifespan=lifespan)
+
+
+@app.exception_handler(LLMError)
+async def model_error(_request: Request, exc: LLMError):
+    messages = {
+        429: "模型服务请求过于频繁或额度不足，请稍后重试",
+        502: "模型返回的内容为空或格式无效，请重试",
+        503: "模型服务暂不可用，请检查模型配置或服务状态后重试",
+        504: "模型处理超时，请稍后重试",
+    }
+    status_code = exc.status_code if exc.status_code in messages else 503
+    events.emit("model_request_failed", status_code=status_code)
+    return JSONResponse(status_code=status_code, content={"detail": messages[status_code]})
 
 
 @app.exception_handler(RequestValidationError)
@@ -57,7 +71,8 @@ from api.auth import router as auth_router  # noqa: E402
 
 app.include_router(auth_router)
 
-for module_path in ("api.diagnose", "api.resume", "api.quality", "api.interview", "api.profiles"):
+for module_path in ("api.diagnose", "api.resume", "api.quality", "api.interview", "api.profiles",
+                    "api.workspace", "api.interview_records"):
     module = __import__(module_path, fromlist=["router"])
     app.include_router(module.router, dependencies=[Depends(accounts.require_user), Depends(accounts.require_csrf)])
 

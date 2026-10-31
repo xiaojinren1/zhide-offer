@@ -13,7 +13,7 @@ from fastapi import APIRouter, File, Form, UploadFile, HTTPException
 from pydantic import BaseModel
 
 from core import events
-from core.llm import chat, chat_with_tools, is_configured
+from core.llm import LLMError, chat, chat_with_tools, is_configured
 from core.tools import TOOL_SPECS, build_executor
 from engine.quality_check import check_markdown, untraceable_numbers
 from engine.resume_parser import extract_text, parse_resume, profile_from_dict
@@ -118,10 +118,14 @@ async def parse_resume_file(file: UploadFile = File(...)):
     except Exception as exc:
         events.emit_error("resume_extract", exc)
         return {"ok": False, "error": str(exc)}
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="未能从文件提取文字，请使用含文字的文件或粘贴文本")
     if not is_configured():
         raise HTTPException(status_code=503, detail="请在 backend/.env 配置应用 API key 后再解析")
     try:
         profile = parse_resume(text)
+    except LLMError:
+        raise
     except Exception as exc:
         events.emit_error("resume_parse", exc)
         return {"ok": False, "error": str(exc)}
@@ -133,10 +137,14 @@ async def parse_resume_file(file: UploadFile = File(...)):
 def parse_resume_text(payload: dict):
     """粘贴简历文本 → 结构化（无文件时的入口）。"""
     text = str(payload.get("text") or "")
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="请先填写简历材料")
     if not is_configured():
         raise HTTPException(status_code=503, detail="请在 backend/.env 配置应用 API key 后再解析")
     try:
         profile = parse_resume(text)
+    except LLMError:
+        raise
     except Exception as exc:
         events.emit_error("resume_parse", exc)
         return {"ok": False, "error": str(exc)}
@@ -207,6 +215,8 @@ def generate(req: GenerateRequest):
             max_rounds=int(os.environ.get("JOBAGENT_TOOL_ROUNDS") or 3),
         )
         md = loop["content"]
+    except LLMError:
+        raise
     except Exception as exc:
         events.emit_error("resume_generate", exc)
         return {"ok": False, "error": str(exc)}

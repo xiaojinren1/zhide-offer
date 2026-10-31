@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
     password_hash TEXT NOT NULL,
+    avatar_blob BLOB,
+    avatar_content_type TEXT,
     created_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sessions (
@@ -42,6 +44,20 @@ CREATE TABLE IF NOT EXISTS profiles (
     profile_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS profiles_user ON profiles(user_id);
+CREATE TABLE IF NOT EXISTS workspaces (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL,
+    saved_at TEXT NOT NULL,
+    state_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS interview_records (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    saved_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS interview_records_user ON interview_records(user_id);
 """
 
 
@@ -55,6 +71,11 @@ def connection() -> Iterator[sqlite3.Connection]:
     try:
         db.execute("PRAGMA foreign_keys = ON")
         db.executescript(_SCHEMA)
+        user_columns = {row[1] for row in db.execute("PRAGMA table_info(users)")}
+        if "avatar_blob" not in user_columns:
+            db.execute("ALTER TABLE users ADD COLUMN avatar_blob BLOB")
+        if "avatar_content_type" not in user_columns:
+            db.execute("ALTER TABLE users ADD COLUMN avatar_content_type TEXT")
         with db:
             yield db
     finally:
@@ -142,6 +163,65 @@ def require_user(request: Request) -> dict:
     if row is None:
         raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
     return {"id": row["id"], "username": row["username"]}
+
+
+def profile(user_id: str) -> dict:
+    with connection() as db:
+        row = db.execute(
+            "SELECT id,username,avatar_blob FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
+    return {
+        "id": row["id"],
+        "username": row["username"],
+        "avatar_url": "/api/auth/avatar" if row["avatar_blob"] is not None else None,
+    }
+
+
+def change_password(user_id: str, current_password: str, new_password: str) -> str:
+    with connection() as db:
+        row = db.execute(
+            "SELECT password_hash FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if row is None or not verify_password(current_password, row["password_hash"]):
+            raise HTTPException(status_code=401, detail="当前密码不正确")
+        db.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (password_hash(new_password), user_id),
+        )
+        db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        return new_session(db, user_id)
+
+
+def set_avatar(user_id: str, image: bytes, content_type: str) -> None:
+    with connection() as db:
+        cursor = db.execute(
+            "UPDATE users SET avatar_blob = ?, avatar_content_type = ? WHERE id = ?",
+            (sqlite3.Binary(image), content_type, user_id),
+        )
+        if cursor.rowcount != 1:
+            raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
+
+
+def get_avatar(user_id: str) -> tuple[bytes, str]:
+    with connection() as db:
+        row = db.execute(
+            "SELECT avatar_blob,avatar_content_type FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
+    if row["avatar_blob"] is None:
+        raise HTTPException(status_code=404, detail="尚未设置头像")
+    return bytes(row["avatar_blob"]), row["avatar_content_type"]
+
+
+def delete_avatar(user_id: str) -> None:
+    with connection() as db:
+        db.execute(
+            "UPDATE users SET avatar_blob = NULL, avatar_content_type = NULL WHERE id = ?",
+            (user_id,),
+        )
 
 
 def require_csrf(request: Request) -> None:

@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from core.llm import chat_json
+from core.llm import LLMError, chat_json
 from engine.models import MatchItem, MatchReport, ParsedJD, ResumeProfile
 from engine.suspicion import _tokenize
 from core.config import agent_rules
@@ -46,7 +46,7 @@ def _keyword_coverage(jd: ParsedJD, resume: ResumeProfile) -> list[MatchItem]:
 
 
 def match(jd: ParsedJD, resume: ResumeProfile) -> MatchReport:
-    """计算匹配度报告。LLM 不可用时退化为纯关键词覆盖（仍然可用）。"""
+    """计算匹配度报告；模型失败须明确传播，不交付不完整诊断。"""
     items = _keyword_coverage(jd, resume)
 
     reqs = list(jd.hard_requirements) + list(jd.soft_requirements)
@@ -77,8 +77,10 @@ def match(jd: ParsedJD, resume: ResumeProfile) -> MatchReport:
                     evidence=str(x.get("evidence") or "").strip(),
                     note=str(x.get("note") or "").strip(),
                 ))
+        except LLMError:
+            raise
         except Exception:
-            # 降级：LLM 不可用不影响关键词维度的结论（诚实降级，不假装完整）
+            # 保留现有非模型异常行为，模型错误不得在此伪装为完整诊断。
             pass
 
     covered = sum(1 for i in items if i.status == "covered")

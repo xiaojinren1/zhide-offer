@@ -5,6 +5,7 @@ import { api } from '../lib/api'
 import type { Experience, ResumeProfile } from '../lib/types'
 import { UiIcon } from '../components/Brand'
 import ResumePreview from './workbench/ResumePreview'
+import ResumeComparison from './workbench/ResumeComparison'
 import RoleRequirementsEditor from './workbench/RoleRequirementsEditor'
 import DiagnosePage from './DiagnosePage'
 import QualityPage from './QualityPage'
@@ -36,6 +37,8 @@ export default function WorkbenchPage({ userId, initialStep = 3, sourceText, set
   const [waiting, setWaiting] = useState(false)
   const [activeStep, setActiveStep] = useState(markdown.trim() ? (initialStep === 4 && profile?.user_confirmed && !factIssues(profile).length ? 4 : 3) : profile ? 2 : 1)
   const [optimizationTool, setOptimizationTool] = useState<'quality' | 'match'>('quality')
+  const [comparison, setComparison] = useState<{ before: string; after: string } | null>(null)
+  const [cleanPreview, setCleanPreview] = useState(false)
   const [initialDraft, setInitialDraft] = useState(false)
   const [manuallyEdited, setManuallyEdited] = useState(false)
   const requestLock = useRef(false)
@@ -64,7 +67,7 @@ export default function WorkbenchPage({ userId, initialStep = 3, sourceText, set
   const tailoringNeedsReview = !tailoring || tailoring.unsupported_claims.length > 0
     || tailoring.requirements.some((item) => item.status === 'supported' && !item.output_excerpt)
   const resetOutput = () => { setGenerationCheck(null); setError(''); setRetryAction(null); setManuallyEdited(false) }
-  const invalidateDraft = () => { onMarkdownChange(''); resetOutput() }
+  const invalidateDraft = () => { setComparison(null); onMarkdownChange(''); resetOutput() }
   const editProfile = (value: ResumeProfile) => { onProfileChange(changedFacts({...value,experiences:value.experiences.map(e=>e.kind==='education'?{...e,actions:[],results:[],skills:[]}:e)})); invalidateDraft() }
   const editJd = (text: string) => {
     onJdChange(text)
@@ -131,6 +134,7 @@ export default function WorkbenchPage({ userId, initialStep = 3, sourceText, set
       const result = await api.generateResume(initial ? '' : jdText, profile, initial ? [] : jdKeywords)
       if (!mounted.current || latestInput.current !== expected) return
       const nextMarkdown = generatedMarkdown(result)
+      setComparison(null)
       onMarkdownChange(nextMarkdown)
       setInitialDraft(initial || !jdText.trim())
       setGenerationCheck({ snapshot: JSON.stringify([sourceText, sourceName, profile, jdText, nextMarkdown, jdKeywords]), review: generationReview(result), numbers: Array.isArray(result.untraceable) ? result.untraceable.filter((item) => typeof item === 'string') : [], tailoring: tailoringReport(result.tailoring, profile, jdText, nextMarkdown) })
@@ -143,8 +147,13 @@ export default function WorkbenchPage({ userId, initialStep = 3, sourceText, set
     const url = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }))
     const a = document.createElement('a'); a.href = url; a.download = `${profile?.name || '职得offer'}-定向简历.md`; a.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
+  const applyOptimization = (text: string) => {
+    editMarkdown(text)
+    setComparison({ before: markdown, after: text })
+  }
+
   const editMarkdown = (text: string) => {
-    onMarkdownChange(text); setGenerationCheck(null); setManuallyEdited(true)
+    setComparison(null); onMarkdownChange(text); setGenerationCheck(null); setManuallyEdited(true)
   }
   const stepReady = (step: number) => {
     if (step === 2) return Boolean(profile)
@@ -201,8 +210,9 @@ export default function WorkbenchPage({ userId, initialStep = 3, sourceText, set
       </section>
       <section id="wb-step-3" hidden={activeStep !== 3} aria-hidden={activeStep !== 3} tabIndex={-1} className="panel wb-jd-panel"><div className="panel-heading"><div><span className="section-kicker">03 / REFINE YOUR RESUME</span><h2>检查与优化</h2></div><span className="tag blue">当前稿持续更新</span></div><p className="panel-description">补充岗位要求，检查简历并采纳建议。可以反复修改和检查，满意后再预览。</p><fieldset disabled={busy}><RoleRequirementsEditor id="jd-text" jdText={jdText} onChange={editJd} disabled={busy} onBusyChange={onBusyChange} /><p className="wb-hint">修改岗位要求保留当前简历和事实确认，原报告需重新运行；岗位缺口不能写成个人经历。</p></fieldset>
         <div className="optimization-tools" role="group" aria-label="选择优化工具"><button type="button" className={optimizationTool === 'quality' ? 'primary-button' : 'secondary-button'} disabled={busy} aria-pressed={optimizationTool === 'quality'} onClick={() => setOptimizationTool('quality')}>简历检查</button><button type="button" className={optimizationTool === 'match' ? 'primary-button' : 'secondary-button'} disabled={busy} aria-pressed={optimizationTool === 'match'} onClick={() => setOptimizationTool('match')}>岗位匹配</button></div>
-        {activeStep === 3 && optimizationTool === 'quality' && <QualityPage embedded jdText={jdText} jdKeywords={jdKeywords} profile={profile} markdown={markdown} onMarkdownChange={editMarkdown} busy={busy} onBusyChange={onBusyChange} />}
-        {activeStep === 3 && optimizationTool === 'match' && <DiagnosePage embedded jdText={jdText} setJdText={editJd} profile={profile} markdown={markdown} onMarkdownChange={editMarkdown} busy={busy} onBusyChange={onBusyChange} onDone={(_text, keywords) => onJdKeywordsChange?.(keywords)} />}
+        {activeStep === 3 && optimizationTool === 'quality' && <QualityPage embedded jdText={jdText} jdKeywords={jdKeywords} profile={profile} markdown={markdown} onMarkdownChange={applyOptimization} busy={busy} onBusyChange={onBusyChange} />}
+        {activeStep === 3 && optimizationTool === 'match' && <DiagnosePage embedded jdText={jdText} setJdText={editJd} profile={profile} markdown={markdown} onMarkdownChange={applyOptimization} busy={busy} onBusyChange={onBusyChange} onDone={(_text, keywords) => onJdKeywordsChange?.(keywords)} />}
+        {comparison?.after === markdown && <details><summary>查看最近一次优化前后对比</summary><ResumeComparison before={comparison.before} after={comparison.after} /></details>}
         <details className="optimization-draft" open><summary>查看与编辑当前简历</summary><p className="wb-hint">采纳建议会更新此稿；手动编辑后请重新检查。原始事实没有变化时，无需返回确认。</p><textarea className="markdown-editor" aria-label="优化阶段编辑简历" disabled={busy} value={markdown} onChange={e => editMarkdown(e.target.value)} /></details>{stepActions(3)}</section>
       <section id="wb-step-4" hidden={activeStep !== 4} aria-hidden={activeStep !== 4} tabIndex={-1} className="panel preview-panel"><div className="panel-heading"><div><span className="section-kicker">04 / YOUR NEXT OFFER</span><h2>简历预览</h2></div><span className={`tag ${markdown && review.warning ? 'amber' : 'blue'}`}>{markdown ? '草稿待核对' : '待生成'}</span></div><p className="panel-description">让与岗位相关的经历，先被看见。</p>
         <button className="primary-button full generate-button" disabled={busy || Boolean(blocked)} onClick={() => void generate()}><UiIcon name="spark" />{activity === '正在生成并检查简历…' ? activity : markdown ? '重新生成简历' : '根据已确认事实生成简历'}</button><p className="wb-hint">{blocked || (markdown ? '重新生成将替换当前稿件，包括手动修改；如需保留请先下载。' : '只改写与排序，不新增经历事实。')}</p>
@@ -220,7 +230,7 @@ export default function WorkbenchPage({ userId, initialStep = 3, sourceText, set
           </details>)}
           {tailoring.unsupported_claims.length > 0 && <div className="warning-note" role="status"><strong>以下表述可能超出事实，请勿直接使用</strong><ul>{tailoring.unsupported_claims.map((claim, i) => <li key={i}><q>{claim.quote}</q>：{claim.reason}</li>)}</ul></div>}
         </> : <p className="warning-note">定制依据待核对：未收到与当前材料、JD 和稿件对应的完整报告。编辑或恢复的草稿不沿用旧报告，请重新生成或人工逐项核对。</p>}</section>}
-        {markdown ? <><div className="preview-toolbar"><div className="segmented"><button className={previewMode === 'preview' ? 'selected' : ''} disabled={busy} onClick={() => setPreviewMode('preview')}>预览</button><button className={previewMode === 'edit' ? 'selected' : ''} disabled={busy} onClick={() => setPreviewMode('edit')}>编辑</button></div><span className="muted">Markdown</span></div>{previewMode === 'preview' ? <ResumePreview markdown={markdown} /> : <textarea className="markdown-editor" aria-label="编辑简历 Markdown" disabled={busy} value={markdown} onChange={(e) => editMarkdown(e.target.value)} />}
+        {markdown ? <><div className="preview-toolbar"><div className="segmented"><button className={previewMode === 'preview' ? 'selected' : ''} disabled={busy} onClick={() => setPreviewMode('preview')}>预览</button><button className={previewMode === 'edit' ? 'selected' : ''} disabled={busy} onClick={() => setPreviewMode('edit')}>编辑</button></div><span className="muted">Markdown</span></div>{previewMode === 'preview' ? <><label>简历样式 <select value={cleanPreview ? "clean" : "classic"} onChange={event => setCleanPreview(event.target.value === "clean")}><option value="classic">经典</option><option value="clean">简洁</option></select></label><ResumePreview markdown={markdown} clean={cleanPreview} /></> : <textarea className="markdown-editor" aria-label="编辑简历 Markdown" disabled={busy} value={markdown} onChange={(e) => editMarkdown(e.target.value)} />}
           {manuallyEdited && <p className="warning-note">稿件已手动修改，原数字检查不再代表当前内容，请重新核对所有事实和数字。</p>}
           {numberWarnings.length > 0 && <div className="warning-note" role="status"><strong>数字检查：以下内容缺少材料依据</strong><ul>{numberWarnings.map((item, i) => <li key={i}>{item}</li>)}</ul></div>}<p className="field-hint">初稿及手动修改均需人工核对，数字检查不等于事实认证。</p><button className="secondary-button full" disabled={busy || !markdown.trim()} onClick={download}><UiIcon name="download" />下载 Markdown 简历</button></> : <div className="preview-empty"><div className="paper-skeleton"><span className="skeleton-name" /><span className="skeleton-sub" /><div className="skeleton-divider" /><span className="skeleton-title" /><span /><span /><span className="short" /><div className="skeleton-divider" /><span className="skeleton-title" /><span /><span className="short" /></div><h3>你的下一份简历，从这里开始</h3><p>确认经历并生成初稿后，结果会显示在这里。</p></div>}
         <div className="export-note">本轮支持 Markdown；Word 和 PDF 可在个人记忆页导出。</div>{stepActions(4)}

@@ -37,3 +37,13 @@
 .role-b-diagnose .match-suggestions-panel{border-color:var(--line,#cfdee8);background:var(--sky,#edf3f8)}
 .role-b-diagnose .match-suggestions-panel label{border-color:var(--line,#cfdee8);color:var(--ink,#222c36)}
 @media(max-width:520px){.role-title-actions input,.role-title-actions button{flex-basis:100%;width:100%}.role-b-diagnose .step-actions button{flex:1 1 100%}.role-reference-preview{padding:12px}}
+
+.resume-comparison-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.resume-comparison-columns pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: .75rem; background: #fff; color: #243143; }
+.resume-comparison-columns pre span { display: block; }
+.resume-removed { background: #ffe4e6; color: #881337; }
+.resume-added { background: #dcfce7; color: #14532d; }
+.resume-paper.resume-paper-clean { border-radius: 0; box-shadow: none; border-top: 3px solid #435b74; }
+.resume-paper.resume-paper-clean h3 { border-bottom: 1px solid #cbd5e1; padding-bottom: .3rem; }
+.demo-card { width: min(100%, 62rem); margin: 0 auto; }
+@media (max-width: 640px) { .resume-comparison-columns { grid-template-columns: minmax(0, 1fr); } }

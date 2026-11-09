@@ -10,7 +10,7 @@ function inline(text: string): ReactNode[] {
   })
 }
 
-export default function ResumePreview({ markdown }: { markdown: string }) {
+export default function ResumePreview({ markdown, clean = false }: { markdown: string; clean?: boolean }) {
   const lines = markdown.replace(/\r\n?/g, '\n').split('\n')
   const blocks: ReactNode[] = []
   let paragraph: string[] = []
@@ -48,5 +48,5 @@ export default function ResumePreview({ markdown }: { markdown: string }) {
     }
   }
   flush()
-  return <article className="resume-paper" aria-label="简历正文预览">{blocks}</article>
+  return <article className={clean ? "resume-paper resume-paper-clean" : "resume-paper"} aria-label="简历正文预览">{blocks}</article>
 }

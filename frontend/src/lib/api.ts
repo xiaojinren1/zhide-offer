@@ -89,12 +89,26 @@ type ModelUsageReport = {
   next_before: number | null
 }
 
+export type FeedbackStatus = 'pending' | 'reviewing' | 'resolved'
+type FeedbackItem = { id: number; message: string; status: FeedbackStatus; created_at: string; username: string }
+
 export const api = {
+  listFeedback: (manage: boolean, before?: number) =>
+    http.get<{ can_manage: boolean; items: FeedbackItem[]; next_before: number | null }>(
+      '/feedback', { params: { manage, before } },
+    ).then((r) => r.data),
+  submitFeedback: (message: string) => http.post('/feedback', { message }),
+  updateFeedback: (id: number, status: FeedbackStatus) => http.patch(`/feedback/${id}`, { status }),
   modelUsage: (params: { before?: number; start?: string; end?: string }) =>
     http.get<ModelUsageReport>('/auth/model-usage', { params }).then((r) => r.data),
   startTrial: () => http.post("/auth/trial").then(() => announceAccountChange()),
   heartbeat: () => http.post('/user-stats/heartbeat'),
-  userStats: () => http.get<{ online: number; registered: number; new_this_week: number } | null>('/user-stats').then(r => r.data),
+  userStats: () => http.get<{
+    online: number; registered: number; new_this_week: number
+    trend: Array<{ date: string; registrations: number; tokens: number }>
+  } | null>('/user-stats').then(r => r.data),
+  listAdmins: () => http.get<{ admins: string[] }>('/user-stats/admins').then(r => r.data),
+  changeAdmin: (username: string, admin: boolean) => http.put('/user-stats/admins', { username, admin }),
   modelPreference: (kind: ModelKind = 'text') => http.get<TextModelPreference | null>('/model-preferences', { params: { kind } }).then(r => r.data),
   listModels: (config: ModelConnection, kind: ModelKind = 'text') =>
     http.post<{ models: string[] }>('/model-preferences/models', config, { params: { kind } }).then(r => r.data),

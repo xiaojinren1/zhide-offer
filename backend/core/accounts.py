@@ -37,6 +37,22 @@ CREATE TABLE IF NOT EXISTS sessions (
     expires_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+CREATE TABLE IF NOT EXISTS user_roles (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK(role = 'admin'),
+    PRIMARY KEY(user_id, role)
+);
+CREATE TABLE IF NOT EXISTS role_migrations (
+    name TEXT PRIMARY KEY
+);
+CREATE TABLE IF NOT EXISTS feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'reviewing', 'resolved')),
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS feedback_user ON feedback(user_id, id);
 CREATE TABLE IF NOT EXISTS model_usage (
     id INTEGER PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

@@ -62,7 +62,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Content-Type", "X-Requested-With"],
 )
 
@@ -74,7 +74,7 @@ from api.auth import router as auth_router  # noqa: E402
 app.include_router(auth_router)
 
 for module_path in ("api.diagnose", "api.resume", "api.quality", "api.interview", "api.profiles",
-                    "api.workspace", "api.interview_records", "api.export", "api.evidence", "api.model_preferences", "api.user_stats"):
+                    "api.workspace", "api.interview_records", "api.export", "api.evidence", "api.model_preferences", "api.user_stats", "api.feedback"):
     module = __import__(module_path, fromlist=["router"])
     app.include_router(module.router, dependencies=[Depends(accounts.require_user), Depends(accounts.require_csrf), Depends(model_preferences.bind)])
 

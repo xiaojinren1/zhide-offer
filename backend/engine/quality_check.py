@@ -31,10 +31,20 @@ def known_numbers(profile: ResumeProfile) -> set[str]:
     return known
 
 
+_YEAR_MONTH = r"(?:19|20)\d{2}(?:[./-](?:0?[1-9]|1[0-2])|年[ \t]*(?:0?[1-9]|1[0-2])月)"
+_DATE_RANGE = re.compile(rf"(?<!\d){_YEAR_MONTH}(?!\d)[ \t]*(?:[-–—~～]|至|到)[ \t]*(?:{_YEAR_MONTH}(?!\d)|至今|现在|present)", re.I)
+_LABELED_DATE = re.compile(rf"((?:时间|日期|入职|离职|入学|毕业)[* \t]*[：:][* \t]*){_YEAR_MONTH}(?!\d)")
+_CONTACT = re.compile(r"(?:手机(?:号码)?|电话|联系方式|QQ|微信|tel|phone)[* \t]*[：:][* \t]*(?:\+?86[ -]?)?\d(?:[ \t-]?\d){4,19}(?!\d)", re.I)
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
+
 def untraceable_numbers(md: str, profile: ResumeProfile, sample: int = 8) -> list[str]:
     """简历里出现、但经历库中不存在的数字 → 疑似虚构。"""
     known = known_numbers(profile)
-    unknown = sorted({n for n in re.findall(r"\d+(?:\.\d+)?", md or "") if n not in known})
+    body = _DATE_RANGE.sub(" ", md or "")
+    body = _LABELED_DATE.sub(r"\1 ", body)
+    body = _EMAIL.sub(" ", _CONTACT.sub(" ", body))
+    unknown = sorted({n for n in re.findall(r"\d+(?:\.\d+)?", body) if n not in known})
     return unknown[:sample]
 
 

@@ -75,7 +75,7 @@ export default function QualityPage({ jdText, jdKeywords, profile, markdown, onM
     ...report.suspicions.map((x, index) => ({ ...x, id: `suspicion-${index}` })),
     ...report.cliche_hits.map((x, index) => ({ id: `cliche-${index}`, type: 'cliche', location: '简历正文', detail: `命中套话：${x}`, suggestion: `删除或改写“${x}”，换成真实行动和结果。`, severity: 'medium' as const, program_verified: true })),
     ...report.ats_issues.map((x, index) => ({ id: `ats-${index}`, type: 'ats', location: '简历格式', detail: x, suggestion: '调整简历内容以改善 ATS 解析；缺少联系方式时请先在原始材料中补充真实信息。', severity: 'medium' as const, program_verified: true })),
-    ...report.consistency_issues.map((x, index) => ({ id: `consistency-${index}`, type: 'consistency', location: '简历正文', detail: x, suggestion: '删除无法从经历库核实的数字或内容，不要补造事实。', severity: 'high' as const, program_verified: true })),
+    ...report.consistency_issues.map((x, index) => ({ id: `consistency-${index}`, type: 'consistency', location: '简历正文', detail: x, suggestion: '先核对数字来源。有真实依据就补充到确认经历，无依据时再删改。', severity: 'high' as const, program_verified: true })),
   ] : []
   const toggleSuggestion = (id: string) => setSelected((previous) => previous.includes(id) ? previous.filter((item) => item !== id) : [...previous, id])
   const applySuggestions = async (all = false) => {

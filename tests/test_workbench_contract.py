@@ -103,6 +103,12 @@ class FileAndStorageContract(AuthenticatedContract):
         profile=ResumeProfile(education=['2022 入学'],experiences=[Experience(period='2024.03-2024.09')])
         self.assertEqual(untraceable_numbers('2022 入学；项目2024.03-2024.09',profile),[])
         self.assertEqual(untraceable_numbers('增长99%',profile),['99'])
+        self.assertEqual(
+            untraceable_numbers("电话：13200000000 | QQ：123123123 | 42@example.com\n"
+                                "2018.09–2021.08\n2022年5月 至 2022年6月\n"
+                                "入职：2022.11\n增长99%", profile),
+            ["99"],
+        )
 
     def test_profile_ids_do_not_collide(self):
         from api.profiles import _new_id

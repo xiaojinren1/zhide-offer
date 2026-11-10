@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from core import events
 from engine.jd_parser import parse_jd
 from engine.models import QualityReport
+from engine.quality_check import untraceable_numbers
 from engine.resume_parser import profile_from_dict
 from engine.suspicion import _tokenize, count_numbers, run_all
 
@@ -53,15 +54,11 @@ def _ats_issues(text: str) -> list[str]:
 
 
 def _consistency_issues(md: str, profile) -> list[str]:
-    """生成简历中出现的数字，若不在经历库量化字段里 → 不一致。"""
-    known: set[str] = set()
-    for e in profile.experiences:
-        for m in re.findall(r"\d+(?:\.\d+)?", " ".join(e.actions + e.results)):
-            known.add(m)
-    unknown = sorted({n for n in re.findall(r"\d+(?:\.\d+)?", md or "") if n not in known})
+    unknown = untraceable_numbers(md, profile, sample=10)
     if unknown:
-        return [f"出现经历库中不存在的数字：{', '.join(unknown[:10])}（疑似虚构）"]
+        return [f"以下正文数字暂未在已确认经历中找到依据：{', '.join(unknown)}。请核对来源。"]
     return []
+
 
 
 def _draft_profile(markdown, profile):

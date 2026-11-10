@@ -34,6 +34,16 @@ MODEL=填入服务商提供的实际模型ID
 
 不要将密钥发到聊天或提交 Git。更改配置后重启后端。模型支持工具调用与否须真实验证。
 
+## 本机个人模型加密密钥
+
+若模型设置提示「个人模型加密服务未配置」，在项目根目录执行以下 PowerShell 命令，将输出的完整配置行粘贴到 `backend/.env`。若设置了 `JOBAGENT_ENV_FILE`，请改它指向的私有文件。已有空项时直接替换，保存后重启后端，再点击「测试并启用」。
+
+```powershell
+.\.venv\Scripts\python.exe -c "import base64,secrets; print('JOBAGENT_MODEL_ENCRYPTION_KEY=' + base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+```
+
+此密钥用于加密保存个人模型配置。已有配置时应恢复原密钥。密钥只放在私有配置中，服务器操作见 [DEPLOY.md](DEPLOY.md)。
+
 ## 启动
 ```powershell
 # Windows

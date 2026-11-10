@@ -8,6 +8,8 @@ import WorkbenchPage from './pages/WorkbenchPage'
 import AuthPage from './pages/AuthPage'
 import AccountPage from './pages/AccountPage'
 import ModelPreferences from './pages/ModelPreferences'
+import ModelUsage from './pages/ModelUsage'
+import './pages/model-center.css'
 import axios from 'axios'
 import { OwlLogo, UiIcon } from './components/Brand'
 import { api, apiErrorMessage, ACCOUNT_CHANGED_EVENT, invalidateAuthRequests, PROFILE_UPDATED_EVENT, SESSION_EXPIRED_EVENT, MODEL_CONFIGURATION_REQUIRED_EVENT } from './lib/api'
@@ -17,7 +19,8 @@ import type { ResumeProfile } from './lib/types'
 import { useWorkspace } from './lib/useWorkspace'
 import type { WorkspacePage } from './lib/workspace'
 
-type Page = WorkspacePage | 'account'
+type SettingsPage = 'account' | 'models'
+type Page = WorkspacePage | SettingsPage
 const FLOW: Array<{ id: Page; name: string; icon: string }> = [
   { id: 'workbench', name: '材料整理与修改简历', icon: 'edit' },
   { id: 'interview', name: '模拟面试', icon: 'chat' },
@@ -116,9 +119,10 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
   const persistence = useWorkspace(user.id)
   const { state, update } = persistence
   const { profile, jd_text: jdText, jd_keywords: jdKeywords, markdown, source_text: sourceText, source_name: sourceName } = state
-  const [pageOverride, setPageOverride] = useState<'account' | null>(null)
+  const [pageOverride, setPageOverride] = useState<SettingsPage | null>(null)
+  const [modelModule, setModelModule] = useState<'config' | 'usage'>('config')
   const [workbenchEntryStep, setWorkbenchEntryStep] = useState<3 | 4>(3)
-  const canOpen = (value: Page) => value === 'account' || value === 'memory' || value === 'workbench'
+  const canOpen = (value: Page) => value === 'account' || value === 'models' || value === 'memory' || value === 'workbench'
     || (value === 'diagnose' && Boolean(profile && jdText.trim() && markdown.trim()))
     || (value === 'quality' && Boolean(profile && markdown.trim()))
     || (value === 'interview' && Boolean(profile?.user_confirmed && jdText.trim() && markdown.trim()))
@@ -130,8 +134,12 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
   const setPage = (value: Page, workbenchStep: 3 | 4 = 3) => {
     if (operationBusy.current || loggingOut || !canOpen(value)) return
     if (value === 'workbench') setWorkbenchEntryStep(workbenchStep)
-    setPageOverride(value === 'account' ? 'account' : null)
-    if (value !== 'account') update((previous) => ({ ...previous, page: value }))
+    if (value === 'account' || value === 'models') {
+      setPageOverride(value)
+    } else {
+      setPageOverride(null)
+      update((previous) => ({ ...previous, page: value }))
+    }
   }
   const setMarkdown = (value: string) => update((previous) => ({ ...previous, markdown: value }))
   const setJdKeywords = (value: string[]) => update((previous) => ({ ...previous, jd_keywords: value }))
@@ -174,7 +182,7 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
   }, [])
 
   useEffect(() => {
-    if (!user.guest || !persistence.loaded || page === 'account' || guidedGuest.current) return
+    if (!user.guest || !persistence.loaded || page === 'models' || guidedGuest.current) return
     const storageKey = 'jobagent:last-guided-guest'
     try {
       if (sessionStorage.getItem(storageKey) === user.id) return
@@ -203,12 +211,14 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
       </ol>}
       <div className="model-config-actions">
         <button type="button" className="secondary-button" onClick={() => modelDialog.current?.close()}>稍后设置</button>
-        <button type="button" className="primary-button" onClick={() => { modelDialog.current?.close(); setPage('account') }}>前往模型设置</button>
+        <button type="button" className="primary-button" onClick={() => { modelDialog.current?.close(); setModelModule('config'); setPage('models') }}>前往模型配置</button>
       </div>
     </dialog>
-    <header className="topbar"><a className="brand" href="#" onClick={(e) => { e.preventDefault(); if (!busy) setPage('workbench') }}><OwlLogo /><span>职得<span className="brand-offer">offer</span></span></a><div className="topbar-right">{user.guest ? <button className="secondary-button" disabled={busy || loggingOut} onClick={() => setPage('account')}>临时配置模型</button> : <button className="account-entry" type="button" disabled={busy || loggingOut} onClick={() => setPage('account')} aria-label="打开个人中心"><span className="avatar small topbar-avatar">{user.avatar_url ? <img src={`/api/auth/avatar?v=${encodeURIComponent(user.avatar_url)}`} alt="" /> : user.username[0].toUpperCase()}</span><span className="account-name" title={user.username}>{user.username}</span><UiIcon name="chevron" /></button>}<button className="secondary-button account-logout" disabled={busy || loggingOut} onClick={logout}>{loggingOut ? '退出中…' : user.guest ? '结束试用' : '退出登录'}</button></div></header>
-    <aside className="sidebar"><div className="sidebar-caption">我的求职流程</div><nav aria-label="求职流程">{FLOW.map((item, index) => { const allowed = canOpen(item.id); return <button key={item.id} disabled={busy || loggingOut || !persistence.loaded || !allowed} aria-disabled={!allowed} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => setPage(item.id)}><span className="flow-index">{index + 1}</span><UiIcon name={item.icon} /><span>{item.name}</span>{page === item.id && <span className="nav-dot" />}</button> })}</nav><div className="sidebar-secondary"><button className={`nav-item ${page === 'memory' ? 'active' : ''}`} disabled={busy || loggingOut || !persistence.loaded} onClick={() => setPage('memory')}><UiIcon name="folder" /><span>个人经历库</span></button></div><div className="sidebar-bottom"><div className="sidebar-tip"><UiIcon name="shield" /><strong>工作台内完成闭环</strong><p>岗位匹配和简历检查会围绕当前简历逐项修改。</p></div></div></aside>
-    <main className={page === 'account' ? 'workspace workspace-settings' : 'workspace'}><div className="page-heading"><div><span className="eyebrow">{page === 'account' ? 'ACCOUNT SETTINGS' : 'YOUR NEXT CHAPTER'}</span><h1>{page === 'account' ? '个人中心' : '把真实经历，变成岗位竞争力'}</h1><p>{page === 'account' ? '管理头像与登录密码。' : '整理经历，确认事实，为每个心仪岗位做好准备。'}</p></div>{page !== 'account' && <div className="brand-companion" aria-hidden="true"><span className="brand-orbit" /><img src={posterOwl} alt="" width="180" height="180" /><span className="companion-caption">你的 AI 求职伙伴</span></div>}</div>
+    <header className="topbar"><a className="brand" href="#" onClick={(e) => { e.preventDefault(); if (!busy) setPage('workbench') }}><OwlLogo /><span>职得<span className="brand-offer">offer</span></span></a><div className="topbar-right">{user.guest ? <button className="secondary-button" disabled={busy || loggingOut} onClick={() => setPage('models')}>临时配置模型</button> : <button className="account-entry" type="button" disabled={busy || loggingOut} onClick={() => setPage('account')} aria-label="打开个人中心"><span className="avatar small topbar-avatar">{user.avatar_url ? <img src={`/api/auth/avatar?v=${encodeURIComponent(user.avatar_url)}`} alt="" /> : user.username[0].toUpperCase()}</span><span className="account-name" title={user.username}>{user.username}</span><UiIcon name="chevron" /></button>}<button className="secondary-button account-logout" disabled={busy || loggingOut} onClick={logout}>{loggingOut ? '退出中…' : user.guest ? '结束试用' : '退出登录'}</button></div></header>
+    <aside className="sidebar"><div className="sidebar-caption">我的求职流程</div><nav aria-label="求职流程">{FLOW.map((item, index) => { const allowed = canOpen(item.id); return <button key={item.id} disabled={busy || loggingOut || !persistence.loaded || !allowed} aria-disabled={!allowed} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => setPage(item.id)}><span className="flow-index">{index + 1}</span><UiIcon name={item.icon} /><span>{item.name}</span>{page === item.id && <span className="nav-dot" />}</button> })}</nav><div className="sidebar-secondary"><button className={`nav-item ${page === 'memory' ? 'active' : ''}`} disabled={busy || loggingOut || !persistence.loaded} onClick={() => setPage('memory')}><UiIcon name="folder" /><span>个人经历库</span></button>
+      <button type="button" className={`nav-item ${page === 'models' ? 'active' : ''}`} aria-current={page === 'models' ? 'page' : undefined} disabled={busy || loggingOut} onClick={() => setPage('models')}><UiIcon name="edit" /><span>模型中心</span></button>
+    </div><div className="sidebar-bottom"><div className="sidebar-tip"><UiIcon name="shield" /><strong>工作台内完成闭环</strong><p>岗位匹配和简历检查会围绕当前简历逐项修改。</p></div></div></aside>
+    <main className={pageOverride ? 'workspace workspace-settings' : 'workspace'}><div className="page-heading"><div><span className="eyebrow">{page === 'models' ? 'MODEL CENTER' : page === 'account' ? 'ACCOUNT SETTINGS' : 'YOUR NEXT CHAPTER'}</span><h1>{page === 'models' ? '模型中心' : page === 'account' ? '个人中心' : '把真实经历，变成岗位竞争力'}</h1><p>{page === 'models' ? (user.guest ? '为本次试用配置文本和图片解析模型。' : '配置你的模型，查看调用和 Token 用量。') : page === 'account' ? '管理头像与登录密码。' : '整理经历，确认事实，为每个心仪岗位做好准备。'}</p></div>{!pageOverride && <div className="brand-companion" aria-hidden="true"><span className="brand-orbit" /><img src={posterOwl} alt="" width="180" height="180" /><span className="companion-caption">你的 AI 求职伙伴</span></div>}</div>
       {logoutError && <p className="auth-error account-error" role="alert">退出未成功：{logoutError}</p>}
       <div className="notice" role={persistence.error ? 'alert' : 'status'}><span>{user.guest ? "免注册试用 · 可在右上角临时配置自己的模型。退出或到期前，请先导出需要的简历。" : retentionLabel}{persistence.error && `：${persistence.error}`}</span>{persistence.savedAt && persistence.phase === 'saved' && <span className="muted"> · {new Date(persistence.savedAt).toLocaleTimeString('zh-CN')}</span>}{persistence.phase === 'load-error' && <button className="secondary-button" disabled={busy || loggingOut} onClick={restoreWorkspace}>重试恢复</button>}{persistence.phase === 'save-error' && <button className="secondary-button" disabled={loggingOut} onClick={() => void persistence.retrySave().catch(() => undefined)}>重试保存</button>}{persistence.phase === 'conflict' && <button className="secondary-button" disabled={busy || loggingOut} onClick={restoreWorkspace}>放弃本页编辑并加载服务器版本</button>}</div>
       <div inert={!persistence.loaded || loggingOut}>
@@ -226,7 +236,23 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
           page: 'workbench',
         }))
       }} />}
-      {page === 'account' && (user.guest ? <><ModelPreferences userId={user.id} guest /><ModelPreferences userId={user.id} guest kind="vision" /></> : <AccountPage user={user} onUserChange={onUserUpdated} />)}
+      {page === 'account' && !user.guest && <AccountPage user={user} onUserChange={onUserUpdated} />}
+      {page === 'models' && <div className="account-page">
+        {!user.guest && <nav className="model-center-modules" aria-label="模型中心模块">
+          <button type="button" aria-pressed={modelModule === 'config'} onClick={() => setModelModule('config')}>
+            <strong>模型配置</strong>
+            <span>管理文本和图片解析模型，测试连接并启用。</span>
+          </button>
+          <button type="button" aria-pressed={modelModule === 'usage'} onClick={() => setModelModule('usage')}>
+            <strong>用量统计</strong>
+            <span>按日期查看 Token 用量、模型排行和调用明细。</span>
+          </button>
+        </nav>}
+        {user.guest || modelModule === 'config' ? <>
+          <ModelPreferences userId={user.id} guest={user.guest} />
+          <ModelPreferences userId={user.id} guest={user.guest} kind="vision" />
+        </> : <ModelUsage />}
+      </div>}
       </div>
       <footer className="workspace-footer"><span className="footer-brand">职得offer · 让每一段真实经历被看见</span><p><strong>免责声明：</strong>AI 生成内容仅供求职准备参考，请核对真实性后再使用；本产品不承诺面试或录用结果。</p><p><strong>原创声明：</strong>产品界面与功能由团队原创设计开发；用户上传材料及其知识产权归用户或原权利人所有。</p></footer>
     </main>

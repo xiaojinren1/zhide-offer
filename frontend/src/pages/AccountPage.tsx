@@ -1,6 +1,4 @@
 import UserStats from './UserStats'
-import ModelUsage from './ModelUsage'
-import ModelPreferences from './ModelPreferences'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api, apiErrorMessage, PROFILE_UPDATED_EVENT } from '../lib/api'
@@ -139,9 +137,6 @@ export default function AccountPage({ user, onUserChange }: {
         <button type="submit" className="primary-button account-password-submit" disabled={passwordBusy}>{passwordBusy ? '正在保存…' : '更新密码'}</button>
       </form>
     </section>
-    <ModelPreferences userId={user.id} />
-    <ModelPreferences userId={user.id} kind="vision" />
-    {!user.guest && <ModelUsage key={user.id} />}
     <UserStats />
   </section>
 }

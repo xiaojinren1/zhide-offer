@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field
@@ -108,11 +109,20 @@ def get_profile(user: dict = Depends(accounts.require_user)):
 
 @router.get("/model-usage")
 def get_model_usage(response: Response, before: int | None = Query(None, ge=1, le=2**53 - 1),
+                    start: datetime | None = None, end: datetime | None = None,
                     user: dict = Depends(accounts.require_user)):
     if user.get("guest"):
         raise HTTPException(403, "登录正式账号后可查看模型用量")
     response.headers["Cache-Control"] = "no-store"
-    return model_usage.report(user["id"], before)
+    if any(value is not None and value.utcoffset() is None for value in (start, end)):
+        raise HTTPException(422, "日期范围需要包含时区")
+    if start is not None and end is not None and start >= end:
+        raise HTTPException(422, "日期范围无效")
+    return model_usage.report(
+        user["id"], before,
+        start.astimezone(timezone.utc).isoformat() if start else None,
+        end.astimezone(timezone.utc).isoformat() if end else None,
+    )
 
 
 @router.post("/change-password")

@@ -90,8 +90,8 @@ type ModelUsageReport = {
 }
 
 export const api = {
-  modelUsage: (before?: number) =>
-    http.get<ModelUsageReport>('/auth/model-usage', { params: { before } }).then((r) => r.data),
+  modelUsage: (params: { before?: number; start?: string; end?: string }) =>
+    http.get<ModelUsageReport>('/auth/model-usage', { params }).then((r) => r.data),
   startTrial: () => http.post("/auth/trial").then(() => announceAccountChange()),
   heartbeat: () => http.post('/user-stats/heartbeat'),
   userStats: () => http.get<{ online: number; registered: number; new_this_week: number } | null>('/user-stats').then(r => r.data),

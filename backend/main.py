@@ -79,6 +79,13 @@ for module_path in ("api.diagnose", "api.resume", "api.quality", "api.interview"
     app.include_router(module.router, dependencies=[Depends(accounts.require_user), Depends(accounts.require_csrf), Depends(model_preferences.bind)])
 
 
+@app.get("/api/contact")
+def contact():
+    with accounts.connection() as db:
+        row = db.execute("SELECT value FROM site_settings WHERE name = 'contact_qq'").fetchone()
+    return {"qq": row["value"] if row else None}
+
+
 @app.get("/api/health")
 def health():
     cfg = settings()

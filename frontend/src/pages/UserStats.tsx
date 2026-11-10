@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { api, apiErrorMessage } from '../lib/api'
 import Feedback from './Feedback'
+import { CONTACT_UPDATED_EVENT } from '../components/AdminContact'
 import './admin-dashboard.css'
 
 type Stats = NonNullable<Awaited<ReturnType<typeof api.userStats>>>
-type Tab = 'overview' | 'feedback' | 'roles'
-const tabs: Array<[Tab, string]> = [['overview', '数据概览'], ['feedback', '反馈管理'], ['roles', '管理员角色']]
+type Tab = 'overview' | 'feedback' | 'roles' | 'contact'
+const tabs: Array<[Tab, string]> = [['overview', '数据概览'], ['feedback', '反馈管理'], ['roles', '管理员角色'], ['contact', '联系方式']]
 const number = new Intl.NumberFormat('zh-CN')
 
 function Trend({ title, days, metric }: { title: string; days: Stats['trend']; metric: 'registrations' | 'tokens' }) {
@@ -65,6 +66,48 @@ function Roles({ username }: { username: string }) {
   </section>
 }
 
+function ContactSettings() {
+  const [qq, setQq] = useState('')
+  const [ready, setReady] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let active = true
+    api.contact().then(result => {
+      if (active) { setQq(result.qq ?? ''); setReady(true) }
+    }).catch(reason => { if (active) setError(apiErrorMessage(reason)) })
+    return () => { active = false }
+  }, [])
+  return <section className="account-section admin-roles">
+    <h3>联系方式</h3>
+    <p>填写愿意公开的 QQ 号，显示在工作台右上角。留空保存可隐藏入口。</p>
+    <form onSubmit={async event => {
+      event.preventDefault()
+      if (!ready || saving) return
+      setSaving(true)
+      setSaved(false)
+      setError('')
+      try {
+        await api.updateContact(qq)
+        window.dispatchEvent(new Event(CONTACT_UPDATED_EVENT))
+        setSaved(true)
+      } catch (reason) {
+        setError(apiErrorMessage(reason))
+      } finally {
+        setSaving(false)
+      }
+    }}>
+      <label htmlFor="contact-qq">作者 QQ</label>
+      <input id="contact-qq" inputMode="numeric" pattern="[1-9][0-9]{4,11}" maxLength={12}
+        disabled={!ready || saving} value={qq} onChange={event => { setQq(event.target.value); setSaved(false) }} />
+      <button className="primary-button" disabled={!ready || saving}>保存</button>
+    </form>
+    {saved && <p role="status">联系方式已保存。</p>}
+    {error && <p role="alert" className="auth-error">{error}</p>}
+  </section>
+}
+
 export default function UserStats({ username }: { username: string }) {
   const [tab, setTab] = useState<Tab>('overview')
   const [stats, setStats] = useState<Stats | null | undefined>()
@@ -99,5 +142,6 @@ export default function UserStats({ username }: { username: string }) {
     </> : !error && <p role="status">正在读取统计…</p>)}
     {tab === 'feedback' && <Feedback manage />}
     {tab === 'roles' && <Roles username={username} />}
+    {tab === 'contact' && <ContactSettings />}
   </div>
 }

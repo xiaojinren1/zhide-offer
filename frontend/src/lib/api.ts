@@ -93,6 +93,8 @@ export type FeedbackStatus = 'pending' | 'reviewing' | 'resolved'
 type FeedbackItem = { id: number; message: string; status: FeedbackStatus; created_at: string; username: string }
 
 export const api = {
+  contact: () => http.get<{ qq: string | null }>('/contact').then(r => r.data),
+  updateContact: (qq: string) => http.put('/user-stats/contact', { qq }),
   listFeedback: (manage: boolean, before?: number) =>
     http.get<{ can_manage: boolean; items: FeedbackItem[]; next_before: number | null }>(
       '/feedback', { params: { manage, before } },

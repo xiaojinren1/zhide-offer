@@ -60,6 +60,25 @@ class RoleChange(BaseModel):
     admin: bool
 
 
+class ContactChange(BaseModel):
+    qq: str = Field(max_length=12, pattern=r"^([1-9][0-9]{4,11})?$")
+
+
+@router.put("/contact")
+def change_contact(body: ContactChange, user: dict = Depends(accounts.require_user)):
+    if not is_admin(user):
+        raise HTTPException(403, "没有修改联系方式的权限")
+    with accounts.connection() as db:
+        db.execute("BEGIN IMMEDIATE")
+        if not _has_role(db, user["id"]):
+            raise HTTPException(403, "没有修改联系方式的权限")
+        if body.qq:
+            db.execute("INSERT OR REPLACE INTO site_settings VALUES ('contact_qq', ?)", (body.qq,))
+        else:
+            db.execute("DELETE FROM site_settings WHERE name = 'contact_qq'")
+    return {"ok": True}
+
+
 @router.get("/admins")
 def list_admins(response: Response, user: dict = Depends(accounts.require_user)):
     if not is_admin(user):

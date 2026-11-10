@@ -39,6 +39,102 @@ class AccountContract(unittest.TestCase):
         self.assertTrue(response.json()["recovery_code"])
         return response
 
+    def test_model_preference_is_private_and_reaches_text_requests(self):
+        self.client.base_url = "http://localhost"
+        self.register()
+        other = TestClient(app, headers=HEADER)
+        self.addCleanup(other.close)
+        self.register(other, username="demo_b")
+        path = "/api/model-preferences"
+        payload = {"provider": "deepseek", "model": "model-a", "api_key": "test-key"}
+        with patch("api.model_preferences.chat_json", return_value={"ok": True}) as probe:
+            activated = self.client.post(path, json=payload)
+        self.assertEqual(activated.json(), {"provider": "deepseek", "model": "model-a"})
+        self.assertEqual(probe.call_args.kwargs["api_key"], "test-key")
+        self.assertEqual(self.client.get(path).json(), activated.json())
+        self.assertIsNone(other.get(path).json())
+        shown = self.client.post(path + "/reveal")
+        self.assertEqual(shown.json(), {"api_key": "test-key"})
+        self.assertEqual(shown.headers["Cache-Control"], "no-store")
+        other.base_url = "http://localhost"
+        other.cookies.set(accounts.COOKIE_NAME, other.cookies.get(accounts.COOKIE_NAME), domain="localhost.local")
+        self.assertEqual(other.post(path + "/reveal").status_code, 404)
+
+        from core.llm import provider_chain
+        seen = []
+        def inspect_provider(*_args, **_kwargs):
+            seen.append(provider_chain()[0]["api_key"])
+            raise RuntimeError("stop before real model call")
+        with patch("api.resume.parse_resume", side_effect=inspect_provider) as parse:
+            self.client.post("/api/resume/parse-text", json={"text": "sample resume"})
+        parse.assert_called_once()
+        self.assertEqual(seen, ["test-key"])
+        bad = self.client.post(path, json={**payload, "provider": "test-key"})
+        self.assertEqual(bad.status_code, 422)
+        self.assertNotIn("test-key", bad.text)
+        self.assertEqual(self.client.delete(path).status_code, 200)
+        self.assertIsNone(self.client.get(path).json())
+
+    def test_custom_deepseek_v1_lists_models_without_admin_configuration(self):
+        self.client.base_url = "http://localhost"
+        self.register()
+        with patch.dict("os.environ", {"JOBAGENT_CUSTOM_MODEL_BASE_URLS": ""}), patch(
+            "api.model_preferences.httpx.get"
+        ) as get:
+            get.return_value.json.return_value = {"data": [{"id": "deepseek-chat"}]}
+            response = self.client.post("/api/model-preferences/models", json={
+                "provider": "custom", "base_url": "https://api.deepseek.com/v1", "api_key": "test-key",
+            })
+            self.assertEqual(response.json(), {"models": ["deepseek-chat"]})
+            self.assertEqual(get.call_args.args, ("https://api.deepseek.com/models",))
+
+    def test_custom_model_listing_uses_approved_url_without_activating(self):
+        self.client.base_url = "http://localhost"
+        self.register()
+        url = "https://gateway.example/v1"
+        path = "/api/model-preferences"
+        payload = {"provider": "custom", "base_url": url + "/", "api_key": "test-key"}
+        with patch.dict("os.environ", {"JOBAGENT_CUSTOM_MODEL_BASE_URLS": url}), patch(
+            "api.model_preferences.httpx.get"
+        ) as get:
+            rejected = self.client.post(path + "/models", json={**payload, "base_url": "http://127.0.0.1"})
+            self.assertEqual(rejected.status_code, 422)
+            get.assert_not_called()
+            get.return_value.json.return_value = {"data": [{"id": "demo"}, {"id": "demo"}]}
+            self.assertEqual(self.client.post(path + "/models", json=payload).json(), {"models": ["demo"]})
+            self.assertEqual(get.call_args.args, (url + "/models",))
+            self.assertEqual(get.call_args.kwargs["headers"], {"Authorization": "Bearer test-key"})
+            self.assertFalse(get.call_args.kwargs["follow_redirects"])
+            self.assertIsNone(self.client.get(path).json())
+            with patch("api.model_preferences.chat_json", return_value={"ok": True}) as probe:
+                active = self.client.post(path, json={**payload, "model": "demo"})
+            self.assertEqual(probe.call_args.kwargs["base_url"], url)
+            self.assertEqual(active.json(), {"provider": "custom", "model": "demo", "base_url": url})
+            self.assertEqual(self.client.get(path).json(), active.json())
+            with patch("api.model_preferences.chat_json", return_value={"ok": True}) as probe:
+                reused = self.client.post(path, json={"provider": "custom", "base_url": url, "model": "another"})
+                self.assertEqual(reused.status_code, 200)
+                self.assertEqual(probe.call_args.kwargs["api_key"], "test-key")
+                rejected = self.client.post(path, json={
+                    "provider": "custom", "base_url": "https://api.deepseek.com", "model": "another",
+                })
+                self.assertEqual(rejected.status_code, 422)
+                probe.assert_called_once()
+            self.client.delete(path)
+
+    def test_stats_count_distinct_active_users_and_current_week_registrations(self):
+        self.register()
+        other = TestClient(app, headers=HEADER)
+        self.addCleanup(other.close)
+        self.register(other, username="demo_b")
+        other.post("/api/auth/login", json={"username": "demo_a", "password": PASSWORD})
+        path = "/api/user-stats"
+        with patch.dict("os.environ", {"JOBAGENT_ADMIN_USERNAMES": "demo_a"}):
+            for client in (self.client, other):
+                self.assertEqual(client.post(path + "/heartbeat").status_code, 200)
+            self.assertEqual(self.client.get(path).json(),
+                             {"online": 1, "registered": 2, "new_this_week": 2})
+
     def test_recovery_code_is_hashed_and_resets_once(self):
         registered = self.register()
         recovery = registered.json()["recovery_code"]

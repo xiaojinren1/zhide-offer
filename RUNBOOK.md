@@ -14,14 +14,23 @@
 - 已安装声明版本 `reportlab==4.4.4`，当前虚拟环境的实际 PDF 导出及另外 6 项导出测试通过；其他部署环境仍须安装 `backend/requirements.txt` 并准备中文字体。旧 `tests/test_tool_loop.py` 含未登录的记忆接口调用及共享目录清理，不应直接执行；账户和记忆回归使用 `test_accounts.py`、`test_persistence.py` 的临时数据库。
 - JD 以换行、逗号、分号和中文句号确定性切分（含标题和背景），最多 80 条，重复项去重。规划缺项、片段代替整条或伪造引用均拒绝；不是岗位语义完整性的认证。正文摘录还需本项已选事实编号、关系解释和共同片段，无法建立词面关联的改写保守标为未体现并限次修订。页面显示修订次数，遗留警告仍需人工处理。
 
-## 环境准备（Windows PowerShell）
-需要 Python 3.12+、Node.js 22+、PowerShell 7。不要把 WindowsApps 的 Python 别名当成已安装的解释器。
+## 环境准备
+需要 Python 3.12+ 和 Node.js 22+。以下是 Windows 命令。不要把 WindowsApps 的 Python 别名当成已安装的解释器。
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
 npm.cmd --prefix frontend ci
 npm.cmd --prefix frontend run build
+```
+
+Linux / macOS 首次运行：
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements.txt
+npm --prefix frontend ci
+npm --prefix frontend run build
 ```
 
 已有项目 .venv 时无需重建。当前负责人的本机已创建并安装依赖。
@@ -39,7 +48,13 @@ MODEL=填入服务商提供的实际模型ID
 
 ## 启动
 ```powershell
-pwsh.exe -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
+# Windows
+.\.venv\Scripts\python.exe start.py
+```
+
+```sh
+# Linux / macOS
+.venv/bin/python start.py
 ```
 
 打开 http://127.0.0.1:8000 。Ctrl+C 停止。脚本只启动一个本机后端进程并托管构建后的前端。
@@ -80,7 +95,7 @@ npm.cmd --prefix frontend run build
 - 浏览器使用合成材料与 Mock 响应验证：解析、编辑确认、生成、Markdown 下载；修改 JD 或事实会撤销确认并清除旧稿；生成期间锁定输入；HTTP 504 的 detail 错误可见且结束后恢复操作；未发现浏览器运行异常。
 - 实际无密钥状态已验证：页面明确提示配置密钥，解析失败不伪装成功。随后用户配置密钥并重启，真实服务商解析、生成及工具调用均已验证，详见下方记录。
 - 已读取服务商 quickstart 与 resources 指南：API 地址为 https://api.openai-next.com/v1，deepseek-v4-flash 列于服务商模型清单。清单不代表当前密钥权限或调用成功。
-- 本轮保留本机服务运行，后台启动记录为 data/tonight-server.pid，输出日志为 data/tonight-server.out.log 和 data/tonight-server.err.log。关闭本次后台服务前先核对该 PID 的命令行为本项目 backend/main.py；后续使用 start.ps1 启动时按 Ctrl+C 停止。
+- 本轮保留本机服务运行，后台启动记录为 data/tonight-server.pid，输出日志为 data/tonight-server.out.log 和 data/tonight-server.err.log。关闭本次后台服务前先核对该 PID 的命令行为本项目 backend/main.py；后续使用 start.py 启动时按 Ctrl+C 停止。
 
 ## 真实服务商联调补充（2026-10-30）
 - 模型 deepseek-v4-flash，使用虚构测试材料：真实解析成功，约 10.3 秒，返回未确认资料。
@@ -165,3 +180,12 @@ npm.cmd --prefix frontend run build
 提交前再次同步至78ac8e3，新增的全局加载提示与页脚声明自动合并，无新增冲突；前端177项测试、类型检查和生产构建重新通过。
 
 提交前同步至783aee3，合入模拟面试命名与页面字号调整，自动合并无冲突；前端177项测试、类型检查和生产构建再次通过。
+
+### 停止本机服务
+
+用同一个项目虚拟环境执行以下命令，前台和后台启动均适用。
+
+- Windows：`.\.venv\Scripts\python.exe start.py stop`
+- Linux / macOS：`.venv/bin/python start.py stop`
+
+脚本只管理由本目录的 `start.py` 新启动并记录的进程。升级前已启动的进程需按原方式停止一次。

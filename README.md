@@ -12,7 +12,7 @@
 
 ## 本机启动
 
-Windows 环境需要 Python 3.12+、Node.js 22+ 和 PowerShell 7，首次运行：
+需要 Python 3.12+ 和 Node.js 22+。Windows 首次运行：
 
 ```powershell
 python -m venv .venv
@@ -21,10 +21,25 @@ npm.cmd --prefix frontend ci
 npm.cmd --prefix frontend run build
 ```
 
+Linux / macOS 首次运行：
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements.txt
+npm --prefix frontend ci
+npm --prefix frontend run build
+```
+
 将 `backend/.env.example` 复制为 `backend/.env`，在本地填写 API key 和模型 ID；已有 `.env` 不要覆盖。然后运行：
 
 ```powershell
-pwsh.exe -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
+# Windows
+.\.venv\Scripts\python.exe start.py
+```
+
+```sh
+# Linux / macOS
+.venv/bin/python start.py
 ```
 
 打开 http://127.0.0.1:8000 。更改配置后重启服务。详细说明见 [RUNBOOK.md](RUNBOOK.md)。

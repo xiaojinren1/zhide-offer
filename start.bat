@@ -1,4 +1,4 @@
 @echo off
 cd /d "%~dp0"
-pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0start.ps1"
+".venv\Scripts\python.exe" start.py
 if errorlevel 1 pause

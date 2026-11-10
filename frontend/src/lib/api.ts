@@ -68,7 +68,18 @@ export function apiErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '操作失败，请重试。'
 }
 
+export type TextModelPreference = { provider: 'deepseek' | 'glm' | 'custom'; model: string; base_url?: string }
+
 export const api = {
+  heartbeat: () => http.post('/user-stats/heartbeat'),
+  userStats: () => http.get<{ online: number; registered: number; new_this_week: number } | null>('/user-stats').then(r => r.data),
+  modelPreference: () => http.get<TextModelPreference | null>('/model-preferences').then(r => r.data),
+  listModels: (config: Omit<TextModelPreference, 'model'> & { api_key: string }) =>
+    http.post<{ models: string[] }>('/model-preferences/models', config).then(r => r.data),
+  activateModel: (config: TextModelPreference & { api_key: string }) =>
+    http.post<TextModelPreference>('/model-preferences', config).then(r => r.data),
+  revealModelKey: () => http.post<{ api_key: string }>('/model-preferences/reveal').then(r => r.data),
+  resetModel: () => http.delete('/model-preferences'),
   me: () => http.get('/auth/me').then((r) => r.data) as Promise<{ ok: true; user: AccountUser }>,
   profile: () => http.get('/auth/profile').then((r) => r.data) as Promise<{ ok: true; user: AccountUser & { avatar_url: string | null } }>,
   changePassword: (current_password: string, new_password: string) =>

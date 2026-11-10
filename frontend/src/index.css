@@ -117,3 +117,8 @@ textarea,input:not([type=checkbox]):not([type=file]),select{border-color:#cbdced
   .page-heading p{font-size:14px;line-height:1.8}
   .heading-badge{display:none}
 }
+
+/* Mask API tokens without identifying this field as a login password. */
+.model-key-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .5rem; }
+.model-key-eye { display: grid; place-items: center; padding: .45rem; background: transparent; color: inherit; }
+.model-key-eye:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }

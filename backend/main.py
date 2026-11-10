@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
-from core import accounts, budget, events  # noqa: E402
+from core import accounts, budget, events, model_preferences  # noqa: E402
 from core.config import settings  # noqa: E402
 from core.llm import LLMError  # noqa: E402
 
@@ -49,6 +49,8 @@ async def model_error(_request: Request, exc: LLMError):
 
 @app.exception_handler(RequestValidationError)
 async def validation_error(request: Request, exc: RequestValidationError):
+    if request.url.path.rstrip("/") in {"/api/model-preferences", "/api/model-preferences/models"}:
+        return JSONResponse(status_code=422, content={"detail": "请检查服务商、模型 ID 和 API Key"})
     if request.url.path.startswith("/api/auth/"):
         # 默认校验响应包含 input，账户入口禁止将提交的密码回显给浏览器。
         return JSONResponse(status_code=422, content={
@@ -72,9 +74,9 @@ from api.auth import router as auth_router  # noqa: E402
 app.include_router(auth_router)
 
 for module_path in ("api.diagnose", "api.resume", "api.quality", "api.interview", "api.profiles",
-                    "api.workspace", "api.interview_records", "api.export", "api.evidence"):
+                    "api.workspace", "api.interview_records", "api.export", "api.evidence", "api.model_preferences", "api.user_stats"):
     module = __import__(module_path, fromlist=["router"])
-    app.include_router(module.router, dependencies=[Depends(accounts.require_user), Depends(accounts.require_csrf)])
+    app.include_router(module.router, dependencies=[Depends(accounts.require_user), Depends(accounts.require_csrf), Depends(model_preferences.bind)])
 
 
 @app.get("/api/health")

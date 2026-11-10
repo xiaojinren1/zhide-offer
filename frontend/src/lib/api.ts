@@ -7,6 +7,11 @@ import type { InterviewRecord, InterviewRecordInput, WorkspaceResponse, Workspac
 import type { TailoringReport } from './tailoring'
 
 export type AccountUser = { id: string; username: string; avatar_url?: string | null; guest?: boolean }
+export const MODEL_CONFIGURATION_REQUIRED_EVENT = 'zhide:model-configuration-required'
+export function notifyModelConfigurationRequired(message: string) {
+  window.dispatchEvent(new CustomEvent(MODEL_CONFIGURATION_REQUIRED_EVENT, { detail: message }))
+}
+
 export const SESSION_EXPIRED_EVENT = 'zhide:session-expired'
 export const ACCOUNT_CHANGED_EVENT = 'zhide:account-changed'
 export const PROFILE_UPDATED_EVENT = 'zhide:profile-updated'
@@ -43,7 +48,12 @@ http.interceptors.response.use((response) => response, (error) => {
   if (error.response?.status === 401 && error.config?.accountGeneration === authGeneration && !error.config?.url?.startsWith('/auth/')) {
     window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT))
   }
-  if (axios.isAxiosError(error)) error.message = apiErrorMessage(error)
+  if (axios.isAxiosError(error)) {
+    error.message = apiErrorMessage(error)
+    if (error.response?.status === 428 && (error.config as AccountRequestConfig | undefined)?.accountGeneration === authGeneration) {
+      notifyModelConfigurationRequired(error.message)
+    }
+  }
   return Promise.reject(error)
 })
 

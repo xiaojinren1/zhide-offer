@@ -28,7 +28,7 @@
 
 Windows 沙箱曾阻止 Vitest 临时缓存 rename（EPERM）；在允许的本机执行环境重跑后通过。上述 python 指令使用已安装项目依赖的解释器，若有 .venv 可替换为 `.\.venv\Scripts\python.exe`。
 
-全库 `unittest discover` 不作为本次通过项：部分旧脚本在 import 时直接改写 core.llm 的全局方法，污染同进程的模型错误测试；旧 test_tool_loop 还用匿名客户端访问已改为需登录的经历库接口。已分组执行并通过面试及账户相关测试，未修改其他队员的旧测试脚本，不能宣称全仓测试通过。
+全库 `unittest discover` 不作为本次通过项：部分旧脚本在 import 时直接改写 core.llm 的全局方法，污染同进程的模型错误测试；旧 test_tool_loop 还用匿名客户端访问已改为需登录的经历库接口。已分组执行并通过面试及账户相关测试，未修改这些旧测试脚本，不能宣称全仓测试通过。
 
 ## 浏览器 Mock 验收
 

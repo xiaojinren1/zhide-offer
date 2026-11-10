@@ -1,4 +1,4 @@
-import { SESSION_EXPIRED_EVENT } from '../../lib/api'
+import { notifyModelConfigurationRequired, SESSION_EXPIRED_EVENT } from '../../lib/api'
 import { isBank, isSession, isReport, object } from './types'
 import type { Bank, Session, ReportResponse } from './types'
 
@@ -24,7 +24,9 @@ export async function request(path: string, body: Record<string, unknown>, signa
     if (signal.aborted) throw new Error('请求已取消')
     if (!response.ok) {
       if (response.status === 401) window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT))
-      throw new Error(object(data) && typeof data.detail === 'string' ? data.detail : messages[response.status] || '请求失败，请重试。')
+      const message = object(data) && typeof data.detail === 'string' ? data.detail : messages[response.status] || '请求失败，请重试。'
+      if (response.status === 428) notifyModelConfigurationRequired(message)
+      throw new Error(message)
     }
     if (!object(data) || data.ok !== true) throw new Error('响应内容不完整，请重试。')
     return data

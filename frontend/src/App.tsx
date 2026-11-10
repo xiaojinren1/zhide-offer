@@ -10,7 +10,7 @@ import AccountPage from './pages/AccountPage'
 import ModelPreferences from './pages/ModelPreferences'
 import axios from 'axios'
 import { OwlLogo, UiIcon } from './components/Brand'
-import { api, apiErrorMessage, ACCOUNT_CHANGED_EVENT, invalidateAuthRequests, PROFILE_UPDATED_EVENT, SESSION_EXPIRED_EVENT } from './lib/api'
+import { api, apiErrorMessage, ACCOUNT_CHANGED_EVENT, invalidateAuthRequests, PROFILE_UPDATED_EVENT, SESSION_EXPIRED_EVENT, MODEL_CONFIGURATION_REQUIRED_EVENT } from './lib/api'
 import { migrateLegacyModel } from './lib/modelStorage'
 import type { AccountUser } from './lib/api'
 import type { ResumeProfile } from './lib/types'
@@ -159,7 +159,26 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
       else setLogoutError(apiErrorMessage(reason))
     } finally { setLoggingOut(false) }
   }
+  const modelDialog = useRef<HTMLDialogElement>(null)
+  const [modelNotice, setModelNotice] = useState('')
+  useEffect(() => {
+    const show = (event: Event) => {
+      setModelNotice((event as CustomEvent<string>).detail)
+      if (modelDialog.current && !modelDialog.current.open) modelDialog.current.showModal()
+    }
+    window.addEventListener(MODEL_CONFIGURATION_REQUIRED_EVENT, show)
+    return () => window.removeEventListener(MODEL_CONFIGURATION_REQUIRED_EVENT, show)
+  }, [])
+
   return <div className="app-shell">
+    <dialog ref={modelDialog} className="model-config-dialog" aria-labelledby="model-config-title" aria-describedby="model-config-message">
+      <h2 id="model-config-title">需要先配置模型</h2>
+      <p id="model-config-message">{modelNotice}</p>
+      <div className="model-config-actions">
+        <button type="button" className="secondary-button" onClick={() => modelDialog.current?.close()}>稍后设置</button>
+        <button type="button" className="primary-button" onClick={() => { modelDialog.current?.close(); setPage('account') }}>前往模型设置</button>
+      </div>
+    </dialog>
     <header className="topbar"><a className="brand" href="#" onClick={(e) => { e.preventDefault(); if (!busy) setPage('workbench') }}><OwlLogo /><span>职得<span className="brand-offer">offer</span></span></a><div className="topbar-right">{user.guest ? <button className="secondary-button" disabled={busy || loggingOut} onClick={() => setPage('account')}>临时配置模型</button> : <button className="account-entry" type="button" disabled={busy || loggingOut} onClick={() => setPage('account')} aria-label="打开个人中心"><span className="avatar small topbar-avatar">{user.avatar_url ? <img src={`/api/auth/avatar?v=${encodeURIComponent(user.avatar_url)}`} alt="" /> : user.username[0].toUpperCase()}</span><span className="account-name" title={user.username}>{user.username}</span><UiIcon name="chevron" /></button>}<button className="secondary-button account-logout" disabled={busy || loggingOut} onClick={logout}>{loggingOut ? '退出中…' : user.guest ? '结束试用' : '退出登录'}</button></div></header>
     <aside className="sidebar"><div className="sidebar-caption">我的求职流程</div><nav aria-label="求职流程">{FLOW.map((item, index) => { const allowed = canOpen(item.id); return <button key={item.id} disabled={busy || loggingOut || !persistence.loaded || !allowed} aria-disabled={!allowed} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => setPage(item.id)}><span className="flow-index">{index + 1}</span><UiIcon name={item.icon} /><span>{item.name}</span>{page === item.id && <span className="nav-dot" />}</button> })}</nav><div className="sidebar-secondary"><button className={`nav-item ${page === 'memory' ? 'active' : ''}`} disabled={busy || loggingOut || !persistence.loaded} onClick={() => setPage('memory')}><UiIcon name="folder" /><span>个人经历库</span></button></div><div className="sidebar-bottom"><div className="sidebar-tip"><UiIcon name="shield" /><strong>工作台内完成闭环</strong><p>岗位匹配和简历检查会围绕当前简历逐项修改。</p></div></div></aside>
     <main className="workspace"><div className="page-heading"><div><span className="eyebrow">{page === 'account' ? 'ACCOUNT SETTINGS' : 'YOUR NEXT CHAPTER'}</span><h1>{page === 'account' ? '个人中心' : '把真实经历，变成岗位竞争力'}</h1><p>{page === 'account' ? '管理头像与登录密码。' : '整理经历，确认事实，为每个心仪岗位做好准备。'}</p></div>{page !== 'account' && <div className="brand-companion" aria-hidden="true"><span className="brand-orbit" /><img src={posterOwl} alt="" width="180" height="180" /><span className="companion-caption">你的 AI 求职伙伴</span></div>}</div>

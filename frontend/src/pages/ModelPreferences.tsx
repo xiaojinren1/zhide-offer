@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, apiErrorMessage } from '../lib/api'
-import type { TextModelPreference } from '../lib/api'
+import type { ModelKind, TextModelPreference } from '../lib/api'
 import { clearLegacyModel } from '../lib/modelStorage'
 
-export default function ModelPreferences({ userId }: { userId: string }) {
+export default function ModelPreferences({ userId, guest = false, kind = "text" }: { userId: string; guest?: boolean; kind?: ModelKind }) {
+  const title = kind === "vision" ? "图片解析模型" : guest ? "临时文本模型" : "个人文本模型"
   const secure = window.isSecureContext
   const [active, setActive] = useState<TextModelPreference | null>(null)
   const [baseUrl, setBaseUrl] = useState('')
@@ -35,7 +36,7 @@ export default function ModelPreferences({ userId }: { userId: string }) {
   const [error, setError] = useState('')
   useEffect(() => {
     let live = true
-    api.modelPreference().then(value => {
+    api.modelPreference(kind).then(value => {
       if (!live) return
       setActive(value)
       const saved = value
@@ -46,7 +47,7 @@ export default function ModelPreferences({ userId }: { userId: string }) {
     }).catch(reason => { if (live) setError(apiErrorMessage(reason)) })
       .finally(() => { if (live) setBusy(false) })
     return () => { live = false }
-  }, [secure, userId])
+  }, [secure, userId, kind])
 
   const savedUrl = active?.base_url
   const canReuseKey = Boolean(active?.has_api_key && savedUrl === baseUrl.trim().replace(/\/+$/, ''))
@@ -70,7 +71,7 @@ export default function ModelPreferences({ userId }: { userId: string }) {
       return
     }
     try {
-      const result = await api.revealModelKey()
+      const result = await api.revealModelKey(kind)
       if (generation === revealGeneration.current) setRevealedKey(result.api_key)
     } catch (reason) {
       if (generation === revealGeneration.current) setError(apiErrorMessage(reason))
@@ -85,7 +86,7 @@ export default function ModelPreferences({ userId }: { userId: string }) {
     setSuccess('')
     clearModels()
     try {
-      const result = await api.listModels(connection)
+      const result = await api.listModels(connection, kind)
       setModels(result.models)
       setModelListStatus(result.models.length ? `获取到 ${result.models.length} 个模型` : '服务商未返回模型，可以手动填写模型 ID。')
     } catch (reason) {
@@ -103,18 +104,18 @@ export default function ModelPreferences({ userId }: { userId: string }) {
     setSuccess('')
     try {
       if (reset) {
-        await api.resetModel()
-        clearLegacyModel(userId)
+        await api.resetModel(kind)
+        if (!guest && kind === "text") clearLegacyModel(userId)
         setActive(null)
         setBaseUrl('')
         setModel('')
         clearModels()
-        setSuccess('已恢复平台默认模型。')
+        setSuccess('已移除模型配置。')
       } else {
-        const result = await api.activateModel({ ...connection, model: model.trim() })
+        const result = await api.activateModel({ ...connection, model: model.trim() }, kind)
         setActive(result)
         setBaseUrl(result.base_url)
-        clearLegacyModel(userId)
+        if (!guest && kind === "text") clearLegacyModel(userId)
         setSuccess(`测试成功，已启用 ${result.model}。当前账号的文本任务将使用此模型。`)
       }
       setKey('')
@@ -126,20 +127,21 @@ export default function ModelPreferences({ userId }: { userId: string }) {
     }
   }
 
-  return <section className="panel" aria-label="个人文本模型">
-    <h2>个人文本模型</h2>
-    <p role="status">{active ? `已启用 ${active.model}` : '使用平台默认模型'}</p>
-    <p>启用后，文本求职材料会发送给选定服务商。配置按账户保存，换设备登录也可使用。API Key 加密保存，服务端调用时会解密并使用。</p>
+  return <section className="panel" aria-label={title}>
+    <h2>{title}</h2>
+    <p role="status">{active ? `已启用 ${active.model}` : '尚未配置，请填写并测试启用。'}</p>
+    <p>{guest ? "启用后，文本任务使用你选择的模型。密钥仅保存在服务进程内存，退出、到期或服务重启后失效。" : "启用后，文本求职材料会发送给选定服务商。配置按账户保存，换设备登录也可使用。API Key 加密保存，服务端调用时会解密并使用。"}</p>
+    {kind === "vision" && <p>填写支持图片输入的模型。测试只发送一张生成的样例图片。</p>}
     {!secure && <p>请通过 HTTPS 打开站点后填写 API Key。</p>}
     <div role="group" aria-label="模型连接配置">
       <fieldset disabled={busy || !secure}>
-        <label htmlFor="model-base-url">Base URL</label>
-        <input id="model-base-url" type="url" value={baseUrl} maxLength={512} required
+        <label htmlFor={`${kind}-model-base-url`}>Base URL</label>
+        <input id={`${kind}-model-base-url`} type="url" value={baseUrl} maxLength={512} required
           placeholder="https://api.example.com/v1" onChange={event => { setBaseUrl(event.target.value); hideKey(); clearModels() }} />
         <p className="field-hint">填写管理员已允许的 HTTPS Base URL，例如以 /v1 结尾的地址。</p>
-        <label htmlFor="model-api-key">API Key</label>
+        <label htmlFor={`${kind}-model-api-key`}>API Key</label>
         <div className="model-key-field">
-          <input id="model-api-key" type={revealedKey === null ? 'password' : 'text'} autoComplete="off" autoCapitalize="none" spellCheck={false}
+          <input id={`${kind}-model-api-key`} type={revealedKey === null ? 'password' : 'text'} autoComplete="off" autoCapitalize="none" spellCheck={false}
             value={key || (canReuseKey ? revealedKey ?? '' : '')} maxLength={512}
             placeholder={canReuseKey ? '••••••••（已保存）' : '请输入 API Key'}
             onChange={event => { setKey(event.target.value); clearModels() }} />
@@ -154,13 +156,13 @@ export default function ModelPreferences({ userId }: { userId: string }) {
         </div>
         <button type="button" className="secondary-button" disabled={!canConnect} onClick={() => void fetchModels()}>获取模型列表</button>
         {modelListStatus && <p role="status">{modelListStatus}</p>}
-        {models.length > 0 && <><label htmlFor="model-list">从列表选模型</label><select id="model-list" value={models.includes(model) ? model : ''} onChange={event => setModel(event.target.value)}>
+        {models.length > 0 && <><label htmlFor={`${kind}-model-list`}>从列表选模型</label><select id={`${kind}-model-list`} value={models.includes(model) ? model : ''} onChange={event => setModel(event.target.value)}>
           <option value="">请选择</option>{models.map(id => <option key={id} value={id}>{id}</option>)}
         </select></>}
-        <label htmlFor="model-id">模型 ID（可手动填写）</label>
-        <input id="model-id" value={model} maxLength={120} required onChange={event => setModel(event.target.value)} />
+        <label htmlFor={`${kind}-model-id`}>模型 ID（可手动填写）</label>
+        <input id={`${kind}-model-id`} value={model} maxLength={120} required onChange={event => setModel(event.target.value)} />
         <button type="button" className="primary-button" disabled={!canConnect || !model.trim()} onClick={() => void update(false)}>测试并启用</button>
-        {(active || key) && <button type="button" className="secondary-button" onClick={() => void update(true)}>恢复默认模型</button>}
+        {(active || key) && <button type="button" className="secondary-button" onClick={() => void update(true)}>移除配置</button>}
       </fieldset>
     </div>
     {success && <p role="status">{success}</p>}

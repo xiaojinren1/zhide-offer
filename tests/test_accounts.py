@@ -44,6 +44,86 @@ class AccountContract(unittest.TestCase):
         self.assertTrue(response.json()["recovery_code"])
         return response
 
+    def test_trial_uses_workbench_without_binding_to_registered_account(self):
+        self.client.base_url = "http://localhost"
+        trial = self.client.post("/api/auth/trial")
+        self.assertEqual(trial.status_code, 200)
+        self.assertIn("Max-Age=7200", trial.headers["set-cookie"])
+        guest = self.client.get("/api/auth/profile").json()["user"]
+        self.assertTrue(guest["guest"])
+        self.assertEqual(self.client.get("/api/workspace").status_code, 200)
+        self.assertIsNone(self.client.get("/api/model-preferences").json())
+        self.assertEqual(self.client.post("/api/auth/trial").status_code, 200)
+        self.assertEqual(self.client.get("/api/auth/me").json()["user"]["id"], guest["id"])
+
+        with patch.dict("os.environ", {"JOBAGENT_MODEL_ENCRYPTION_KEY": ""}), patch(
+            "api.model_preferences.chat_json", return_value={"ok": True}
+        ):
+            activated = self.client.post("/api/model-preferences", json={
+                "provider": "deepseek", "model": "guest-demo", "api_key": "temporary-test-key",
+            })
+        self.assertEqual(activated.status_code, 200, activated.text)
+        self.assertNotIn("temporary-test-key", activated.text)
+        with accounts.connection() as db:
+            self.assertIsNone(db.execute("SELECT 1 FROM user_model_preferences").fetchone())
+
+        account = TestClient(app, headers=HEADER)
+        self.addCleanup(account.close)
+        user = self.register(account).json()["user"]
+        self.assertEqual(account.post("/api/auth/trial").status_code, 409)
+        self.assertNotEqual(guest["id"], user["id"])
+        self.assertIsNone(account.get("/api/model-preferences").json())
+        with patch.dict("os.environ", {"JOBAGENT_ADMIN_USERNAMES": user["username"]}):
+            self.assertEqual(account.get("/api/user-stats").json()["registered"], 1)
+
+        self.assertEqual(self.client.post("/api/auth/logout").status_code, 200)
+        self.assertEqual(self.client.get("/api/workspace").status_code, 401)
+        from core import model_preferences
+        self.assertNotIn((guest["id"], "text"), model_preferences._guest_configs)
+        with accounts.connection() as db:
+            self.assertIsNone(db.execute("SELECT id FROM users WHERE id = ?", (guest["id"],)).fetchone())
+        self.assertEqual(account.get("/api/auth/me").json()["user"], user)
+        self.assertEqual(self.client.post("/api/auth/trial").status_code, 200)
+        self.assertNotEqual(self.client.get("/api/auth/me").json()["user"]["id"], guest["id"])
+        self.client.post("/api/auth/logout")
+
+    def test_trial_uses_separate_models_without_platform_fallback(self):
+        self.client.base_url = "http://localhost"
+        self.assertEqual(self.client.post("/api/auth/trial").status_code, 200)
+        self.addCleanup(self.client.post, "/api/auth/logout")
+        image = BytesIO()
+        Image.new("RGB", (64, 64)).save(image, format="PNG")
+        files = {"file": ("sample.png", image.getvalue(), "image/png")}
+        text_path = "/api/resume/parse-text"
+        image_path = "/api/resume/parse-image"
+        preference = "/api/model-preferences"
+        with patch(
+            "core.llm.settings", return_value={
+                "base_url": "https://example.com", "model": "platform", "api_key": "platform-key",
+            }
+        ):
+            self.assertEqual(self.client.post(text_path, json={"text": "sample"}).status_code, 428)
+            self.assertEqual(self.client.post(image_path, files=files).status_code, 428)
+        with patch("api.model_preferences.chat_json_multimodal", return_value={"color": "blue"}) as probe:
+            result = self.client.post(preference + "?kind=vision", json={
+                "provider": "glm", "model": "vision-test", "api_key": "vision-key",
+            })
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertTrue(probe.call_args.args[2].startswith("data:image/png;base64,"))
+        self.assertIsNone(self.client.get(preference).json())
+
+        from core.llm import provider_chain
+        from engine.resume_parser import profile_from_dict
+        def parse_image(*args):
+            self.assertEqual(provider_chain()[0]["api_key"], "vision-key")
+            self.assertEqual(provider_chain()[0]["model"], "vision-test")
+            return profile_from_dict({})
+        with patch("api.resume.parse_resume_image", side_effect=parse_image):
+            self.assertEqual(self.client.post(image_path, files=files).status_code, 200)
+        self.assertEqual(self.client.post(text_path, json={"text": "sample"}).status_code, 428)
+        self.assertEqual(self.client.delete(preference + "?kind=vision").status_code, 200)
+        self.assertEqual(self.client.post(image_path, files=files).status_code, 428)
+
     def test_model_preference_is_private_and_reaches_text_requests(self):
         self.client.base_url = "http://localhost"
         self.register()

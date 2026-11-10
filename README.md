@@ -1,122 +1,24 @@
-# 职得offer
+# 职得 offer
 
-职得offer 是一个面向黑客松的求职 AI Agent 项目，帮助求职者把分散的经历与材料整理为有真实依据的岗位简历和面试话术，并通过模拟面试、评分与重练改进表达。
+职得 offer 是一个求职 AI Agent。项目使用 React、TypeScript、FastAPI 和 SQLite。
 
-项目按目标岗位与 JD 驱动，不限定某一种职业。首场演示聚焦一个完整求职案例，优先交付可操作、可验证的流程。
+- **免注册体验**：使用独立临时会话体验完整工作台、简历导出和模拟面试。
+- **简历工作台**：录入材料、确认事实、生成基础稿，按岗位检查和优化，再导出 Markdown、Word 或 PDF。
+- **经历库**：维护经历卡片，支持查重、合并和版本恢复。
+- **模拟面试**：可生成题库或直接开始文字面试，结束后查看反馈和历史。
+- **账户与个人模型**：用户名和密码注册登录，个人模型密钥在服务端加密保存。
 
-## 当前进度
+## 运行与开发
 
-当前版本已提供可运行的 FastAPI + React 工作台：文本、DOCX、文字 PDF 和 JPG/PNG/WebP 图片材料解析，事实编辑与确认，基础初稿、岗位要求和循环检查优化，简历预览及 Markdown 下载。真实 API 解析、原有定向生成和两次质检工具调用已用虚构材料验证；本轮基础初稿和循环流程需分别验收。修改 JD 保留确认和当前稿，仅旧报告失效；修改材料或真实经历才撤销确认并清除旧稿。图片解析已接入视觉消息链路，但真实中文简历图片的识别质量仍需单独验收。
+- [本机启动、重启与验收](RUNBOOK.md)
+- [服务器部署与 SMTP 配置](DEPLOY.md)
+- [迭代和提交规范](AGENTS.md)
 
-已提供普通账户注册、登录、退出和经历库用户隔离，具体行为见 [ACCOUNT.md](ACCOUNT.md)。工作台支持账户内自动保存与恢复，保存原始文本、JD、结构化经历、确认状态和 Markdown 简历；个人记忆页支持查看、载入、删除经历库，Markdown、Word 和 PDF 导出；质检建议支持逐条选择或全部采纳，应用后按已确认事实生成新的 Markdown 简历，需重新运行质检并人工核对；面试页支持三题文字模拟面试、逐题四维规则评分、整轮总结、重练，以及面试历史自动保存、恢复和删除。接口及协作接缝见 [PERSISTENCE.md](PERSISTENCE.md)。首次打开需注册账户。语音输入仍未交付：服务商尚未提供可核验的转写 endpoint、模型和字段契约。当前是本机原型；下述功能表为最终计划，不代表全部完成。启动方式、验证记录和已知缺口见 [RUNBOOK.md](RUNBOOK.md)，今晚开发契约和接口约定见 [TONIGHT.md](TONIGHT.md)。
+## 功能契约
 
-## 本机启动
-
-需要 Python 3.12+ 和 Node.js 22+。Windows 首次运行：
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
-npm.cmd --prefix frontend ci
-npm.cmd --prefix frontend run build
-```
-
-Linux / macOS 首次运行：
-
-```sh
-python3 -m venv .venv
-.venv/bin/python -m pip install -r backend/requirements.txt
-npm --prefix frontend ci
-npm --prefix frontend run build
-```
-
-将 `backend/.env.example` 复制为 `backend/.env`，在本地填写 API key 和模型 ID；已有 `.env` 不要覆盖。然后运行：
-
-```powershell
-# Windows
-.\.venv\Scripts\python.exe start.py
-```
-
-```sh
-# Linux / macOS
-.venv/bin/python start.py
-```
-
-打开 http://127.0.0.1:8000 。更改配置后重启服务。详细说明见 [RUNBOOK.md](RUNBOOK.md)。
-
-最新需求参考：[黑客松需求与四人协作方案 v0.5](职得offer-黑客松需求与四人协作方案-v0.5.docx)。最新协作决定：10月30日晚由负责人独自准备1.5小时，10月31日09:30启动后按实际剩余工作分工。
-
-## 用户流程
-
-登录 → 上传或填写求职材料 → 核对事实并生成基础初稿 → 填写岗位要求，在“检查与优化”反复检查、采纳建议或编辑当前稿 → 查看最终简历并导出 → 模拟面试。修改岗位要求保留当前稿和事实确认；只有材料或真实事实变动才需重新确认。具体行为以 [工作台行为契约](frontend/src/pages/workbench/BEHAVIOR.md) 为准。
-
-## 计划交付范围
-
-| 模块 | 用户可以完成的操作 |
-| --- | --- |
-| 多模态输入 | 使用文字、JPG/PNG/WebP 图片、Word `.docx` 和可提取文字的 PDF 提供材料；语音待服务商转写契约确认 |
-| 事实确认与记忆 | 核对 AI 提取的经历，确认后保存；后续可查看、纠正或删除，并用于相关岗位任务 |
-| 简历与话术 | 按目标 JD 生成简历，导出 Word、PDF、Markdown；生成面试题、可练习回答和追问 |
-| 模拟面试 | 默认每轮三题，支持文字交互，展示 AI 回复；语音待服务商转写契约确认 |
-| 评分与重练 | 提供逐题反馈、分项依据、整轮分数与改进建议，可重练或开始下一轮 |
-| 普通账户与留存 | 团队先使用四个独立普通账户，保存材料、任务、确认记忆、简历版本和练习历史，用户数据相互隔离 |
-
-旧版 `.doc`、扫描 PDF 的 OCR、实时打断式语音、多语言、多模板以及招聘平台抓取、自动投递不纳入本次交付目标。未确认的经历与数字不能写成简历事实；面试评分用于练习反馈，不代表真实招聘结论。
-
-## 四人分工
-
-| 成员 | 负责范围 |
-| --- | --- |
-| A 技术与集成负责人 | 公共骨架、接口约定、账户与持久化、Agent、语音服务、核心后端和最终集成 |
-| B 材料与生成页面 | 材料上传、JD 输入、事实确认、简历与问答预览、导出入口 |
-| C 面试与历史页面 | 逐题面试、录音与发送、回复展示、评分、重练和历史入口 |
-| D 材料工具与验收 | 文档解析、三格式导出、演示样例、验收、讲解与视频材料 |
-
-全员使用 Codex 和 `gpt-6.1-sol` 辅助开发。开发模型与应用运行模型分别确定，应用的文本、图片、语音识别和语音合成能力须经过实际 API 验证。
-
-## 开发与提交时间
-
-2026 年 10 月 30 日晚由负责人准备约 1.5 小时，先启动已有工程、完成文本材料与 JD 到事实确认及生成的本机流程，准备页面和交接说明；真实模型验证依赖本地 API key 配置。次日安排如下，均为北京时间：
-
-| 2026 年 10 月 31 日 | 目标 |
-| --- | --- |
-| 09:30–12:00 | 启动与排障，连通材料导入、确认、生成与导出，核对图片链路；语音仅在服务商契约可验证时接入 |
-| 12:00–12:30 | 午休与缓冲，明确剩余问题 |
-| 12:30–14:00 | 连通三题面试、评分、重练与历史，完成联调 |
-| 14:00–15:00 | 验收用户隔离、文件、录音、失败提示及恢复；15:00 冻结功能 |
-| 15:00–16:00 | 修复阻断问题并回归，完成两遍演示 |
-| 16:00–17:00 | 录制与导出视频，整理代码、运行说明和附件 |
-| 17:00–17:30 | 17:15 前首次提交，17:30 前完成开发和材料核对 |
-| 17:30–17:45 | 确认视频播放、代码访问、提交状态和必填材料 |
-| 17:45–18:00 | 仅预留上传失败或漏项补交缓冲；18:00 前完成提交 |
-
-## 加入协作
-
-公开仓库可直接阅读和克隆：
-
-```bash
-git clone https://github.com/xiaojinren1/zhide-offer.git
-cd zhide-offer
-```
-
-队员将 GitHub 用户名发给负责人，接受协作者邀请后获得写入权限。建议各自使用任务分支，通过 Pull Request 交由负责人检查合并。具体任务边界与 Codex 交接方式见 [TEAM.md](TEAM.md)。
-
-开始任务前先同步代码、阅读最新版需求和接口约定。公共接口、依赖及共享文件由负责人统筹，遇到问题及时提供复现步骤与原始错误。
-
-提交标题使用 Conventional Commits 风格，例如 `feat: 增加三题模拟面试与评分`、`fix: 修复刷新后头像不显示`、`docs: 更新团队协作说明`。提交前请阅读 [AGENTS.md](AGENTS.md) 中的完整规范。
-
-## 数据与凭据
-
-API key 仅保存在服务端本地配置中，不提交到仓库，不发送到浏览器。真实简历、用户材料、录音、账户数据、运行日志和本地数据文件不入库；演示使用无真实敏感信息的样例。语音转写成功后删除原始录音，保留文本的规则按需求方案实现并验收。
-
-仓库公开不等于应用中的用户材料公开。后续代码提交前应检查改动文件与敏感信息，最终材料应明确已完成范围、已知缺口和验证结果。
-
-## 角色 D：个人记忆与导出模块
-
-已提供 `MemoryPage`（查看、载入、确认删除）、Markdown 下载和受登录保护的 Word/PDF 导出模块，已接入默认应用导航与生产路由。PDF 依赖部署环境可用的中文字体。
-
-- [虚构材料](tests/fixtures/role-d/materials.md)、[虚构 JD](tests/fixtures/role-d/jd.md)、[格式演示简历](tests/fixtures/role-d/resume.md) 可用于演示，不能作为真实个人履历使用。
-- [D 验收记录与演示步骤](frontend/src/pages/memory/ACCEPTANCE.md) 区分模块测试、待接入项目和未验证项。
-- 前端回归：`npm.cmd --prefix frontend test`；类型检查：`frontend/node_modules/.bin/tsc.cmd --project frontend/tsconfig.json`；生产构建：`npm.cmd --prefix frontend run build`。
-- 后端专项：`python -m unittest tests.test_export tests.test_accounts tests.test_persistence tests.test_workbench_contract -v`，使用临时数据库，不调用模型。
-- 环境提示：本轮使用 Python 3.10 通过测试。仓库固定的 Pydantic 2.10.4 / pydantic-core 2.27.2 在默认 Python 3.14 上安装失败；首次启动建议先使用 Python 3.12，而不是无上限地选择最新 Python。
+- [账户和个人模型](ACCOUNT.md)
+- [简历工作台](frontend/src/pages/workbench/BEHAVIOR.md)
+- [个人经历库](LIBRARY.md)
+- [模拟面试](frontend/src/pages/interview/BEHAVIOR.md)
+- [自动保存与历史](PERSISTENCE.md)
+- [模型错误](MODEL_ERRORS.md)

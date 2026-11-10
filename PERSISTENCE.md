@@ -1,4 +1,4 @@
-# 角色 A：工作台保存与面试记录接口
+# 工作台保存与面试记录接口
 
 ## 本次交付边界
 
@@ -22,7 +22,7 @@ type WorkspaceState = {
 
 `profile` 使用现有经历库格式。无保存记录不是错误；网络或服务错误不得当作空记录。非法结构返回 422，工作台状态序列化 JSON 的 UTF-8 大小超过 2 MiB 返回 413。恢复保存中的确认状态不代替用户核对；编辑经历或 JD 继续按已有规则撤销确认和清空旧稿。
 
-## 面试记录（交角色 C 接入）
+## 面试记录
 
 `POST /api/interview-records` 接收 `{expected_user_id, title, jd_text, questions, answers, question_scores, overall_feedback}`。questions 为对象数组，answers 为字符串数组，question_scores 为对象数组，overall_feedback 为对象；允许保存尚未评分的记录，字段默认空数组或空对象。这里只存储，不产生评分、不证明评分内容正确。每次 POST 创建独立记录，调用方应在一轮结束后提交一次，避免重复点击。
 
@@ -32,29 +32,9 @@ type WorkspaceState = {
 
 单条面试记录序列化 JSON 的 UTF-8 大小限制为 1 MiB，标题最多 200 字符；超出记录大小返回 413，结构或标题不合法返回 422。记录存储在本机已有 SQLite 数据库，不依赖外部模型。暂不保留原始录音，不提供跨账户访问。
 
-## 文件分工与交接
+## 面试历史集成
 
-- A：`backend/core/accounts.py` 新表、独立保存路由、`backend/main.py` 注册、`frontend/src/App.tsx`、`frontend/src/lib/api.ts` 和独立保存状态模块。
-- B：继续负责工作台页面。A 只将 `sourceText/sourceName` 改为由 App 传入的受控属性，并传入对应 setter，其他交互保持现有行为。后续页面改造需保留这些属性。
-- C：继续负责 `backend/api/interview.py` 与面试页面。使用 `api.saveInterviewRecord/listInterviewRecords/loadInterviewRecord/deleteInterviewRecord` 接入历史；A 不改生成或评分行为。
-- D：继续使用现有 `/api/profiles/*` 管理确认经历，不另建共享资料库；导出使用当前 Markdown。
-
-角色 C 的保存调用示例（`user.id` 使用本轮面试开始时的账户，不在提交时重新从 `/auth/me` 取另一个账户）：
-
-```typescript
-await api.saveInterviewRecord(user.id, {
-  title: '产品经理 · 第一轮',
-  jd_text: jdText,
-  questions,
-  answers,
-  question_scores: questionScores,
-  overall_feedback: overallFeedback,
-})
-const history = await api.listInterviewRecords()
-const detail = await api.loadInterviewRecord(history.records[0].id)
-```
-
-面试页面接入时由 A 将当前 `user.id` 作为属性传入；当前面试页面尚不自动调用记录接口。保存失败应展示错误并保留本轮作答，成功拿到 id 后禁止本轮重复提交。
+参见 [面试集成说明](frontend/src/pages/interview/INTERVIEW_INTEGRATION.md)。
 
 ## 验收
 

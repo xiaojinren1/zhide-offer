@@ -7,6 +7,7 @@ import LibraryPage from './pages/LibraryPage'
 import WorkbenchPage from './pages/WorkbenchPage'
 import AuthPage from './pages/AuthPage'
 import AccountPage from './pages/AccountPage'
+import ModelPreferences from './pages/ModelPreferences'
 import axios from 'axios'
 import { OwlLogo, UiIcon } from './components/Brand'
 import { api, apiErrorMessage, ACCOUNT_CHANGED_EVENT, invalidateAuthRequests, PROFILE_UPDATED_EVENT, SESSION_EXPIRED_EVENT } from './lib/api'
@@ -40,7 +41,7 @@ export default function App() {
       const result = await api.profile()
       if (generation !== identityCheck.current) return
       try {
-        await migrateLegacyModel(result.user.id, () => generation === identityCheck.current)
+        if (!result.user.guest) await migrateLegacyModel(result.user.id, () => generation === identityCheck.current)
         if (generation === identityCheck.current) setModelRestoreError('')
       } catch (reason) {
         if (generation === identityCheck.current) setModelRestoreError(apiErrorMessage(reason))
@@ -100,6 +101,7 @@ export default function App() {
 
 function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountUser; onUserUpdated: (user: AccountUser) => void; onLoggedOut: () => void }) {
   useEffect(() => {
+    if (user.guest) return
     const heartbeat = () => {
       if (document.visibilityState === 'visible') void api.heartbeat().catch(() => {})
     }
@@ -110,7 +112,7 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', heartbeat)
     }
-  }, [user.id])
+  }, [user.id, user.guest])
   const persistence = useWorkspace(user.id)
   const { state, update } = persistence
   const { profile, jd_text: jdText, jd_keywords: jdKeywords, markdown, source_text: sourceText, source_name: sourceName } = state
@@ -149,19 +151,20 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
   }
   async function logout() {
     if (operationBusy.current || loggingOut) return
+    if (user.guest && !window.confirm('结束试用会清除临时记录，确定退出？')) return
     setLoggingOut(true); setLogoutError('')
-    try { if (persistence.loaded || persistence.hasUnsaved()) await persistence.flush(); await api.logout(); onLoggedOut() }
+    try { if (!user.guest && (persistence.loaded || persistence.hasUnsaved())) await persistence.flush(); await api.logout(); onLoggedOut() }
     catch (reason) {
       if (axios.isAxiosError(reason) && reason.response?.status === 401) onLoggedOut()
       else setLogoutError(apiErrorMessage(reason))
     } finally { setLoggingOut(false) }
   }
   return <div className="app-shell">
-    <header className="topbar"><a className="brand" href="#" onClick={(e) => { e.preventDefault(); if (!busy) setPage('workbench') }}><OwlLogo /><span>职得<span className="brand-offer">offer</span></span></a><div className="topbar-right"><button className="account-entry" type="button" disabled={busy || loggingOut} onClick={() => setPage('account')} aria-label="打开个人中心"><span className="avatar small topbar-avatar">{user.avatar_url ? <img src={`/api/auth/avatar?v=${encodeURIComponent(user.avatar_url)}`} alt="" /> : user.username[0].toUpperCase()}</span><span className="account-name" title={user.username}>{user.username}</span><UiIcon name="chevron" /></button><button className="secondary-button account-logout" disabled={busy || loggingOut} onClick={logout}>{loggingOut ? '退出中…' : '退出登录'}</button></div></header>
+    <header className="topbar"><a className="brand" href="#" onClick={(e) => { e.preventDefault(); if (!busy) setPage('workbench') }}><OwlLogo /><span>职得<span className="brand-offer">offer</span></span></a><div className="topbar-right">{user.guest ? <button className="secondary-button" disabled={busy || loggingOut} onClick={() => setPage('account')}>临时配置模型</button> : <button className="account-entry" type="button" disabled={busy || loggingOut} onClick={() => setPage('account')} aria-label="打开个人中心"><span className="avatar small topbar-avatar">{user.avatar_url ? <img src={`/api/auth/avatar?v=${encodeURIComponent(user.avatar_url)}`} alt="" /> : user.username[0].toUpperCase()}</span><span className="account-name" title={user.username}>{user.username}</span><UiIcon name="chevron" /></button>}<button className="secondary-button account-logout" disabled={busy || loggingOut} onClick={logout}>{loggingOut ? '退出中…' : user.guest ? '结束试用' : '退出登录'}</button></div></header>
     <aside className="sidebar"><div className="sidebar-caption">我的求职流程</div><nav aria-label="求职流程">{FLOW.map((item, index) => { const allowed = canOpen(item.id); return <button key={item.id} disabled={busy || loggingOut || !persistence.loaded || !allowed} aria-disabled={!allowed} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => setPage(item.id)}><span className="flow-index">{index + 1}</span><UiIcon name={item.icon} /><span>{item.name}</span>{page === item.id && <span className="nav-dot" />}</button> })}</nav><div className="sidebar-secondary"><button className={`nav-item ${page === 'memory' ? 'active' : ''}`} disabled={busy || loggingOut || !persistence.loaded} onClick={() => setPage('memory')}><UiIcon name="folder" /><span>个人经历库</span></button></div><div className="sidebar-bottom"><div className="sidebar-tip"><UiIcon name="shield" /><strong>工作台内完成闭环</strong><p>岗位匹配和简历检查会围绕当前简历逐项修改。</p></div></div></aside>
     <main className="workspace"><div className="page-heading"><div><span className="eyebrow">{page === 'account' ? 'ACCOUNT SETTINGS' : 'YOUR NEXT CHAPTER'}</span><h1>{page === 'account' ? '个人中心' : '把真实经历，变成岗位竞争力'}</h1><p>{page === 'account' ? '管理头像与登录密码。' : '整理经历，确认事实，为每个心仪岗位做好准备。'}</p></div>{page !== 'account' && <div className="brand-companion" aria-hidden="true"><span className="brand-orbit" /><img src={posterOwl} alt="" width="180" height="180" /><span className="companion-caption">你的 AI 求职伙伴</span></div>}</div>
       {logoutError && <p className="auth-error account-error" role="alert">退出未成功：{logoutError}</p>}
-      <div className="notice" role={persistence.error ? 'alert' : 'status'}><span>{retentionLabel}{persistence.error && `：${persistence.error}`}</span>{persistence.savedAt && persistence.phase === 'saved' && <span className="muted"> · {new Date(persistence.savedAt).toLocaleTimeString('zh-CN')}</span>}{persistence.phase === 'load-error' && <button className="secondary-button" disabled={busy || loggingOut} onClick={restoreWorkspace}>重试恢复</button>}{persistence.phase === 'save-error' && <button className="secondary-button" disabled={loggingOut} onClick={() => void persistence.retrySave().catch(() => undefined)}>重试保存</button>}{persistence.phase === 'conflict' && <button className="secondary-button" disabled={busy || loggingOut} onClick={restoreWorkspace}>放弃本页编辑并加载服务器版本</button>}</div>
+      <div className="notice" role={persistence.error ? 'alert' : 'status'}><span>{user.guest ? "免注册试用 · 可在右上角临时配置自己的模型。退出或到期前，请先导出需要的简历。" : retentionLabel}{persistence.error && `：${persistence.error}`}</span>{persistence.savedAt && persistence.phase === 'saved' && <span className="muted"> · {new Date(persistence.savedAt).toLocaleTimeString('zh-CN')}</span>}{persistence.phase === 'load-error' && <button className="secondary-button" disabled={busy || loggingOut} onClick={restoreWorkspace}>重试恢复</button>}{persistence.phase === 'save-error' && <button className="secondary-button" disabled={loggingOut} onClick={() => void persistence.retrySave().catch(() => undefined)}>重试保存</button>}{persistence.phase === 'conflict' && <button className="secondary-button" disabled={busy || loggingOut} onClick={restoreWorkspace}>放弃本页编辑并加载服务器版本</button>}</div>
       <div inert={!persistence.loaded || loggingOut}>
       {persistence.loaded && page === 'workbench' && <WorkbenchPage initialStep={workbenchEntryStep} userId={user.id} sourceText={sourceText} setSourceText={setSourceText} sourceName={sourceName} setSourceName={setSourceName} profile={profile} onProfileChange={updateProfile} jdText={jdText} onJdChange={updateJd} markdown={markdown} onMarkdownChange={setMarkdown} jdKeywords={jdKeywords} onJdKeywordsChange={setJdKeywords} busy={busy || loggingOut || !persistence.loaded} onBusyChange={setBusy} onDiagnose={() => setPage('diagnose')} onQuality={() => setPage('quality')} onInterview={() => setPage('interview')} />}
       {page === 'diagnose' && <div className="legacy-panel"><DiagnosePage jdText={jdText} setJdText={updateJd} profile={profile} markdown={markdown} onMarkdownChange={setMarkdown} busy={busy || loggingOut || !persistence.loaded} onBusyChange={setBusy} onDone={(_text, keywords) => setJdKeywords(keywords)} onEditResume={() => setPage('workbench')} onNext={() => setPage('quality')} /></div>}
@@ -177,7 +180,7 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
           page: 'workbench',
         }))
       }} />}
-      {page === 'account' && <AccountPage user={user} onUserChange={onUserUpdated} />}
+      {page === 'account' && (user.guest ? <><ModelPreferences userId={user.id} guest /><ModelPreferences userId={user.id} guest kind="vision" /></> : <AccountPage user={user} onUserChange={onUserUpdated} />)}
       </div>
       <footer className="workspace-footer"><span className="footer-brand">职得offer · 让每一段真实经历被看见</span><p><strong>免责声明：</strong>AI 生成内容仅供求职准备参考，请核对真实性后再使用；本产品不承诺面试或录用结果。</p><p><strong>原创声明：</strong>产品界面与功能由团队原创设计开发；用户上传材料及其知识产权归用户或原权利人所有。</p></footer>
     </main>

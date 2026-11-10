@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from PIL import Image, UnidentifiedImageError
 from fastapi.responses import Response as ImageResponse
 
-from core import accounts
+from core import accounts, model_preferences
 
 router = APIRouter(prefix="/api/auth", tags=["auth"], dependencies=[Depends(accounts.require_csrf)])
 
@@ -51,11 +51,28 @@ def _validated_avatar(data: bytes) -> str:
         raise HTTPException(status_code=422, detail="上传内容不是有效的 JPEG、PNG 或 WebP 图片") from exc
 
 
-def _set_session(request: Request, response: Response, token: str) -> None:
+def _set_session(request: Request, response: Response, token: str, duration: int = accounts.SESSION_SECONDS) -> None:
     response.set_cookie(
-        accounts.COOKIE_NAME, token, max_age=accounts.SESSION_SECONDS,
+        accounts.COOKIE_NAME, token, max_age=duration,
         httponly=True, secure=request.url.scheme == "https", samesite="strict", path="/",
     )
+
+
+@router.post("/trial")
+def trial(request: Request, response: Response):
+    if request.cookies.get(accounts.COOKIE_NAME):
+        try:
+            user = accounts.require_user(request)
+        except HTTPException as exc:
+            if exc.status_code != 401:
+                raise
+        else:
+            if user.get("guest"):
+                return {"ok": True}
+            raise HTTPException(409, "请先退出当前会话")
+    token = accounts.start_guest()
+    _set_session(request, response, token, accounts.GUEST_SECONDS)
+    return {"ok": True}
 
 
 @router.post("/register")
@@ -122,7 +139,17 @@ def remove_avatar(user: dict = Depends(accounts.require_user)):
 
 @router.post("/logout")
 def logout(request: Request, response: Response):
-    accounts.logout(request.cookies.get(accounts.COOKIE_NAME))
+    token = request.cookies.get(accounts.COOKIE_NAME)
+    user = None
+    if token:
+        try:
+            user = accounts.require_user(request)
+        except HTTPException as exc:
+            if exc.status_code != 401:
+                raise
+    accounts.logout(token)
+    if user and user.get("guest"):
+        model_preferences.clear_guest(user["id"])
     response.delete_cookie(
         accounts.COOKIE_NAME, path="/", httponly=True,
         secure=request.url.scheme == "https", samesite="strict",

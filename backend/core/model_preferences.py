@@ -4,6 +4,9 @@ import binascii
 import os
 from contextvars import ContextVar
 from urllib.parse import urlsplit
+from threading import Lock, Timer
+from time import time
+from typing import Literal
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -17,7 +20,48 @@ PROVIDERS = {
     "glm": "https://open.bigmodel.cn/api/paas/v4",
 }
 current_provider: ContextVar[dict | None] = ContextVar("current_provider", default=None)
+ModelKind = Literal["text", "vision"]
+_TABLES = {"text": "user_model_preferences", "vision": "user_vision_preferences"}
 VERSION = b"\x01"
+_guest_lock = Lock()
+_guest_configs: dict[tuple[str, ModelKind], tuple[dict, Timer]] = {}
+
+
+def clear_guest(user_id: str, kind: ModelKind | None = None) -> None:
+    with _guest_lock:
+        for slot in (kind,) if kind else _TABLES:
+            entry = _guest_configs.pop((user_id, slot), None)
+            if entry:
+                entry[1].cancel()
+
+
+def save_guest(config: dict, key: str, expires_at: float, kind: ModelKind = "text") -> None:
+    remaining = expires_at - time()
+    if remaining <= 0:
+        raise HTTPException(401, "试用会话已到期")
+    user_id = config["user_id"]
+    slot = (user_id, kind)
+    timer = Timer(remaining, clear_guest, args=slot)
+    timer.daemon = True
+    with _guest_lock:
+        previous = _guest_configs.get(slot)
+        if previous:
+            previous[1].cancel()
+        _guest_configs[slot] = ({**config, "temporary_key": key}, timer)
+        timer.start()
+
+
+def get_for_user(user: dict, kind: ModelKind = "text") -> dict | None:
+    if not user.get("guest"):
+        return get(user["id"], kind)
+    with _guest_lock:
+        entry = _guest_configs.get((user["id"], kind))
+        return entry[0] if entry and user["guest_until"] > time() else None
+
+
+def key_for(config: dict) -> str:
+    return config["temporary_key"] if "temporary_key" in config else decrypt(config)
+
 
 
 def cipher() -> AESGCM:
@@ -44,29 +88,29 @@ def decrypt(config: dict) -> str:
         raise HTTPException(503, "个人模型密钥无法解密，请检查服务端配置或重新填写 API Key") from None
 
 
-def get(user_id: str) -> dict | None:
+def get(user_id: str, kind: ModelKind = "text") -> dict | None:
     with accounts.connection() as db:
-        row = db.execute("SELECT * FROM user_model_preferences WHERE user_id = ?", (user_id,)).fetchone()
+        row = db.execute(f"SELECT * FROM {_TABLES[kind]} WHERE user_id = ?", (user_id,)).fetchone()
     return dict(row) if row else None
 
 
-def save(config: dict, key: str, encryption: AESGCM, migration: bool) -> None:
+def save(config: dict, key: str, encryption: AESGCM, migration: bool, kind: ModelKind = "text") -> None:
     nonce = os.urandom(12)
     blob = VERSION + nonce + encryption.encrypt(nonce, key.encode(), aad(config))
     with accounts.connection() as db:
         conflict = ("DO NOTHING" if migration else "DO UPDATE SET provider=excluded.provider, "
                     "base_url=excluded.base_url, model=excluded.model, key_ciphertext=excluded.key_ciphertext")
         result = db.execute(
-            "INSERT INTO user_model_preferences VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id) " + conflict,
+            f"INSERT INTO {_TABLES[kind]} VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id) " + conflict,
             (config["user_id"], config["provider"], config["base_url"], config["model"], blob),
         )
         if not result.rowcount:
             raise HTTPException(409, "已有个人模型配置，请刷新后重试")
 
 
-def clear(user_id: str) -> None:
+def clear(user_id: str, kind: ModelKind = "text") -> None:
     with accounts.connection() as db:
-        db.execute("DELETE FROM user_model_preferences WHERE user_id = ?", (user_id,))
+        db.execute(f"DELETE FROM {_TABLES[kind]} WHERE user_id = ?", (user_id,))
 
 
 def approved_url(provider: str, base_url: str) -> str:
@@ -97,17 +141,21 @@ def resolved_provider() -> dict | None:
     config = current_provider.get()
     if config is None:
         return None
+    if "missing_kind" in config:
+        label = "图片解析模型" if config["missing_kind"] == "vision" else "文本模型"
+        raise HTTPException(428, f"请先在模型设置中配置并启用{label}")
     if config.get("insecure_request"):
         raise HTTPException(403, "请通过 HTTPS 使用个人模型")
     return {"name": config["provider"], "model": config["model"],
-            "base_url": approved_url(config["provider"], config["base_url"]), "api_key": decrypt(config)}
+            "base_url": approved_url(config["provider"], config["base_url"]), "api_key": key_for(config)}
 
 
 async def bind(request: Request, user: dict = Depends(accounts.require_user)):
-    config = await run_in_threadpool(get, user["id"])
+    kind: ModelKind = "vision" if request.url.path.rstrip("/").endswith("/parse-image") else "text"
+    config = await run_in_threadpool(get_for_user, user, kind)
     if config and request.url.scheme != "https" and request.url.hostname not in {"localhost", "127.0.0.1", "::1"}:
         config = {**config, "insecure_request": True}
-    token = current_provider.set(None if request.url.path == "/api/resume/parse-image" else config)
+    token = current_provider.set(config or {"missing_kind": kind})
     try:
         yield
     finally:

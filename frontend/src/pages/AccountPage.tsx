@@ -139,6 +139,7 @@ export default function AccountPage({ user, onUserChange }: {
       </form>
     </section>
     <ModelPreferences userId={user.id} />
+    <ModelPreferences userId={user.id} kind="vision" />
     <UserStats />
   </section>
 }

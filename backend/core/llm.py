@@ -400,6 +400,7 @@ def chat_json_multimodal(
     model: str | None = None,
     api_key: str | None = None,
     base_url: str | None = None,
+    deadline_at: float | None = None,
 ) -> dict:
     """以 OpenAI-compatible image_url 消息调用视觉模型并返回 JSON 对象。"""
     if not image_data_uri.startswith("data:image/"):
@@ -413,7 +414,7 @@ def chat_json_multimodal(
     ]
     msg = _run_with_providers(
         lambda p: _post_messages(p, messages, temperature=temperature, json_mode=True),
-        model=model, api_key=api_key, base_url=base_url,
+        model=model, api_key=api_key, base_url=base_url, deadline_at=deadline_at,
     )
     content = str(msg.get("content") or "")
 

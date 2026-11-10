@@ -6,7 +6,7 @@ import type {
 import type { InterviewRecord, InterviewRecordInput, WorkspaceResponse, WorkspaceState } from './workspace'
 import type { TailoringReport } from './tailoring'
 
-export type AccountUser = { id: string; username: string; avatar_url?: string | null }
+export type AccountUser = { id: string; username: string; avatar_url?: string | null; guest?: boolean }
 export const SESSION_EXPIRED_EVENT = 'zhide:session-expired'
 export const ACCOUNT_CHANGED_EVENT = 'zhide:account-changed'
 export const PROFILE_UPDATED_EVENT = 'zhide:profile-updated'
@@ -68,19 +68,21 @@ export function apiErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '操作失败，请重试。'
 }
 
+export type ModelKind = 'text' | 'vision'
 export type TextModelPreference = { provider: 'deepseek' | 'glm' | 'custom'; model: string; base_url: string; has_api_key: boolean }
 type ModelConnection = Pick<TextModelPreference, "provider" | "base_url"> & { api_key: string }
 
 export const api = {
+  startTrial: () => http.post("/auth/trial").then(() => announceAccountChange()),
   heartbeat: () => http.post('/user-stats/heartbeat'),
   userStats: () => http.get<{ online: number; registered: number; new_this_week: number } | null>('/user-stats').then(r => r.data),
-  modelPreference: () => http.get<TextModelPreference | null>('/model-preferences').then(r => r.data),
-  listModels: (config: ModelConnection) =>
-    http.post<{ models: string[] }>('/model-preferences/models', config).then(r => r.data),
-  activateModel: (config: ModelConnection & { model: string; migration_user_id?: string }) =>
-    http.post<TextModelPreference>('/model-preferences', config).then(r => r.data),
-  revealModelKey: () => http.post<{ api_key: string }>('/model-preferences/reveal').then(r => r.data),
-  resetModel: () => http.delete('/model-preferences'),
+  modelPreference: (kind: ModelKind = 'text') => http.get<TextModelPreference | null>('/model-preferences', { params: { kind } }).then(r => r.data),
+  listModels: (config: ModelConnection, kind: ModelKind = 'text') =>
+    http.post<{ models: string[] }>('/model-preferences/models', config, { params: { kind } }).then(r => r.data),
+  activateModel: (config: ModelConnection & { model: string; migration_user_id?: string }, kind: ModelKind = 'text') =>
+    http.post<TextModelPreference>('/model-preferences', config, { params: { kind } }).then(r => r.data),
+  revealModelKey: (kind: ModelKind = 'text') => http.post<{ api_key: string }>('/model-preferences/reveal', undefined, { params: { kind } }).then(r => r.data),
+  resetModel: (kind: ModelKind = 'text') => http.delete('/model-preferences', { params: { kind } }),
   me: () => http.get('/auth/me').then((r) => r.data) as Promise<{ ok: true; user: AccountUser }>,
   profile: () => http.get('/auth/profile').then((r) => r.data) as Promise<{ ok: true; user: AccountUser & { avatar_url: string | null } }>,
   changePassword: (current_password: string, new_password: string) =>

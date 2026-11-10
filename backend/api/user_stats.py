@@ -20,7 +20,9 @@ def _prune(now: float) -> None:
 
 
 @router.post("/heartbeat")
-def heartbeat(request: Request):
+def heartbeat(request: Request, user: dict = Depends(accounts.require_user)):
+    if user.get("guest"):
+        return {"ok": True}
     with _lock:
         now = time()
         _prune(now)
@@ -40,10 +42,10 @@ def overview(user: dict = Depends(accounts.require_user)):
         _prune(now)
         active = set(_presence)
     with accounts.connection() as db:
-        rows = db.execute("SELECT user_id, token_hash FROM sessions WHERE expires_at > ?", (now,))
+        rows = db.execute("SELECT user_id, token_hash FROM sessions JOIN users ON users.id = sessions.user_id WHERE expires_at > ? AND guest_until IS NULL", (now,))
         online = len({row["user_id"] for row in rows if row["token_hash"] in active})
         registered, new_this_week = db.execute(
-            "SELECT COUNT(*), COUNT(CASE WHEN created_at BETWEEN ? AND ? THEN 1 END) FROM users",
+            "SELECT COUNT(*), COUNT(CASE WHEN created_at BETWEEN ? AND ? THEN 1 END) FROM users WHERE guest_until IS NULL",
             (monday.timestamp(), now),
         ).fetchone()
     return {"online": online, "registered": registered, "new_this_week": new_this_week}

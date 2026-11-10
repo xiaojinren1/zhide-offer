@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS users (
     avatar_blob BLOB,
     avatar_content_type TEXT,
     recovery_code_hash TEXT,
-    created_at REAL NOT NULL
+    created_at REAL NOT NULL,
+    guest_until REAL
 );
 CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY,
@@ -37,6 +38,13 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
 CREATE TABLE IF NOT EXISTS user_model_preferences (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    model TEXT NOT NULL,
+    key_ciphertext BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS user_vision_preferences (
     user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     provider TEXT NOT NULL,
     base_url TEXT NOT NULL,
@@ -91,6 +99,8 @@ def connection() -> Iterator[sqlite3.Connection]:
             db.execute("ALTER TABLE users ADD COLUMN avatar_content_type TEXT")
         if "recovery_code_hash" not in user_columns:
             db.execute("ALTER TABLE users ADD COLUMN recovery_code_hash TEXT")
+        if "guest_until" not in user_columns:
+            db.execute("ALTER TABLE users ADD COLUMN guest_until REAL")
         with db:
             yield db
     finally:
@@ -119,15 +129,30 @@ def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def new_session(db: sqlite3.Connection, user_id: str) -> str:
+def new_session(db: sqlite3.Connection, user_id: str, duration: int = SESSION_SECONDS) -> str:
     token = secrets.token_urlsafe(32)
     now = time.time()
     db.execute("DELETE FROM sessions WHERE expires_at <= ?", (now,))
     db.execute(
         "INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)",
-        (token_hash(token), user_id, now + SESSION_SECONDS),
+        (token_hash(token), user_id, now + duration),
     )
     return token
+
+
+GUEST_SECONDS = 7200
+
+
+def start_guest() -> str:
+    now = time.time()
+    user_id = uuid4().hex
+    with connection() as db:
+        db.execute("DELETE FROM users WHERE guest_until <= ?", (now,))
+        db.execute(
+            "INSERT INTO users(id, username, password_hash, created_at, guest_until) VALUES (?, ?, ?, ?, ?)",
+            (user_id, "guest:" + user_id, "", now, now + GUEST_SECONDS),
+        )
+        return new_session(db, user_id, GUEST_SECONDS)
 
 
 def register(username: str, password: str) -> tuple[dict, str, str]:
@@ -191,25 +216,26 @@ def require_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="请先登录")
     with connection() as db:
         row = db.execute(
-            "SELECT users.id,users.username FROM sessions JOIN users ON users.id = sessions.user_id "
+            "SELECT users.id,users.username,users.guest_until FROM sessions JOIN users ON users.id = sessions.user_id "
             "WHERE sessions.token_hash = ? AND sessions.expires_at > ?",
             (token_hash(token), time.time()),
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
-    return {"id": row["id"], "username": row["username"]}
+    return {"id": row["id"], "username": row["username"], **({"guest": True, "guest_until": row["guest_until"]} if row["guest_until"] else {})}
 
 
 def profile(user_id: str) -> dict:
     with connection() as db:
         row = db.execute(
-            "SELECT id,username,avatar_blob FROM users WHERE id = ?", (user_id,)
+            "SELECT id,username,avatar_blob,guest_until FROM users WHERE id = ?", (user_id,)
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
     return {
         "id": row["id"],
         "username": row["username"],
+        **({"guest": True} if row["guest_until"] else {}),
         "avatar_url": "/api/auth/avatar" if row["avatar_blob"] is not None else None,
     }
 
@@ -269,4 +295,5 @@ def require_csrf(request: Request) -> None:
 def logout(token: str | None) -> None:
     if token:
         with connection() as db:
+            db.execute("DELETE FROM users WHERE guest_until IS NOT NULL AND id IN (SELECT user_id FROM sessions WHERE token_hash = ?)", (token_hash(token),))
             db.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash(token),))

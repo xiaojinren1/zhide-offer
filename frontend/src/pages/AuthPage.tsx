@@ -3,18 +3,10 @@ import type { FormEvent } from 'react'
 import { OwlLogo, UiIcon } from '../components/Brand'
 import { api, apiErrorMessage } from '../lib/api'
 import type { AccountUser } from '../lib/api'
-import ResumePreview from './workbench/ResumePreview'
-import ResumeComparison from './workbench/ResumeComparison'
-
-const SAMPLE_BEFORE = '# 陈同学\n\n## 校园活动项目\n- 参与报名流程优化。'
-const SAMPLE_AFTER = '# 陈同学\n\n## 校园活动项目\n- 收集报名反馈，整理重复填报与信息分散的问题。\n- 绘制报名流程原型，与开发同学沟通需求。'
 
 export default function AuthPage({ onAuthenticated, notice = '' }: {
   onAuthenticated: (user: AccountUser) => void; notice?: string
 }) {
-  const [demo, setDemo] = useState(false)
-  const [demoOptimized, setDemoOptimized] = useState(false)
-  const [demoClean, setDemoClean] = useState(false)
   const [registering, setRegistering] = useState(false)
   const [forgotPassword, setForgotPassword] = useState(false)
   const [username, setUsername] = useState('')
@@ -88,19 +80,19 @@ export default function AuthPage({ onAuthenticated, notice = '' }: {
     }
   }
 
-  if (demo) {
-    return <main className="auth-shell">
-      <section className="auth-card demo-card">
-        <button type="button" className="secondary-button" onClick={() => { setDemo(false); setDemoOptimized(false); setDemoClean(false) }}>返回账户页面</button>
-        <h1>免注册样例体验</h1>
-        <p>虚构的校园项目示例。你可以切换简历样式，体验采纳建议后的变化。个人材料和 AI 生成在登录后的工作台使用。</p>
-        <p>样例事实：收集报名反馈、整理问题、绘制流程原型并与开发同学沟通。</p>
-        <label>简历样式 <select value={demoClean ? 'clean' : 'classic'} onChange={event => setDemoClean(event.target.value === 'clean')}><option value="classic">经典</option><option value="clean">简洁</option></select></label>
-        <ResumePreview markdown={demoOptimized ? SAMPLE_AFTER : SAMPLE_BEFORE} clean={demoClean} />
-        <button type="button" className="primary-button" onClick={() => setDemoOptimized(!demoOptimized)}>{demoOptimized ? '恢复样例原稿' : '采纳样例建议：补充具体行动'}</button>
-        {demoOptimized && <ResumeComparison before={SAMPLE_BEFORE} after={SAMPLE_AFTER} />}
-      </section>
-    </main>
+  async function startTrial() {
+    if (submitting.current) return
+    submitting.current = true
+    setBusy(true)
+    setError('')
+    try {
+      await api.startTrial()
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    } finally {
+      submitting.current = false
+      setBusy(false)
+    }
   }
 
   if (newRecoveryCode) {
@@ -182,7 +174,7 @@ export default function AuthPage({ onAuthenticated, notice = '' }: {
         </form>
         <p className="auth-switch">{registering ? '已有账户？' : '第一次使用？'}<button type="button" disabled={busy} onClick={() => { setRegistering(!registering); setPassword(''); setConfirmation(''); setError('') }}>{registering ? '直接登录' : '创建账户'}</button></p>
         {!registering && <p className="auth-switch auth-recovery-link"><button type="button" disabled={busy} onClick={() => { setForgotPassword(true); setError('') }}>忘记密码？</button></p>}
-        <button type="button" className="secondary-button full auth-submit" disabled={busy} onClick={() => setDemo(true)}>免注册体验样例</button>
+        <button type="button" className="secondary-button full auth-submit" disabled={busy} onClick={() => void startTrial()}>免注册试用工作台</button>
         <p className="auth-retention">登录状态可保留 7 天。工作台自动保存至当前账户，离开前请确认已保存。</p>
       </section>
     </div>

@@ -104,12 +104,12 @@ class AccountContract(unittest.TestCase):
         ):
             self.assertEqual(self.client.post(text_path, json={"text": "sample"}).status_code, 428)
             self.assertEqual(self.client.post(image_path, files=files).status_code, 428)
-        with patch("api.model_preferences.chat_json_multimodal", return_value={"color": "blue"}) as probe:
+        with patch("core.llm._post_messages", return_value={"content": '{"color":"blue"}'}) as probe:
             result = self.client.post(preference + "?kind=vision", json={
                 "provider": "glm", "model": "vision-test", "api_key": "vision-key",
             })
         self.assertEqual(result.status_code, 200, result.text)
-        self.assertTrue(probe.call_args.args[2].startswith("data:image/png;base64,"))
+        self.assertTrue(probe.call_args.args[1][1]["content"][1]["image_url"]["url"].startswith("data:image/png;base64,"))
         self.assertIsNone(self.client.get(preference).json())
 
         from core.llm import provider_chain

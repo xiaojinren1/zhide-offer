@@ -335,6 +335,15 @@ def chat(
     return content
 
 
+def _remaining_budget(deadline_at: float | None) -> dict:
+    if deadline_at is None:
+        return {}
+    remaining = deadline_at - _time.monotonic()
+    if remaining <= 0:
+        raise LLMError("JSON flow deadline exceeded", status_code=504)
+    return {"deadline": min(_chain_deadline(), remaining)}
+
+
 def chat_json(
     system: str,
     user: str,
@@ -349,14 +358,6 @@ def chat_json(
 
     防幻觉第一关：拿不到可解析 JSON 就明说失败，不返回半成品。
     """
-    def remaining_budget() -> dict:
-        if deadline_at is None:
-            return {}
-        remaining = deadline_at - _time.monotonic()
-        if remaining <= 0:
-            raise LLMError("JSON flow deadline exceeded", status_code=504)
-        return {"deadline": min(_chain_deadline(), remaining)}
-
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
@@ -364,7 +365,7 @@ def chat_json(
     msg = _run_with_providers(
         lambda p: _post_messages(p, messages, temperature=temperature, json_mode=True),
         model=model, api_key=api_key, base_url=base_url,
-        **remaining_budget(),
+        **_remaining_budget(deadline_at),
     )
     content = str(msg.get("content") or "")
     def parse_object(value: str) -> dict:
@@ -383,7 +384,7 @@ def chat_json(
         msg2 = _run_with_providers(
             lambda p: _post_messages(p, retry_messages, temperature=0.0, json_mode=True),
             model=model, api_key=api_key, base_url=base_url,
-            **remaining_budget(),
+            **_remaining_budget(deadline_at),
         )
         try:
             return parse_object(str(msg2.get("content") or ""))
@@ -414,7 +415,7 @@ def chat_json_multimodal(
     ]
     msg = _run_with_providers(
         lambda p: _post_messages(p, messages, temperature=temperature, json_mode=True),
-        model=model, api_key=api_key, base_url=base_url, deadline_at=deadline_at,
+        model=model, api_key=api_key, base_url=base_url, **_remaining_budget(deadline_at),
     )
     content = str(msg.get("content") or "")
 

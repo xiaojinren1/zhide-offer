@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -63,6 +64,26 @@ def _consistency_issues(md: str, profile) -> list[str]:
     return []
 
 
+def _draft_profile(markdown, profile):
+    """Use visible draft sections for writing checks and retain source facts separately."""
+    headings = list(re.finditer(r"(?m)^#{1,6}[ \t]+(.+)$", markdown))
+    experiences = []
+    skills = []
+    for index, heading in enumerate(headings):
+        title = heading[1].strip().strip("*# ").casefold()
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(markdown)
+        body = markdown[heading.end():end].strip()
+        if title in {"技能", "专业技能", "技能清单", "技术栈", "skills"}:
+            skills.extend(skill for skill in profile.skills if skill.casefold() in body.casefold())
+        for experience in profile.experiences:
+            name = experience.name.strip().casefold()
+            if name and name in title:
+                experiences.append(replace(experience, actions=[body], results=[],
+                                           skills=[], period=experience.period if experience.period in markdown[heading.start():end] else ""))
+                break
+    return replace(profile, experiences=experiences, skills=skills)
+
+
 @router.post("")
 def quality(req: QualityRequest):
     events.emit("quality_started")
@@ -84,22 +105,23 @@ def quality(req: QualityRequest):
         hits = sum(1 for k in jd_keywords if k.lower() in md_tokens or k.lower() in (req.resume_markdown or "").lower())
         keyword_coverage = round(hits / len(jd_keywords), 3)
 
-    total = len(profile.experiences) or 1
-    with_num = sum(1 for e in profile.experiences if count_numbers(" ".join(e.actions + e.results)) > 0)
+    draft = _draft_profile(req.resume_markdown, profile) if req.resume_markdown.strip() else profile
+    total = len(draft.experiences) or 1
+    with_num = sum(1 for e in draft.experiences if count_numbers(" ".join(e.actions + e.results)) > 0)
     quantified_ratio = round(with_num / total, 3)
 
-    scan_text = (req.resume_markdown or "") + " " + " ".join(profile.skills)
+    scan_text = req.resume_markdown or " ".join(profile.skills)
     report = QualityReport(
         keyword_coverage=keyword_coverage,
         quantified_ratio=quantified_ratio,
         cliche_hits=_cliche_hits(scan_text),
         ats_issues=_ats_issues(req.resume_markdown or profile.raw_text),
         consistency_issues=_consistency_issues(req.resume_markdown, profile) if req.resume_markdown else [],
-        suspicions=run_all(profile, jd_keywords),
+        suspicions=run_all(draft, jd_keywords),
     )
     report.passed = (
         (not req.jd_text.strip() or report.keyword_coverage >= 0.6)
-        and report.quantified_ratio >= 0.5
+        and (not draft.experiences or report.quantified_ratio >= 0.5)
         and not report.cliche_hits
         and not report.consistency_issues
         and not any(s.severity == "high" for s in report.suspicions)

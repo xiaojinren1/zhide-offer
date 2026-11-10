@@ -102,6 +102,28 @@ class ResponsibilityMatchingContract(unittest.TestCase):
                 with self.assertRaises(LLMError):
                     match(self.jd, self.profile)
 
+    def test_retries_invalid_match_without_accepting_unverified_evidence(self):
+        with patch("engine.matcher.chat_json", side_effect=[{"items": []}, {"items": self.rows}]) as model:
+            self.assertEqual(match(self.jd, self.profile).missing_hard, ["本科"])
+            self.assertEqual(model.call_count, 2)
+
+    def test_quality_recheck_uses_current_draft_but_keeps_source_facts(self):
+        from api.quality import QualityRequest, quality
+
+        profile = ResumeProfile(experiences=[Experience(name="设备项目", actions=["调试接口"], results=["覆盖 12 台设备"])])
+        profile_data = profile.to_dict()
+        # The draft may omit a source metric or use it without changing the confirmed facts.
+        def inspect(markdown):
+            return quality(QualityRequest(jd_text="", resume_profile=profile_data, resume_markdown=markdown))
+
+        initial = inspect("### 设备项目\n- 调试接口")
+        revised = inspect("### 设备项目\n- 调试接口，覆盖 12 台设备")
+        self.assertEqual(initial["quantified_ratio"], 0)
+        self.assertEqual(revised["quantified_ratio"], 1)
+        self.assertTrue(any(row["type"] == "no_quantification" for row in initial["suspicions"]))
+        self.assertFalse(any(row["type"] == "no_quantification" for row in revised["suspicions"]))
+        self.assertEqual(revised["consistency_issues"], [])
+
     def test_model_failure_not_partial_keyword_report(self):
         with patch("engine.matcher.chat_json", side_effect=LLMError("upstream failed", status_code=504)):
             with self.assertRaises(LLMError):

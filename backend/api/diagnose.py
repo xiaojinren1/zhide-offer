@@ -41,11 +41,21 @@ def diagnose(req: DiagnoseRequest):
     events.emit("diagnose_started", jd_len=len(req.jd_text or ""))
     if not req.jd_text.strip():
         raise HTTPException(status_code=422, detail="请先填写目标岗位 JD")
+    stage = "JD 解析"
     try:
         jd = parse_jd(req.jd_text)
+        if jd.inferred:
+            jd = parse_jd(req.jd_text)
+        stage = "岗位匹配"
         resume = profile_from_dict(req.resume_profile)
         report = match(jd, resume)
-    except LLMError:
+    except LLMError as exc:
+        if exc.status_code == 502:
+            detail = ("JD 解析结果有要求缺少原文依据。请核对岗位描述，或尝试用条目列出职责和要求。"
+                      if str(exc) == "untraceable JD requirement"
+                      else f"{stage}未得到可验证的结果。请重试，或换用能稳定返回 JSON 的文本模型。")
+            events.emit("diagnose_model_validation_failed", stage=stage)
+            raise HTTPException(502, detail) from None
         raise
     except Exception as exc:
         events.emit_error("diagnose", exc)

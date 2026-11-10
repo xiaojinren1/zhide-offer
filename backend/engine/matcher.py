@@ -53,6 +53,25 @@ def _keyword_coverage(jd: ParsedJD, resume: ResumeProfile) -> list[MatchItem]:
     return items
 
 
+def _validated_matches(data: dict, reqs: list[str], sources: list[str]) -> dict[str, MatchItem]:
+    rows = data.get("items") if isinstance(data, dict) else None
+    if not isinstance(rows, list) or len(rows) != len(reqs):
+        raise LLMError("incomplete matching response", status_code=502)
+    matched: dict[str, MatchItem] = {}
+    for row in rows:
+        if not isinstance(row, dict) or any(not isinstance(row.get(key), str) for key in ("requirement", "status", "evidence", "note")):
+            raise LLMError("invalid matching item", status_code=502)
+        requirement, status, evidence, note = (row[key].strip() for key in ("requirement", "status", "evidence", "note"))
+        if requirement not in reqs or requirement in matched or status not in {"covered", "partial", "missing"}:
+            raise LLMError("invalid matching requirement", status_code=502)
+        if status != "missing" and (not evidence or not any(evidence in source for source in sources)):
+            raise LLMError("untraceable matching evidence", status_code=502)
+        if status == "missing" and evidence:
+            raise LLMError("missing requirement has evidence", status_code=502)
+        matched[requirement] = MatchItem(requirement=requirement, status=status, evidence=evidence, note=note)
+    return matched
+
+
 def match(jd: ParsedJD, resume: ResumeProfile) -> MatchReport:
     """计算匹配度报告；模型失败须明确传播，不交付不完整诊断。"""
     items = _keyword_coverage(jd, resume)
@@ -73,23 +92,15 @@ def match(jd: ParsedJD, resume: ResumeProfile) -> MatchReport:
             "skills": resume.skills,
             "education": resume.education,
         }
-        data = chat_json(_SYSTEM + agent_rules(), json.dumps(payload, ensure_ascii=False))
-        rows = data.get("items") if isinstance(data, dict) else None
-        if not isinstance(rows, list) or len(rows) != len(reqs):
-            raise LLMError("incomplete matching response", status_code=502)
         sources = _fact_sources(resume)
-        matched: dict[str, MatchItem] = {}
-        for row in rows:
-            if not isinstance(row, dict) or any(not isinstance(row.get(key), str) for key in ("requirement", "status", "evidence", "note")):
-                raise LLMError("invalid matching item", status_code=502)
-            requirement, status, evidence, note = (row[key].strip() for key in ("requirement", "status", "evidence", "note"))
-            if requirement not in reqs or requirement in matched or status not in {"covered", "partial", "missing"}:
-                raise LLMError("invalid matching requirement", status_code=502)
-            if status != "missing" and (not evidence or not any(evidence in source for source in sources)):
-                raise LLMError("untraceable matching evidence", status_code=502)
-            if status == "missing" and evidence:
-                raise LLMError("missing requirement has evidence", status_code=502)
-            matched[requirement] = MatchItem(requirement=requirement, status=status, evidence=evidence, note=note)
+        request = json.dumps(payload, ensure_ascii=False)
+        system = _SYSTEM + agent_rules()
+        data = chat_json(system, request)
+        try:
+            matched = _validated_matches(data, reqs, sources)
+        except LLMError:
+            data = chat_json(system, request + "\n上次结果未通过校验。逐项复制要求原文；证据逐字摘录，缺失项证据留空。")
+            matched = _validated_matches(data, reqs, sources)
         items.extend(matched[requirement] for requirement in reqs)
 
     if not items:

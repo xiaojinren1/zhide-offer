@@ -35,7 +35,7 @@ export function validateDiagnosis(value: unknown): ValidatedDiagnosis {
     if (status !== 'covered' && status !== 'partial' && status !== 'missing') throw invalid()
     const evidence = optionalText(item.evidence)
     if (status !== 'missing' && !evidence) throw invalid()
-    return { requirement: item.requirement.trim(), status, evidence, note: optionalText(item.note) }
+    return { requirement: item.requirement.trim(), status, evidence, draft_excerpt: item.draft_excerpt == null ? undefined : optionalText(item.draft_excerpt), note: optionalText(item.note) }
   })
   const missing_hard = textList(value.missing_hard)
   if (value.missing_hard_count !== undefined &&

@@ -163,6 +163,19 @@ class ResponsibilityMatchingContract(unittest.TestCase):
                 self.assertEqual(error.exception.status_code, 502)
                 matcher.assert_not_called()
 
+    def test_match_uses_current_draft_and_returns_verifiable_excerpt(self):
+        from engine.tailoring import markdown_excerpt_catalog
+
+        markdown = "- 调试设备通信接口，验证数据交换"
+        excerpt_id = next(iter(markdown_excerpt_catalog(markdown)))
+        rows = [{**row, "draft_excerpt_id": excerpt_id if index == 0 else ""}
+                for index, row in enumerate(self.rows)]
+        with patch("engine.matcher.chat_json", return_value={"items": rows}) as model:
+            report = match(self.jd, self.profile, markdown)
+        self.assertIn(markdown, model.call_args.args[1])
+        self.assertEqual(report.items[1].draft_excerpt, markdown)
+        self.assertEqual(report.items[2].draft_excerpt, "")
+
     def test_verbatim_retry_builds_evidence_from_source(self):
         with patch("engine.jd_parser.chat_json", return_value={
             "responsibilities": ["维护订单接口", "未在原文的要求"],

@@ -33,6 +33,7 @@ def generate_role(req: GenerateRoleRequest):
 
 class DiagnoseRequest(BaseModel):
     jd_text: str
+    resume_markdown: str | None = None
     resume_profile: dict          # 前端已确认的经历库结构（profile_from_dict 回填）
 
 
@@ -50,7 +51,7 @@ def diagnose(req: DiagnoseRequest):
                 raise LLMError("untraceable JD requirement", status_code=502)
         stage = "岗位匹配"
         resume = profile_from_dict(req.resume_profile)
-        report = match(jd, resume)
+        report = match(jd, resume, req.resume_markdown)
     except LLMError as exc:
         if exc.status_code == 502:
             detail = ("JD 解析结果有要求缺少原文依据。请核对岗位描述，或尝试用条目列出职责和要求。"

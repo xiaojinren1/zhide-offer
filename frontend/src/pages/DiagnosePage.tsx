@@ -68,7 +68,7 @@ export default function DiagnosePage({ jdText, setJdText, profile, markdown, onM
     requestLock.current = true
     setActivity('diagnose'); onBusyChange?.(true); setError(''); setReport(null); setApplied(null)
     try {
-      const r = await api.diagnose(jdText, profile)
+      const r = await api.diagnose(jdText, profile, markdown)
       if (!mounted.current || latestInput.current.snapshot !== input || latestInput.current.version !== version) return
       const validated = validateDiagnosis(r)
       setReport(validated); setReportInput(input); setReportVersion(version); onDone(jdText, validated.keywords)
@@ -109,7 +109,7 @@ export default function DiagnosePage({ jdText, setJdText, profile, markdown, onM
           <div className="flex items-center gap-6 bg-white border border-gray-200 rounded-xl p-4">
             <div>
               <div className="text-3xl font-medium text-teal-700">{Math.round(visibleReport.coverage * 100)}%</div>
-              <div className="text-xs text-gray-500 mt-0.5">匹配覆盖率</div>
+              <div className="text-xs text-gray-500 mt-0.5">已确认经历覆盖率</div>
             </div>
             <div className="text-sm text-gray-600">
               岗位：{visibleReport.job_title || '未识别'}
@@ -135,6 +135,9 @@ export default function DiagnosePage({ jdText, setJdText, profile, markdown, onM
                 <div className="text-sm">
                   <div>{it.requirement}</div>
                   {it.evidence && <div className="text-gray-500 text-xs mt-0.5">证据：{it.evidence}</div>}
+                  {it.draft_excerpt !== undefined && <div className="text-xs mt-1">
+                    {it.status === 'missing' ? '缺少事实依据' : it.draft_excerpt ? <>正文已体现：<q>{it.draft_excerpt}</q></> : '有经历依据，正文待补或待写清'}
+                  </div>}
                   {it.note && <div className="text-amber-700 text-xs mt-0.5">{it.note}</div>}
                 </div>
               </div>

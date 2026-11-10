@@ -90,6 +90,7 @@ class MatchItem:
     status: str = "missing"         # covered | partial | missing
     evidence: str = ""              # 哪段经历支撑（可追溯铁律）
     note: str = ""
+    draft_excerpt: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

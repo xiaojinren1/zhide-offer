@@ -152,8 +152,8 @@ export const api = {
       ok: boolean; error?: string; jd?: ParsedJD
     }>,
 
-  diagnose: (jd_text: string, resume_profile: ResumeProfile) =>
-    http.post('/diagnose', { jd_text, resume_profile }).then((r) => r.data) as Promise<{
+  diagnose: (jd_text: string, resume_profile: ResumeProfile, resume_markdown: string) =>
+    http.post('/diagnose', { jd_text, resume_profile, resume_markdown }).then((r) => r.data) as Promise<{
       ok: boolean; error?: string; jd?: ParsedJD
     } & MatchReport & { missing_hard_count?: number }>,
 

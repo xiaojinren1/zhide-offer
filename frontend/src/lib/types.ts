@@ -39,6 +39,7 @@ export interface ParsedJD {
 }
 
 export interface MatchItem {
+  draft_excerpt?: string
   requirement: string
   status: 'covered' | 'partial' | 'missing'
   evidence: string

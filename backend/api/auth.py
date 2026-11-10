@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from PIL import Image, UnidentifiedImageError
 from fastapi.responses import Response as ImageResponse
 
-from core import accounts, model_preferences
+from core import accounts
 
 router = APIRouter(prefix="/api/auth", tags=["auth"], dependencies=[Depends(accounts.require_csrf)])
 
@@ -123,7 +123,6 @@ def remove_avatar(user: dict = Depends(accounts.require_user)):
 @router.post("/logout")
 def logout(request: Request, response: Response):
     accounts.logout(request.cookies.get(accounts.COOKIE_NAME))
-    model_preferences.clear(request)
     response.delete_cookie(
         accounts.COOKIE_NAME, path="/", httponly=True,
         secure=request.url.scheme == "https", samesite="strict",

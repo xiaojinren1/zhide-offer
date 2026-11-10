@@ -18,7 +18,7 @@ import httpx
 
 from core import budget, events
 from core.config import settings
-from core.model_preferences import current_provider
+from core.model_preferences import resolved_provider
 
 # 分级超时：连接/池快速失败，读给足时间（原来 blanket 240s，连不通也要等 4 分钟）
 _HTTP_TIMEOUT = httpx.Timeout(connect=8.0, read=90.0, write=30.0, pool=8.0)
@@ -135,7 +135,7 @@ def provider_chain(
         }]
 
     cfg = settings()
-    custom = current_provider.get()
+    custom = resolved_provider()
     if custom is not None:
         return [custom]
 

@@ -24,6 +24,11 @@ class AccountContract(unittest.TestCase):
         db_patch = patch.object(accounts, "DATABASE_PATH", Path(folder.name) / "accounts.sqlite3")
         db_patch.start()
         self.addCleanup(db_patch.stop)
+        key_patch = patch.dict("os.environ", {
+            "JOBAGENT_MODEL_ENCRYPTION_KEY": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        })
+        key_patch.start()
+        self.addCleanup(key_patch.stop)
         events_patch = patch("api.profiles.events.emit")
         events_patch.start()
         self.addCleanup(events_patch.stop)
@@ -49,7 +54,7 @@ class AccountContract(unittest.TestCase):
         payload = {"provider": "deepseek", "model": "model-a", "api_key": "test-key"}
         with patch("api.model_preferences.chat_json", return_value={"ok": True}) as probe:
             activated = self.client.post(path, json=payload)
-        self.assertEqual(activated.json(), {"provider": "deepseek", "model": "model-a"})
+        self.assertEqual(activated.json(), {"provider": "deepseek", "model": "model-a", "base_url": "https://api.deepseek.com", "has_api_key": True})
         self.assertEqual(probe.call_args.kwargs["api_key"], "test-key")
         self.assertEqual(self.client.get(path).json(), activated.json())
         self.assertIsNone(other.get(path).json())
@@ -59,6 +64,37 @@ class AccountContract(unittest.TestCase):
         other.base_url = "http://localhost"
         other.cookies.set(accounts.COOKIE_NAME, other.cookies.get(accounts.COOKIE_NAME), domain="localhost.local")
         self.assertEqual(other.post(path + "/reveal").status_code, 404)
+
+        admin = TestClient(app, base_url="http://localhost", headers=HEADER)
+        self.addCleanup(admin.close)
+        owner_id = self.client.get("/api/auth/me").json()["user"]["id"]
+        self.register(admin, username="admin_demo")
+        with patch.dict("os.environ", {"JOBAGENT_ADMIN_USERNAMES": "admin_demo"}):
+            self.assertEqual(admin.get("/api/user-stats").status_code, 200)
+            for client in (other, admin):
+                self.assertIsNone(client.get(path, params={"user_id": owner_id}).json())
+                self.assertEqual(client.post(path + "/reveal", json={"user_id": owner_id}).status_code, 404)
+                self.assertEqual(client.delete(path, params={"user_id": owner_id}).status_code, 200)
+                self.assertEqual(client.post(path, json={**payload, "migration_user_id": owner_id}).status_code, 409)
+                with patch("api.model_preferences.chat_json", return_value={"ok": True}):
+                    self.assertEqual(client.post(path, json={**payload, "user_id": owner_id,
+                                                            "api_key": "other-key"}).status_code, 200)
+            self.assertEqual(self.client.post(path + "/reveal").json(), {"api_key": "test-key"})
+
+        with accounts.connection() as db:
+            blob = db.execute("SELECT key_ciphertext FROM user_model_preferences WHERE user_id = ?",
+                              (owner_id,)).fetchone()[0]
+        self.assertEqual(blob[0], 1)
+        self.assertNotIn(b"test-key", accounts.DATABASE_PATH.read_bytes())
+        self.assertEqual(self.client.post("/api/auth/logout").status_code, 200)
+        self.assertEqual(self.client.post("/api/auth/login", json={"username": "demo_a", "password": PASSWORD}).status_code, 200)
+        self.assertEqual(self.client.get(path).json(), activated.json())
+        self.assertEqual(self.client.post(path + "/reveal", headers={"X-Requested-With": ""}).status_code, 403)
+        with patch.dict("os.environ", {"JOBAGENT_MODEL_ENCRYPTION_KEY": ""}):
+            self.assertEqual(self.client.post(path + "/reveal").status_code, 503)
+            with patch("api.model_preferences.chat_json") as probe:
+                self.assertEqual(self.client.post(path, json=payload).status_code, 503)
+                probe.assert_not_called()
 
         from core.llm import provider_chain
         seen = []
@@ -109,7 +145,7 @@ class AccountContract(unittest.TestCase):
             with patch("api.model_preferences.chat_json", return_value={"ok": True}) as probe:
                 active = self.client.post(path, json={**payload, "model": "demo"})
             self.assertEqual(probe.call_args.kwargs["base_url"], url)
-            self.assertEqual(active.json(), {"provider": "custom", "model": "demo", "base_url": url})
+            self.assertEqual(active.json(), {"provider": "custom", "model": "demo", "base_url": url, "has_api_key": True})
             self.assertEqual(self.client.get(path).json(), active.json())
             with patch("api.model_preferences.chat_json", return_value={"ok": True}) as probe:
                 reused = self.client.post(path, json={"provider": "custom", "base_url": url, "model": "another"})
@@ -119,6 +155,10 @@ class AccountContract(unittest.TestCase):
                     "provider": "custom", "base_url": "https://api.deepseek.com", "model": "another",
                 })
                 self.assertEqual(rejected.status_code, 422)
+                different_provider = self.client.post(path, json={
+                    "provider": "deepseek", "model": "another",
+                })
+                self.assertEqual(different_provider.status_code, 422)
                 probe.assert_called_once()
             self.client.delete(path)
 

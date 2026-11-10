@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, apiErrorMessage } from '../lib/api'
 import type { TextModelPreference } from '../lib/api'
-import { modelStorageKey, readSavedModel } from '../lib/modelStorage'
-
-const BASE_URLS = { deepseek: 'https://api.deepseek.com', glm: 'https://open.bigmodel.cn/api/paas/v4', custom: '' }
+import { clearLegacyModel } from '../lib/modelStorage'
 
 export default function ModelPreferences({ userId }: { userId: string }) {
   const secure = window.isSecureContext
@@ -40,21 +38,19 @@ export default function ModelPreferences({ userId }: { userId: string }) {
     api.modelPreference().then(value => {
       if (!live) return
       setActive(value)
-      const saved = value ?? (secure ? readSavedModel(userId) : null)
+      const saved = value
       if (saved) {
-        setBaseUrl(saved.base_url ?? BASE_URLS[saved.provider])
+        setBaseUrl(saved.base_url)
         setModel(saved.model)
-        if (!value && 'api_key' in saved && typeof saved.api_key === 'string') setKey(saved.api_key)
       }
     }).catch(reason => { if (live) setError(apiErrorMessage(reason)) })
       .finally(() => { if (live) setBusy(false) })
     return () => { live = false }
   }, [secure, userId])
 
-  const connection = { provider: 'custom' as const, base_url: baseUrl.trim(), api_key: key }
-
-  const savedUrl = active ? active.base_url ?? BASE_URLS[active.provider] : ''
-  const canReuseKey = Boolean(savedUrl && savedUrl === baseUrl.trim().replace(/\/+$/, ''))
+  const savedUrl = active?.base_url
+  const canReuseKey = Boolean(active?.has_api_key && savedUrl === baseUrl.trim().replace(/\/+$/, ''))
+  const connection = { provider: canReuseKey && active ? active.provider : 'custom' as const, base_url: baseUrl.trim(), api_key: key }
   const canConnect = Boolean(baseUrl.trim() && (key.trim() || canReuseKey))
 
   function clearModels() {
@@ -107,19 +103,18 @@ export default function ModelPreferences({ userId }: { userId: string }) {
     setSuccess('')
     try {
       if (reset) {
-        localStorage.removeItem(modelStorageKey(userId))
         await api.resetModel()
+        clearLegacyModel(userId)
         setActive(null)
         setBaseUrl('')
         setModel('')
         clearModels()
         setSuccess('已恢复平台默认模型。')
       } else {
-        const api_key = key.trim() || (await api.revealModelKey()).api_key
-        const result = await api.activateModel({ ...connection, api_key, model: model.trim() })
+        const result = await api.activateModel({ ...connection, model: model.trim() })
         setActive(result)
-        setBaseUrl(result.base_url ?? BASE_URLS[result.provider])
-        localStorage.setItem(modelStorageKey(userId), JSON.stringify({ ...result, api_key }))
+        setBaseUrl(result.base_url)
+        clearLegacyModel(userId)
         setSuccess(`测试成功，已启用 ${result.model}。当前账号的文本任务将使用此模型。`)
       }
       setKey('')
@@ -134,7 +129,7 @@ export default function ModelPreferences({ userId }: { userId: string }) {
   return <section className="panel" aria-label="个人文本模型">
     <h2>个人文本模型</h2>
     <p role="status">{active ? `已启用 ${active.model}` : '使用平台默认模型'}</p>
-    <p>启用后，文本求职材料会发送给选定服务商。配置保存在当前浏览器，服务端仅在当前会话内存中使用密钥。共享设备请在使用后恢复默认。</p>
+    <p>启用后，文本求职材料会发送给选定服务商。配置按账户保存，换设备登录也可使用。API Key 加密保存，服务端调用时会解密并使用。</p>
     {!secure && <p>请通过 HTTPS 打开站点后填写 API Key。</p>}
     <div role="group" aria-label="模型连接配置">
       <fieldset disabled={busy || !secure}>

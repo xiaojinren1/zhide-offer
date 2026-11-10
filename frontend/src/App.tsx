@@ -10,7 +10,7 @@ import AccountPage from './pages/AccountPage'
 import axios from 'axios'
 import { OwlLogo, UiIcon } from './components/Brand'
 import { api, apiErrorMessage, ACCOUNT_CHANGED_EVENT, invalidateAuthRequests, PROFILE_UPDATED_EVENT, SESSION_EXPIRED_EVENT } from './lib/api'
-import { restoreSavedModel } from './lib/modelStorage'
+import { migrateLegacyModel } from './lib/modelStorage'
 import type { AccountUser } from './lib/api'
 import type { ResumeProfile } from './lib/types'
 import { useWorkspace } from './lib/useWorkspace'
@@ -40,7 +40,7 @@ export default function App() {
       const result = await api.profile()
       if (generation !== identityCheck.current) return
       try {
-        await restoreSavedModel(result.user.id, () => generation === identityCheck.current)
+        await migrateLegacyModel(result.user.id, () => generation === identityCheck.current)
         if (generation === identityCheck.current) setModelRestoreError('')
       } catch (reason) {
         if (generation === identityCheck.current) setModelRestoreError(apiErrorMessage(reason))
@@ -91,7 +91,7 @@ export default function App() {
   if (!user) return <AuthPage notice={notice} onAuthenticated={() => { setNotice(''); void checkIdentity(true) }} />
   return <>
     {(checking || checkError) && <div className="notice" role={checkError ? 'alert' : 'status'}>{checkError || '正在核对账户…'}{checkError && <button className="secondary-button" onClick={() => void checkIdentity()}>重新连接</button>}</div>}
-    {modelRestoreError && <div className="notice" role="alert">本地模型恢复失败，当前使用平台默认模型。请在个人设置检查配置。{modelRestoreError}</div>}
+    {modelRestoreError && <div className="notice" role="alert">旧模型配置迁移失败，本地配置已保留。请刷新重试或在个人设置重新配置。{modelRestoreError}</div>}
     <div inert={checking || Boolean(checkError)}><AccountWorkspace key={user.id} user={user} onUserUpdated={setUser} onLoggedOut={() => {
       setNotice('你已退出登录。'); void checkIdentity(true)
     }} /></div>

@@ -71,3 +71,9 @@ curl --fail -o /dev/null http://127.0.0.1:8000/
 ```
 
 配置变更同样需要 `sudo systemctl restart jobagent`。启动失败查看 `sudo journalctl -u jobagent -n 80 --no-pager`，回传前删除密钥和个人资料。Nginx 超时需至少覆盖应用的 150 秒流程预算；模板设置 180 秒，与前端请求超时一致。
+
+## 个人模型加密配置
+
+在服务端私有环境文件设置 `JOBAGENT_MODEL_ENCRYPTION_KEY`，值为 32 字节随机数据的 Base64 编码。可在受控终端运行 `python -c "import secrets; print(secrets.token_urlsafe(32) + '=')"` 生成。所有实例使用同一个值，重启和升级保留它。数据库备份和加密密钥分开保管。更换或丢失旧密钥后，旧配置无法解密，用户需要重新填写。配置缺失或非法时无法启用个人模型，平台默认模型仍可供没有个人配置的用户使用。
+
+网站管理员账号仅有统计权限。数据库单独泄露时，API Key 字段是密文。控制后端进程或同时持有数据库与加密密钥的运营者仍能取得用户密钥。

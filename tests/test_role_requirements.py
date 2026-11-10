@@ -107,6 +107,18 @@ class ResponsibilityMatchingContract(unittest.TestCase):
             self.assertEqual(match(self.jd, self.profile).missing_hard, ["本科"])
             self.assertEqual(model.call_count, 2)
 
+    def test_skill_checks_recognize_multiword_and_chinese_evidence(self):
+        from engine.suspicion import detect_keyword_stuffing, detect_skill_without_evidence
+
+        experiences = [Experience(name="订单系统", actions=["使用 Spring Boot 实现订单接口，使用线程池处理异步任务"])]
+        skills = ["Spring Boot", "线程池", "Linux"]
+        evidence = detect_skill_without_evidence(experiences, skills)[0].detail
+        keywords = detect_keyword_stuffing(experiences, skills, skills)[0].detail
+        for detail in (evidence, keywords):
+            self.assertIn("Linux", detail)
+            self.assertNotIn("Spring Boot", detail)
+            self.assertNotIn("线程池", detail)
+
     def test_quality_recheck_uses_current_draft_but_keeps_source_facts(self):
         from api.quality import QualityRequest, quality
 

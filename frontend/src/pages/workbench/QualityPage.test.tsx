@@ -46,7 +46,7 @@ beforeEach(() => {
 })
 
 describe('简历检查与当前稿循环（Mock API）', () => {
-  it('无JD可检查，采纳更新同一稿并再次检查，不以未通过阻止预览', async () => {
+  it('无JD可检查，采纳更新同一稿并自动复检，不以未通过阻止预览', async () => {
     await check()
     expect(api.quality).toHaveBeenCalledWith('', props.profile, '# 现有稿', [])
     expect(text(render())).toContain('岗位关键词指标不适用')
@@ -56,12 +56,34 @@ describe('简历检查与当前稿循环（Mock API）', () => {
     checkbox.props.onChange()
     button('采纳选中建议并修改简历').props.onClick(); await settle()
     expect(props.markdown).toBe('# 修改稿')
-    expect(text(render())).toContain('已应用 1 条建议')
-    expect(text(render())).not.toContain('可采纳建议（')
-    button('再次检查简历').props.onClick(); await settle()
+    expect(text(render())).toContain('自动复检完成，当前仍有 1 条建议')
+    expect(api.quality).toHaveBeenCalledTimes(2)
     expect(api.quality).toHaveBeenLastCalledWith('', props.profile, '# 修改稿', [])
     button('全部采纳并修改简历').props.onClick(); await settle()
     expect(api.reviseResume).toHaveBeenCalledTimes(2)
+  })
+  it('自动复检失败仍保留新稿，并可手动重试', async () => {
+    await check()
+    vi.mocked(api.quality).mockRejectedValueOnce(new Error('复检服务失败'))
+    button('全部采纳并修改简历').props.onClick(); await settle()
+    expect(props.markdown).toBe('# 修改稿')
+    expect(text(render())).toContain('自动复检未完成')
+    expect(text(render())).toContain('复检服务失败')
+    button('再次检查简历').props.onClick(); await settle()
+    expect(api.quality).toHaveBeenLastCalledWith('', props.profile, '# 修改稿', [])
+  })
+  it('自动复检期间换稿时，不展示迟到的报告', async () => {
+    await check()
+    let resolve!: (value: ReturnType<typeof report>) => void
+    vi.mocked(api.quality).mockReturnValueOnce(new Promise(done => { resolve = done }))
+    button('全部采纳并修改简历').props.onClick(); await settle()
+    expect(props.markdown).toBe('# 修改稿')
+    render()
+    props.markdown = '# 用户新稿'; render()
+    resolve(report()); await settle()
+    expect(text(render())).not.toContain('自动复检完成')
+    expect(text(render())).not.toContain('可采纳建议（')
+    expect(props.markdown).toBe('# 用户新稿')
   })
   it('修订失败保留原稿及建议，解除全局忙碌后可重试', async () => {
     await check()

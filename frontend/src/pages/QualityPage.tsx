@@ -88,11 +88,33 @@ export default function QualityPage({ jdText, jdKeywords, profile, markdown, onM
       const result = await api.reviseResume(jdText, profile, markdown, chosen)
       if (!isCurrent()) return
       if (!result.ok || !result.markdown?.trim()) throw new Error(result.error || '未生成新的简历')
+      const revisedSnapshot = JSON.stringify([jdText, profile, result.markdown, jdKeywords])
+      const revisedVersion = version + Number(revisedSnapshot !== snapshot)
+      const canShowRecheck = () => isCurrent() || (mounted.current
+        && latest.current.snapshot === revisedSnapshot && latest.current.version === revisedVersion)
+      const factNotice = result.untraceable?.length ? '请人工核对缺少材料依据的数字。' : '请人工核对事实。'
+      const draftNotice = result.markdown === markdown ? '本次修订未改变简历。' : '当前简历已更新。'
       onMarkdownChange(result.markdown)
       setReport(null)
-      setMessageInput(JSON.stringify([jdText, profile, result.markdown, jdKeywords]))
-      setApplyMessage(`已应用 ${chosen.length} 条建议，当前简历已更新。请再次检查并人工核对事实${result.untraceable?.length ? '，尤其核对缺少材料依据的数字' : ''}；可继续修改，满意后查看最终简历。`)
       setSelected([])
+      setMessageInput(revisedSnapshot)
+      setApplyMessage(draftNotice + '正在自动复检…')
+      setApplying(false)
+      try {
+        const checked = await api.quality(jdText, profile, result.markdown, jdKeywords)
+        if (!canShowRecheck()) return
+        if (!checked.ok) throw new Error(checked.error || '复检失败')
+        const remaining = checked.suspicions.length + checked.cliche_hits.length
+          + checked.ats_issues.length + checked.consistency_issues.length
+        setReport(checked); setReportInput(revisedSnapshot); setReportVersion(revisedVersion)
+        setApplyMessage(draftNotice + (remaining
+          ? `自动复检完成，当前仍有 ${remaining} 条建议，详见下方。`
+          : '自动复检完成，当前没有可采纳建议。') + factNotice)
+      } catch (reason) {
+        if (!canShowRecheck()) return
+        setApplyMessage(draftNotice + '自动复检未完成，可点击「再次检查简历」重试。' + factNotice)
+        setError(apiErrorMessage(reason)); setErrorVersion(revisedVersion)
+      }
     } catch (reason) { if (isCurrent()) { setError(apiErrorMessage(reason)); setErrorVersion(version) } }
     finally { requestLock.current = false; if (mounted.current) { setApplying(false); setBusy(false) } }
   }
@@ -113,7 +135,7 @@ export default function QualityPage({ jdText, jdKeywords, profile, markdown, onM
     <div className="space-y-5">
       <header>
         <h2 className="text-lg font-medium">简历检查</h2>
-        <p className="text-sm text-gray-500 mt-1">检查当前稿的表达、格式和事实风险。采纳后可以反复检查，结果不代表事实认证。</p>
+        <p className="text-sm text-gray-500 mt-1">检查当前稿的表达、格式和事实风险。采纳后自动复检，也可手动再次检查。结果不代表事实认证。</p>
       </header>
 
       <button onClick={run} disabled={busy || !profile || !markdown.trim()}

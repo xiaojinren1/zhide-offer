@@ -188,16 +188,25 @@ def _tokenize(text: str) -> set[str]:
     return {w.lower() for w in words}
 
 
+def _contains_skill(text: str, skill: str) -> bool:
+    parts = skill.strip().split()
+    if not parts:
+        return False
+    phrase = r"\s+".join(re.escape(part) for part in parts)
+    if re.match(r"[A-Za-z0-9]", skill.strip()):
+        phrase = r"(?<![A-Za-z0-9_+#])" + phrase
+    if re.search(r"[A-Za-z0-9+#]$", skill.strip()):
+        phrase += r"(?![A-Za-z0-9_+#])"
+    return bool(re.search(phrase, text, re.I))
+
+
 def detect_skill_without_evidence(
     experiences: Iterable[Experience],
     declared_skills: Iterable[str],
 ) -> list[Suspicion]:
     out: list[Suspicion] = []
-    project_tokens: set[str] = set()
-    for e in experiences:
-        if e:
-            project_tokens |= _tokenize(" ".join(e.actions + e.results + e.skills + [e.name]))
-    unsupported = [s for s in (declared_skills or []) if s and s.lower() not in project_tokens]
+    sources = [" ".join(e.actions + e.results + e.skills + [e.name]) for e in experiences if e]
+    unsupported = [s for s in declared_skills if s.strip() and not any(_contains_skill(source, s) for source in sources)]
     if unsupported:
         out.append(Suspicion(
             type="skill_without_evidence",
@@ -220,21 +229,19 @@ def detect_keyword_stuffing(
 ) -> list[Suspicion]:
     """JD 关键词出现在技能清单、却不出现在任何项目描述 = 堆砌。"""
     out: list[Suspicion] = []
-    project_tokens: set[str] = set()
-    for e in experiences:
-        if e:
-            project_tokens |= _tokenize(" ".join(e.actions + e.results + [e.name]))
-    skill_blob = " ".join(declared_skills or []).lower()
+    sources = [" ".join(e.actions + e.results + [e.name]) for e in experiences if e]
+    skills = list(declared_skills)
     stuffed = [
-        kw for kw in (jd_keywords or [])
-        if kw and kw.lower() in skill_blob and kw.lower() not in project_tokens
+        kw for kw in jd_keywords
+        if any(_contains_skill(skill, kw) for skill in skills)
+        and not any(_contains_skill(source, kw) for source in sources)
     ]
     if stuffed:
         out.append(Suspicion(
             type="keyword_stuffing",
             location="技能清单",
             detail=f"{len(stuffed)} 个 JD 关键词只出现在技能清单、无项目支撑：{', '.join(stuffed[:10])}",
-            suggestion="这是典型的关键词堆砌，ATS 与面试官都会识别；把关键词写进具体项目成果里",
+            suggestion="如有真实项目依据，补充该技能的具体用法；没有依据时，从当前简历的技能清单移除",
             severity="medium",
         ))
     return out

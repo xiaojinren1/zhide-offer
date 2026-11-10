@@ -19,6 +19,9 @@
 .interview-chat { max-width: 900px; margin: auto; }
 .interview-question { border-left: 4px solid #3164e0; }
 .interview-answer { background: #f3f6fb; padding: 14px; border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.interview-clock { font-variant-numeric: tabular-nums; font-size: 18px; }
+.interview-clock { font-variant-numeric: tabular-nums; font-size: 20px; }
 .interview-page textarea { width: 100%; resize: vertical; min-height: 140px; }
 .interview-topic { scroll-margin-top: 24px; }
+
+.interview-question-nav { display: grid; gap: .75rem; }
+.interview-question-grid { display: flex; flex-wrap: wrap; gap: .5rem; }

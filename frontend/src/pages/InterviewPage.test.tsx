@@ -140,7 +140,7 @@ describe('continuous interview page', () => {
     button('生成个性化题库').props.onClick()
     await vi.waitFor(() => expect(button('从这份题库进入模拟')).toBeDefined())
     expect(markup()).toContain(`${count} 道个性化题`)
-    expect(markup()).toContain(`${count} / ${count}`)
+    expect(markup()).toContain(`1 / ${count}`)
     button('从这份题库进入模拟').props.onClick()
     fetchMock.mockResolvedValueOnce(reply({ ok: true, session: sessionFixture() }))
     button('开始连续模拟面试').props.onClick()
@@ -251,6 +251,29 @@ describe('continuous interview page', () => {
     await vi.waitFor(() => expect(text(render())).toContain('本轮已保存'))
     expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual(first)
     expect(text(render())).not.toContain('逐题评分')
+  })
+  it('全真模拟可切换单题卡片，回看时保留当前回答草稿', async () => {
+    const session = await enterDirect()
+    const first = session.turns[0]
+    answer('这是第一题的回答')
+    fetchMock.mockResolvedValueOnce(reply({ ok: true, session: {
+      ...session, version: session.version + 1,
+      turns: [
+        { ...first, answer: '这是第一题的回答' },
+        { ...first, id: 'turn-2', question: { ...first.question, text: '请回答第二题' } },
+      ],
+    } }))
+    button('提交回答').props.onClick()
+    await vi.waitFor(() => expect(text(render())).toContain('请回答第二题'))
+    answer('第二题还没写完')
+    const navigation = nodes(render()).find(node => node.props?.statuses?.length === 2)
+    expect(navigation.props.statuses).toEqual(['已作答', '未作答'])
+    navigation.props.onChange(0)
+    expect(text(render())).toContain('这是第一题的回答')
+    expect(text(render())).not.toContain('请回答第二题')
+    expect(answerField()).toBeUndefined()
+    button('返回当前题继续作答').props.onClick()
+    expect(answerField().props.value).toBe('第二题还没写完')
   })
   it('shows the 15-minute advisory while allowing continued answers', async () => {
     await enter(); hooks.slots[10] = 901

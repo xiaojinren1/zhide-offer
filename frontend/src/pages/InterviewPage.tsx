@@ -3,7 +3,7 @@ import type { ResumeProfile } from '../lib/types'
 import type { InterviewRecord } from '../lib/workspace'
 import { ACCOUNT_CHANGED_EVENT, api, apiErrorMessage } from '../lib/api'
 import { interviewClient } from './interview/client'
-import { BankView } from './interview/BankView'
+import { BankView, QuestionNavigation } from './interview/BankView'
 import { ReportView } from './interview/ReportView'
 import { answerError, formatTime, MAX_ANSWER_LENGTH, PracticeClock } from './interview/practice'
 import { createRequestId } from './interview/requestId'
@@ -31,6 +31,7 @@ export default function InterviewPage({ userId: suppliedUserId, jdText, profile,
   const [highlight, setHighlight] = useState('')
   const [deleteId, setDeleteId] = useState('')
   const [prestart, setPrestart] = useState<'direct' | 'bank' | null>(null)
+  const [viewedTurn, setViewedTurn] = useState<string | null>(null)
   const controller = useRef(new AbortController())
   const alive = useRef(true)
   const working = useRef(false)
@@ -110,7 +111,7 @@ export default function InterviewPage({ userId: suppliedUserId, jdText, profile,
       const value = await interviewClient.start(requestBody(key, body), controller.current.signal)
       if (!alive.current) return
       if (mode === 'direct') setBank(null)
-      setSession(value); setResult(null); setEnding(false); setDraft(''); setElapsed(0); clock.current = new PracticeClock()
+      setViewedTurn(null); setSession(value); setResult(null); setEnding(false); setDraft(''); setElapsed(0); clock.current = new PracticeClock()
       setLegacy(null); setPrestart(null); pending.current = null; finishBody.current = null
     })
   }
@@ -122,7 +123,7 @@ export default function InterviewPage({ userId: suppliedUserId, jdText, profile,
       const value = await interviewClient.turn(requestBody(key, { session_id: session.id, version: session.version,
         answer: skip ? '' : draft, skip, elapsed_seconds: clock.current.seconds() }), controller.current.signal)
       if (!alive.current) return
-      setSession(value); setDraft(''); pending.current = null
+      setViewedTurn(null); setSession(value); setDraft(''); pending.current = null
     })
   }
   function finish() {
@@ -172,6 +173,12 @@ export default function InterviewPage({ userId: suppliedUserId, jdText, profile,
     clock.current = new PracticeClock(); finishBody.current = null; pending.current = null
   }
 
+  const turns = session?.turns ?? []
+  const selectedTurnIndex = turns.findIndex(turn => turn.id === viewedTurn)
+  const turnIndex = selectedTurnIndex < 0 ? turns.length - 1 : selectedTurnIndex
+  const shownTurn = turns[turnIndex]
+  const viewingCurrent = turnIndex === turns.length - 1
+
   return <div className="interview-page space-y-5">
     <header className="page-heading" style={{ marginBottom: 0 }}><div><span className="eyebrow">PERSONAL INTERVIEW LAB</span><h1>{active ? '连续模拟面试' : '个性化面试准备'}</h1><p>{active ? '按真实经历作答，结束后统一复盘。' : '先用题库准备，或直接开始一场完整面试。'}</p></div><span className="heading-badge">文字面试 · 建议 15 分钟</span></header>
     {error && <div className="error-banner" role="alert">{error}</div>}
@@ -192,14 +199,25 @@ export default function InterviewPage({ userId: suppliedUserId, jdText, profile,
         <p className="muted">本版仅保存已结束面试，刷新或离开页面后无法续接进行中的对话。</p>
         <button className="primary-button" disabled={busy || (prestart === 'bank' && stale) || !ready || unsaved} onClick={start}>{busy ? '正在准备首问…' : '开始连续模拟面试'}</button>
       </section>}
-      {bank && <BankView bank={bank} highlighted={highlight} />}
+      {bank && <BankView key={bank.id} bank={bank} highlighted={highlight} />}
     </>}
 
     {active && session && <div className="interview-chat space-y-4">
       <div className="activity-banner"><strong>{session.job_title} · {stageNames[session.turns.at(-1)!.question.stage] || '面试进行中'}</strong><span className="interview-clock">累计用时 {formatTime(elapsed)}{busy ? ' · 等待期间暂停计时' : ''}</span></div>
       {elapsed >= 900 && <div className="notice" role="status">已练习 15 分钟，建议准备收尾。你可以继续回答，也可以主动结束。</div>}
-      {session.turns.map((t, i) => <article className="panel interview-question" key={t.id}><span className="section-kicker">面试官 · {i + 1}{t.question.is_follow_up ? ' · 追问' : ''}</span><h2>{t.question.text}</h2>{t.answer !== null && <div className="interview-answer">{t.skipped ? '【跳过】' : t.answer}</div>}</article>)}
-      {ending ? <section className="panel"><h2>本轮已进入结束复盘</h2><p>已有回答会保留。报告失败时可以重试，不会编造评分或重复提交最后一条回答。</p><button className="primary-button" disabled={busy} onClick={finish}>{busy ? '生成报告中…' : '重试生成报告'}</button></section> : <section className="panel"><label className="field-label" htmlFor="interview-answer">你的回答 <span>{draft.length} / {MAX_ANSWER_LENGTH} 字</span></label><textarea id="interview-answer" value={draft} maxLength={MAX_ANSWER_LENGTH} rows={6} disabled={busy} onChange={(e) => setDraft(e.target.value)} placeholder="输入你的真实回答…" />
+      {shownTurn && <>
+        <QuestionNavigation statuses={turns.map(turn => turn.skipped ? '已跳过' : turn.answer?.trim() ? '已作答' : '未作答')}
+          index={turnIndex} onChange={index => setViewedTurn(turns[index].id)} />
+        <article className="panel interview-question" key={shownTurn.id}>
+          <span className="section-kicker">面试官 · {turnIndex + 1}{shownTurn.question.is_follow_up ? ' · 追问' : ''}</span>
+          <h2>{shownTurn.question.text}</h2>
+          {shownTurn.skipped ? <div className="interview-answer">【已跳过】</div> : shownTurn.answer !== null && <div className="interview-answer">{shownTurn.answer}</div>}
+        </article>
+      </>}
+      {ending ? <section className="panel"><h2>本轮已进入结束复盘</h2><p>已有回答会保留。报告失败时可以重试，不会编造评分或重复提交最后一条回答。</p><button className="primary-button" disabled={busy} onClick={finish}>{busy ? '生成报告中…' : '重试生成报告'}</button></section> : !viewingCurrent ? <section className="panel">
+        <p>正在回看已问过的题目。回答草稿仍保留在当前题。</p>
+        <button type="button" className="secondary-button" onClick={() => setViewedTurn(null)}>返回当前题继续作答</button>
+      </section> : <section className="panel"><label className="field-label" htmlFor="interview-answer">你的回答 <span>{draft.length} / {MAX_ANSWER_LENGTH} 字</span></label><textarea id="interview-answer" value={draft} maxLength={MAX_ANSWER_LENGTH} rows={6} disabled={busy} onChange={(e) => setDraft(e.target.value)} placeholder="输入你的真实回答…" />
         <div className="interview-actions"><button className="primary-button" disabled={busy} onClick={() => submit()}>{busy ? '面试官思考中…' : '提交回答'}</button><button className="secondary-button" disabled={busy || Boolean(draft.trim())} onClick={() => submit(true)}>跳过这道题</button><button className="secondary-button" disabled={busy} onClick={finish}>{draft.trim() ? '提交当前回答并结束' : '结束并生成整体报告'}</button></div>
         {session.turns.at(-1)!.question.suggest_finish && <p className="muted">主要主题已覆盖，可以准备结束；也可以继续交流。</p>}
       </section>}

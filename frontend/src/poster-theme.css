@@ -660,6 +660,13 @@ body {
 }
 
 .model-config-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  box-sizing: border-box;
+  height: fit-content;
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
   width: min(28rem, calc(100% - 2rem));
   padding: 1.5rem;
   border: 1px solid #b9cbe2;
@@ -668,6 +675,7 @@ body {
   color: #182b44;
 }
 .model-config-dialog::backdrop { background: rgb(18 31 48 / 65%); }
+.model-config-steps { padding-inline-start: 1.5rem; }
 .model-config-actions {
   display: flex;
   flex-wrap: wrap;

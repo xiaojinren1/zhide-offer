@@ -161,8 +161,11 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
   }
   const modelDialog = useRef<HTMLDialogElement>(null)
   const [modelNotice, setModelNotice] = useState('')
+  const [showingModelGuide, setShowingModelGuide] = useState(false)
+  const guidedGuest = useRef(false)
   useEffect(() => {
     const show = (event: Event) => {
+      setShowingModelGuide(false)
       setModelNotice((event as CustomEvent<string>).detail)
       if (modelDialog.current && !modelDialog.current.open) modelDialog.current.showModal()
     }
@@ -170,10 +173,34 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
     return () => window.removeEventListener(MODEL_CONFIGURATION_REQUIRED_EVENT, show)
   }, [])
 
+  useEffect(() => {
+    if (!user.guest || !persistence.loaded || page === 'account' || guidedGuest.current) return
+    const storageKey = 'jobagent:last-guided-guest'
+    try {
+      if (sessionStorage.getItem(storageKey) === user.id) return
+    } catch { /* The mounted workspace still tracks whether the guide was shown. */ }
+    let active = true
+    void api.modelPreference().then(preference => {
+      const dialog = modelDialog.current
+      if (!active || preference?.has_api_key || !dialog || dialog.open) return
+      guidedGuest.current = true
+      try { sessionStorage.setItem(storageKey, user.id) } catch { /* Storage may be unavailable. */ }
+      setShowingModelGuide(true)
+      setModelNotice('配置自己的文本模型后，就能用真实材料体验简历生成和模拟面试。')
+      dialog.showModal()
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [page, persistence.loaded, user.guest, user.id])
+
   return <div className="app-shell">
     <dialog ref={modelDialog} className="model-config-dialog" aria-labelledby="model-config-title" aria-describedby="model-config-message">
-      <h2 id="model-config-title">需要先配置模型</h2>
+      <h2 id="model-config-title">{showingModelGuide ? "开始试用：配置文本模型" : "需要先配置模型"}</h2>
       <p id="model-config-message">{modelNotice}</p>
+      {showingModelGuide && <ol className="model-config-steps">
+        <li>填写模型服务的 Base URL 和 API Key。</li>
+        <li>从列表选择模型，或手动填写模型 ID。</li>
+        <li>点击「测试并启用」，再返回工作台。</li>
+      </ol>}
       <div className="model-config-actions">
         <button type="button" className="secondary-button" onClick={() => modelDialog.current?.close()}>稍后设置</button>
         <button type="button" className="primary-button" onClick={() => { modelDialog.current?.close(); setPage('account') }}>前往模型设置</button>

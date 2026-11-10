@@ -700,3 +700,33 @@ body {
   .sidebar .nav-item { white-space: normal; }
   .topbar .secondary-button { white-space: normal; }
 }
+
+.model-settings { display: grid; gap: .75rem; }
+.model-settings .model-settings-header { flex-wrap: wrap; gap: .75rem; margin-bottom: 0; }
+.model-settings-header .tag { max-width: 100%; overflow-wrap: anywhere; }
+.model-settings-fields { display: grid; gap: .5rem; min-width: 0; margin-top: .5rem; }
+.model-settings-fields label { font-weight: 600; }
+.model-settings-fields label:not(:first-child) { margin-top: .5rem; }
+.model-settings-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.model-settings-footer { border-top: 1px solid #d6e2ec; margin-top: .75rem; padding-top: 1rem; }
+.model-settings .model-key-eye { padding: .75rem; }
+
+.workspace .workspace-footer {
+  margin-top: 1.5rem;
+  padding: 1rem clamp(1rem, 2.5vw, 1.5rem);
+  gap: .35rem;
+  border: 1px solid #d5e0e8;
+  border-radius: 14px;
+  background: #f6f9fb;
+  color: #566c7c;
+}
+.workspace .workspace-footer .footer-brand {
+  margin-bottom: .25rem;
+  font-weight: 700;
+}
+.workspace-settings > * {
+  width: 100%;
+  max-width: 68rem;
+  margin-inline: auto;
+}
+.workspace-settings .account-page { max-width: none; }

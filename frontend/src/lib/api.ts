@@ -82,7 +82,16 @@ export type ModelKind = 'text' | 'vision'
 export type TextModelPreference = { provider: 'deepseek' | 'glm' | 'custom'; model: string; base_url: string; has_api_key: boolean }
 type ModelConnection = Pick<TextModelPreference, "provider" | "base_url"> & { api_key: string }
 
+type TokenCounts = { input_tokens: number | null; output_tokens: number | null; total_tokens: number | null }
+type ModelUsageReport = {
+  models: Array<TokenCounts & { model: string; calls: number; unknown_calls: number }>
+  records: Array<TokenCounts & { id: number; model: string; used_at: string }>
+  next_before: number | null
+}
+
 export const api = {
+  modelUsage: (before?: number) =>
+    http.get<ModelUsageReport>('/auth/model-usage', { params: { before } }).then((r) => r.data),
   startTrial: () => http.post("/auth/trial").then(() => announceAccountChange()),
   heartbeat: () => http.post('/user-stats/heartbeat'),
   userStats: () => http.get<{ online: number; registered: number; new_this_week: number } | null>('/user-stats').then(r => r.data),

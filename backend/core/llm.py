@@ -16,7 +16,7 @@ from typing import Any, Callable
 
 import httpx
 
-from core import budget, events
+from core import budget, events, model_usage
 from core.config import settings
 from core.model_preferences import resolved_provider
 
@@ -271,6 +271,7 @@ def _post_messages(
         data = resp.json()
         if not isinstance(data, dict):
             raise ValueError("response must be an object")
+        model_usage.record(provider["model"], data)
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
             raise ValueError("response choices missing")

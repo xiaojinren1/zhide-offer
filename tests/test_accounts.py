@@ -3,6 +3,7 @@ import sys
 import tempfile
 import time
 import unittest
+import httpx
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
@@ -78,6 +79,37 @@ class AccountContract(unittest.TestCase):
 
         self.assertEqual(self.client.post("/api/auth/logout").status_code, 200)
         self.assertEqual(self.client.get("/api/workspace").status_code, 401)
+
+    def test_model_usage_records_provider_counts_and_isolates_accounts(self):
+        self.client.base_url = "http://localhost"
+        user = self.register().json()["user"]
+        response = httpx.Response(200, request=httpx.Request("POST", "https://api.deepseek.com"),
+                                  json={
+            "model": "actual-model",
+            "usage": {"prompt_tokens": 11, "completion_tokens": 3, "total_tokens": 14},
+            "choices": [{"message": {"content": '{"ok":true}'}}],
+        })
+        with patch("core.llm.httpx.Client") as provider:
+            provider.return_value.__enter__.return_value.post.return_value = response
+            activated = self.client.post("/api/model-preferences", json={
+                "provider": "deepseek", "model": "configured-model", "api_key": "test-key",
+            })
+        self.assertEqual(activated.status_code, 200, activated.text)
+
+        usage = self.client.get("/api/auth/model-usage")
+        self.assertEqual(usage.headers["cache-control"], "no-store")
+        report = usage.json()
+        self.assertEqual(report["models"][0]["total_tokens"], 14)
+        self.assertEqual(report["records"][0]["model"], "actual-model")
+        self.assertEqual(report["records"][0]["input_tokens"], 11)
+        self.assertIn("+00:00", report["records"][0]["used_at"])
+        self.assertNotIn("test-key", usage.text)
+
+        with TestClient(app, headers=HEADER) as other:
+            self.assertEqual(other.get("/api/auth/model-usage").status_code, 401)
+            self.register(other, username="demo_b")
+            isolated = other.get("/api/auth/model-usage", params={"user_id": user["id"]})
+            self.assertEqual(isolated.json(), {"models": [], "records": [], "next_before": None})
         from core import model_preferences
         self.assertNotIn((guest["id"], "text"), model_preferences._guest_configs)
         with accounts.connection() as db:

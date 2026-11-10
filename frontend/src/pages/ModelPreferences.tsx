@@ -127,14 +127,18 @@ export default function ModelPreferences({ userId, guest = false, kind = "text" 
     }
   }
 
-  return <section className="panel" aria-label={title}>
-    <h2>{title}</h2>
-    <p role="status">{active ? `已启用 ${active.model}` : '尚未配置，请填写并测试启用。'}</p>
-    <p>{guest ? "启用后，文本任务使用你选择的模型。密钥仅保存在服务进程内存，退出、到期或服务重启后失效。" : "启用后，文本求职材料会发送给选定服务商。配置按账户保存，换设备登录也可使用。API Key 加密保存，服务端调用时会解密并使用。"}</p>
-    {kind === "vision" && <p>填写支持图片输入的模型。测试只发送一张生成的样例图片。</p>}
+  return <section className="panel model-settings" aria-label={title}>
+    <header className="panel-heading model-settings-header">
+      <h2>{title}</h2>
+      <span className={`tag ${active ? 'green' : 'blue'}`} role="status">{active ? `已启用 · ${active.model}` : '尚未配置'}</span>
+    </header>
+    <p className="panel-description">{kind === 'vision'
+      ? '使用支持图片输入的模型解析简历图片。连接测试只发送一张样例图片。'
+      : '用于简历文本处理和模拟面试。启用后，相关材料会发送给所选服务商。'}</p>
+    <p className="field-hint">{guest ? '密钥仅保存在当前试用会话中。' : '配置按账号保存，API Key 加密存储。'}</p>
     {!secure && <p>请通过 HTTPS 打开站点后填写 API Key。</p>}
     <div role="group" aria-label="模型连接配置">
-      <fieldset disabled={busy || !secure}>
+      <fieldset className="model-settings-fields" disabled={busy || !secure}>
         <label htmlFor={`${kind}-model-base-url`}>Base URL</label>
         <input id={`${kind}-model-base-url`} type="url" value={baseUrl} maxLength={512} required
           placeholder="https://api.example.com/v1" onChange={event => { setBaseUrl(event.target.value); hideKey(); clearModels() }} />
@@ -154,15 +158,15 @@ export default function ModelPreferences({ userId, guest = false, kind = "text" 
             </svg>
           </button>
         </div>
-        <button type="button" className="secondary-button" disabled={!canConnect} onClick={() => void fetchModels()}>获取模型列表</button>
+        <div className="model-settings-actions"><button type="button" className="secondary-button" disabled={!canConnect} onClick={() => void fetchModels()}>获取模型列表</button></div>
         {modelListStatus && <p role="status">{modelListStatus}</p>}
         {models.length > 0 && <><label htmlFor={`${kind}-model-list`}>从列表选模型</label><select id={`${kind}-model-list`} value={models.includes(model) ? model : ''} onChange={event => setModel(event.target.value)}>
           <option value="">请选择</option>{models.map(id => <option key={id} value={id}>{id}</option>)}
         </select></>}
         <label htmlFor={`${kind}-model-id`}>模型 ID（可手动填写）</label>
         <input id={`${kind}-model-id`} value={model} maxLength={120} required onChange={event => setModel(event.target.value)} />
-        <button type="button" className="primary-button" disabled={!canConnect || !model.trim()} onClick={() => void update(false)}>测试并启用</button>
-        {(active || key) && <button type="button" className="secondary-button" onClick={() => void update(true)}>移除配置</button>}
+        <div className="model-settings-actions model-settings-footer"><button type="button" className="primary-button" disabled={!canConnect || !model.trim()} onClick={() => void update(false)}>测试并启用</button>
+        {(active || key) && <button type="button" className="secondary-button" onClick={() => void update(true)}>移除配置</button>}</div>
       </fieldset>
     </div>
     {success && <p role="status">{success}</p>}

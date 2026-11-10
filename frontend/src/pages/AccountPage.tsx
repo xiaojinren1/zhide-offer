@@ -1,4 +1,5 @@
 import UserStats from './UserStats'
+import ModelUsage from './ModelUsage'
 import ModelPreferences from './ModelPreferences'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
@@ -140,6 +141,7 @@ export default function AccountPage({ user, onUserChange }: {
     </section>
     <ModelPreferences userId={user.id} />
     <ModelPreferences userId={user.id} kind="vision" />
+    {!user.guest && <ModelUsage key={user.id} />}
     <UserStats />
   </section>
 }

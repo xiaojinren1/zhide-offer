@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import Depends, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
-from core import accounts
+from core import accounts, model_usage
 
 PROVIDERS = {
     "deepseek": "https://api.deepseek.com",
@@ -150,7 +150,8 @@ def resolved_provider() -> dict | None:
             "base_url": approved_url(config["provider"], config["base_url"]), "api_key": key_for(config)}
 
 
-async def bind(request: Request, user: dict = Depends(accounts.require_user)):
+async def bind(request: Request, user: dict = Depends(accounts.require_user),
+               _usage=Depends(model_usage.bind)):
     kind: ModelKind = "vision" if request.url.path.rstrip("/").endswith("/parse-image") else "text"
     config = await run_in_threadpool(get_for_user, user, kind)
     if config and request.url.scheme != "https" and request.url.hostname not in {"localhost", "127.0.0.1", "::1"}:

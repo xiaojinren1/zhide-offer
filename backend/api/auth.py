@@ -3,12 +3,12 @@ from __future__ import annotations
 
 from io import BytesIO
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 from PIL import Image, UnidentifiedImageError
 from fastapi.responses import Response as ImageResponse
 
-from core import accounts, model_preferences
+from core import accounts, model_preferences, model_usage
 
 router = APIRouter(prefix="/api/auth", tags=["auth"], dependencies=[Depends(accounts.require_csrf)])
 
@@ -104,6 +104,15 @@ def me(user: dict = Depends(accounts.require_user)):
 @router.get("/profile")
 def get_profile(user: dict = Depends(accounts.require_user)):
     return {"ok": True, "user": accounts.profile(user["id"])}
+
+
+@router.get("/model-usage")
+def get_model_usage(response: Response, before: int | None = Query(None, ge=1, le=2**53 - 1),
+                    user: dict = Depends(accounts.require_user)):
+    if user.get("guest"):
+        raise HTTPException(403, "登录正式账号后可查看模型用量")
+    response.headers["Cache-Control"] = "no-store"
+    return model_usage.report(user["id"], before)
 
 
 @router.post("/change-password")

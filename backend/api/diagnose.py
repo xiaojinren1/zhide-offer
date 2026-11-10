@@ -45,7 +45,9 @@ def diagnose(req: DiagnoseRequest):
     try:
         jd = parse_jd(req.jd_text)
         if jd.inferred:
-            jd = parse_jd(req.jd_text)
+            jd = parse_jd(req.jd_text, verbatim=True)
+            if not (jd.responsibilities or jd.hard_requirements or jd.soft_requirements):
+                raise LLMError("untraceable JD requirement", status_code=502)
         stage = "岗位匹配"
         resume = profile_from_dict(req.resume_profile)
         report = match(jd, resume)

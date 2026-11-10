@@ -39,7 +39,7 @@ export default function MatchSuggestionsPanel({ report, reportInput, jdText, pro
     return () => { mounted.current = false }
   }, [])
   const visible = report && observed.current.valid && consumed !== report
-  const suggestions = visible ? matchSuggestions(report) : []
+  const suggestions = visible ? matchSuggestions(report, markdown) : []
   const selected = selection.version === version ? selection.ids : []
   const canApply = Boolean(visible && profile?.user_confirmed === true && markdown.trim())
   const unavailable = disabled || applying || !canApply
@@ -47,7 +47,7 @@ export default function MatchSuggestionsPanel({ report, reportInput, jdText, pro
   const apply = async () => {
     if (locked.current || unavailable || !report || !profile) return
     let chosen: ReturnType<typeof chosenMatchSuggestions>
-    try { chosen = chosenMatchSuggestions(report, selected) }
+    try { chosen = chosenMatchSuggestions(report, selected, markdown) }
     catch (reason) { setError({ version, message: operationError(reason) }); return }
     locked.current = true
     setApplying(true); setError(null); onBusyChange?.(true)
@@ -64,7 +64,10 @@ export default function MatchSuggestionsPanel({ report, reportInput, jdText, pro
         ? ` 检测到缺少材料依据的数字：${result.untraceable.join('、')}，请核对并删除或补充真实依据。` : ''
       setConsumed(report); setSelection({ version, ids: [] })
       onMarkdownChange(result.markdown)
-      onApplied(`已按 ${chosen.length} 条岗位匹配建议更新简历。请重新诊断、运行质检并人工核对。${warning}`)
+      const summary = result.markdown === markdown
+        ? `已提交 ${chosen.length} 条岗位匹配建议，本次正文未发生变化。`
+        : `已提交 ${chosen.length} 条岗位匹配建议，当前简历已更新。多条建议可能合并到同一段。请以修改前后对比为准，再重新诊断、运行质检并人工核对。`
+      onApplied(summary + warning)
     } catch (reason) {
       if (mounted.current && observed.current.version === version && observed.current.valid) {
         setError({ version, message: operationError(reason) })
@@ -86,11 +89,13 @@ export default function MatchSuggestionsPanel({ report, reportInput, jdText, pro
       <button type="button" className="secondary-button" disabled={unavailable || !selected.length}
         onClick={() => { if (!unavailable) setSelection({ version, ids: [] }) }}>清空选择</button>
     </div>
+    <div className="suggestion-scroll space-y-2" role="region" aria-label="岗位匹配建议列表" tabIndex={0}>
     {suggestions.map(item => <label key={item.id} className="flex items-start gap-2 rounded-lg border border-teal-200 bg-white p-3">
       <input type="checkbox" className="mt-1 shrink-0" disabled={unavailable} checked={selected.includes(item.id)}
         onChange={() => { if (!unavailable) setSelection({ version, ids: selected.includes(item.id) ? selected.filter(id => id !== item.id) : [...selected, item.id] }) }} />
       <span className="min-w-0 break-words text-sm">{item.location}</span>
     </label>)}
+    </div>
     {!suggestions.length && <p className="wb-hint">当前没有可直接采纳的有依据建议。请补充真实经历后重新诊断。</p>}
     <button type="button" className="primary-button" disabled={unavailable || !selected.length} onClick={() => void apply()}>
       {applying ? '正在按匹配建议更新简历…' : `将选中建议更新到简历（${selected.length}）`}

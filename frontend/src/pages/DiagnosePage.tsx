@@ -5,6 +5,7 @@ import { operationError } from './workbench/state'
 import { validateDiagnosis, type ValidatedDiagnosis } from './workbench/diagnose'
 import RoleRequirementsEditor from './workbench/RoleRequirementsEditor'
 import MatchSuggestionsPanel from './workbench/MatchSuggestionsPanel'
+import ResumeComparison from './workbench/ResumeComparison'
 import { matchInputSnapshot } from './workbench/matchSuggestions'
 import './workbench/workbench.css'
 
@@ -35,7 +36,7 @@ export default function DiagnosePage({ jdText, setJdText, profile, markdown, onM
   const [activity, setActivity] = useState<'diagnose' | 'role' | 'apply' | ''>('')
   const [error, setError] = useState('')
   const [errorVersion, setErrorVersion] = useState(0)
-  const [applied, setApplied] = useState<{ input: string; message: string } | null>(null)
+  const [applied, setApplied] = useState<{ input: string; message: string; before: string } | null>(null)
   const [report, setReport] = useState<ValidatedDiagnosis | null>(null)
   const [reportInput, setReportInput] = useState('')
   const [reportVersion, setReportVersion] = useState(-1)
@@ -91,7 +92,13 @@ export default function DiagnosePage({ jdText, setJdText, profile, markdown, onM
       {!profile && <p className="wb-hint">请先在简历工作台整理材料，再进行岗位匹配。</p>}
       <p className="wb-hint">修改岗位要求会保留当前简历和事实确认；旧匹配结果失效，请重新诊断。</p>
       {visibleError && <div className="error-banner" role="alert">{visibleError}</div>}
-      {applied?.input === snapshot && <p className="warning-note" role="status">{applied.message}</p>}
+      {applied?.input === snapshot && <>
+        <p className="warning-note" role="status">{applied.message}</p>
+        {!embedded && applied.before !== markdown && <details>
+          <summary>查看本次岗位匹配修改前后对比</summary>
+          <ResumeComparison before={applied.before} after={markdown} />
+        </details>}
+      </>}
       {!embedded && <div className="step-actions" aria-label="岗位匹配工具导航">
         <button type="button" className="secondary-button" disabled={busy} onClick={onEditResume}>返回修改简历</button>
         <button type="button" className="primary-button" disabled={busy || !markdown.trim()} onClick={onNext}>继续检查简历</button>
@@ -119,7 +126,7 @@ export default function DiagnosePage({ jdText, setJdText, profile, markdown, onM
             </div>
           )}
 
-          <div className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100">
+          <div className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100 suggestion-scroll" role="region" aria-label="岗位匹配结果列表" tabIndex={0}>
             {visibleReport.items.map((it, i) => (
               <div key={i} className="p-3 flex items-start gap-3">
                 <span className={`text-xs px-2 py-0.5 rounded shrink-0 ${STATUS_STYLE[it.status] || ''}`}>
@@ -136,7 +143,7 @@ export default function DiagnosePage({ jdText, setJdText, profile, markdown, onM
           <MatchSuggestionsPanel report={visibleReport} reportInput={reportInput} jdText={jdText} profile={profile} markdown={markdown}
             disabled={busy} onBusyChange={value => changeBusy('apply', value)}
             onMarkdownChange={value => { appliedInput.current = matchInputSnapshot(jdText, profile, value); onMarkdownChange(value) }}
-            onApplied={message => { setReport(null); setReportInput(''); setApplied({ input: appliedInput.current, message }) }} />
+            onApplied={message => { setReport(null); setReportInput(''); setApplied({ input: appliedInput.current, message, before: markdown }) }} />
         </div>
       )}
     </div>

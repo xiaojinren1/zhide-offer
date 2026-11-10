@@ -60,6 +60,7 @@ export interface QualityReport {
   consistency_issues: string[]
   suspicions: Suspicion[]
   passed: boolean
+  failure_reasons?: string[]
 }
 
 export type InterviewCategory = 'timeline' | 'skill_authenticity' | 'project_match'

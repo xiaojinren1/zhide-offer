@@ -284,6 +284,8 @@ class TailoringApi(unittest.TestCase):
         self.assertEqual(payload['jd_keywords'], ['SQL'])
         self.assertIn('不补造', writer.call_args.args[0])
         self.assertEqual(stages.call_count, 2)
+        self.assertEqual(writer.call_args.kwargs['max_rounds'], 1)
+        self.assertEqual(writer.call_args.kwargs['tools'], [])
         self.assertLessEqual(writer.call_args.kwargs['flow_deadline'], 150)
         self.assertLess(stages.call_args_list[0].kwargs['deadline_at'], stages.call_args_list[1].kwargs['deadline_at'])
         self.assertLessEqual(writer.call_args.kwargs['flow_deadline'], 125)

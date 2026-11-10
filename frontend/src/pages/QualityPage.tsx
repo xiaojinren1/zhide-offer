@@ -153,8 +153,13 @@ export default function QualityPage({ jdText, jdKeywords, profile, markdown, onM
             report.passed ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'
           }`}>
             <span className={`font-medium ${report.passed ? 'text-green-800' : 'text-amber-800'}`}>
-              {report.passed ? '质检通过' : '未通过：以下项需处理'}
+              {report.passed ? '质检通过' : '未达到检查标准'}
             </span>
+            {!report.passed && !!report.failure_reasons?.length && (
+              <ul className="mt-2 list-disc pl-5 text-sm text-amber-800">
+                {report.failure_reasons.map(reason => <li key={reason}>{reason}</li>)}
+              </ul>
+            )}
           </div>
 
           <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
@@ -162,7 +167,7 @@ export default function QualityPage({ jdText, jdKeywords, profile, markdown, onM
             <Bar label="已确认材料的量化密度" value={report.quantified_ratio} /><p className="wb-hint">只记录已确认材料中的数字；没有依据无需补数字，不影响简历预览。事实风险项基于已确认材料，格式与一致性检查针对当前简历。</p>
           </div>
 
-          {suggestions.length > 0 && <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-medium text-blue-900">可采纳建议（{suggestions.length}）</h3><p className="text-sm text-blue-800 mt-1">选择后应用到当前简历，也可以一次性全部采纳。</p></div><div className="flex gap-2"><button className="px-3 py-1.5 text-sm border border-blue-300 rounded-lg bg-white" disabled={busy || !profile?.user_confirmed || !markdown.trim()} onClick={() => setSelected(suggestions.map((item) => item.id))}>全选</button><button className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg disabled:bg-gray-300" disabled={busy || !profile?.user_confirmed || !markdown.trim()} onClick={() => void applySuggestions(true)}>{applying ? '应用中…' : '全部采纳并修改简历'}</button></div></div>{suggestions.map((item) => <label key={item.id} className="block bg-white border border-blue-100 rounded-lg p-3 cursor-pointer"><div className="flex gap-2"><input type="checkbox" checked={selected.includes(item.id)} disabled={busy || !profile?.user_confirmed || !markdown.trim()} onChange={() => toggleSuggestion(item.id)} /><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={`text-xs px-1.5 py-0.5 rounded ${SEV[item.severity] || ''}`}>{item.severity}</span><strong className="text-sm">{item.type}</strong><span className="text-xs text-gray-500">{item.location}</span></div><p className="text-sm text-gray-700 mt-1">{item.detail}</p><p className="text-sm text-teal-700 mt-1">建议：{item.suggestion}</p></div></div></label>)}<button className="w-full px-4 py-2 bg-teal-600 text-white rounded-lg disabled:bg-gray-300" disabled={busy || !profile?.user_confirmed || !markdown.trim() || selected.length === 0} onClick={() => void applySuggestions()}>{applying ? '正在按建议修改简历…' : `采纳选中建议并修改简历（${selected.length}）`}</button></div>}
+          {suggestions.length > 0 && <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-medium text-blue-900">可采纳建议（{suggestions.length}）</h3><p className="text-sm text-blue-800 mt-1">选择后应用到当前简历，也可以一次性全部采纳。</p></div><div className="flex gap-2"><button className="px-3 py-1.5 text-sm border border-blue-300 rounded-lg bg-white" disabled={busy || !profile?.user_confirmed || !markdown.trim()} onClick={() => setSelected(suggestions.map((item) => item.id))}>全选</button><button className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg disabled:bg-gray-300" disabled={busy || !profile?.user_confirmed || !markdown.trim()} onClick={() => void applySuggestions(true)}>{applying ? '应用中…' : '全部采纳并修改简历'}</button></div></div><div className="suggestion-scroll space-y-2" role="region" aria-label="简历检查建议列表" tabIndex={0}>{suggestions.map((item) => <label key={item.id} className="block bg-white border border-blue-100 rounded-lg p-3 cursor-pointer"><div className="flex gap-2"><input type="checkbox" checked={selected.includes(item.id)} disabled={busy || !profile?.user_confirmed || !markdown.trim()} onChange={() => toggleSuggestion(item.id)} /><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={`text-xs px-1.5 py-0.5 rounded ${SEV[item.severity] || ''}`}>{item.severity}</span><strong className="text-sm">{item.type}</strong><span className="text-xs text-gray-500">{item.location}</span></div><p className="text-sm text-gray-700 mt-1">{item.detail}</p><p className="text-sm text-teal-700 mt-1">建议：{item.suggestion}</p></div></div></label>)}</div><button className="w-full px-4 py-2 bg-teal-600 text-white rounded-lg disabled:bg-gray-300" disabled={busy || !profile?.user_confirmed || !markdown.trim() || selected.length === 0} onClick={() => void applySuggestions()}>{applying ? '正在按建议修改简历…' : `采纳选中建议并修改简历（${selected.length}）`}</button></div>}
           {report.ats_issues.length > 0 && (
             <div className="bg-white border border-gray-200 rounded-xl p-4">
               <h3 className="text-sm font-medium">ATS 友好度问题</h3>
@@ -182,7 +187,7 @@ export default function QualityPage({ jdText, jdKeywords, profile, markdown, onM
           {report.suspicions.length > 0 && (
             <div className="bg-white border border-gray-200 rounded-xl p-4">
               <h3 className="text-sm font-medium">可复核疑点（{report.suspicions.length}）</h3>
-              <ul className="mt-2 space-y-2">{report.suspicions.map(s)}</ul>
+              <ul className="mt-2 space-y-2 suggestion-scroll" aria-label="可复核疑点列表" tabIndex={0}>{report.suspicions.map(s)}</ul>
             </div>
           )}
           {!embedded && <div className="step-actions" aria-label="简历检查完成后的操作">

@@ -50,11 +50,18 @@ def _verify_evidence(jd_text: str, parsed: ParsedJD) -> ParsedJD:
     return parsed
 
 
-def parse_jd(jd_text: str) -> ParsedJD:
+def parse_jd(jd_text: str, *, verbatim: bool = False) -> ParsedJD:
     """解析 JD。LLM 不可用时抛异常（不返回半成品）。"""
     if not jd_text or not jd_text.strip():
         raise ValueError("JD 文本为空")
-    data = chat_json(_SYSTEM + agent_rules(), f"JD 原文：\n{jd_text}")
+    system = _SYSTEM
+    if verbatim:
+        system += (
+            "\n本次为原文校验重试。responsibilities、hard_requirements、soft_requirements "
+            "中的每一项都必须是 JD 原文连续片段，逐字摘录，不概括、不改标点、不合并跨行内容。"
+            "覆盖原文中的职责和要求，可省略标题及福利。无需填写 evidence，程序将从原文核验。"
+        )
+    data = chat_json(system + agent_rules(), f"JD 原文：\n{jd_text}")
     parsed = ParsedJD(
         job_title=str(data.get("job_title") or "").strip(),
         company=str(data.get("company") or "").strip(),
@@ -62,6 +69,9 @@ def parse_jd(jd_text: str) -> ParsedJD:
         soft_requirements=[str(x).strip() for x in (data.get("soft_requirements") or []) if str(x).strip()],
         responsibilities=[str(x).strip() for x in (data.get("responsibilities") or []) if str(x).strip()],
         keywords=[str(x).strip() for x in (data.get("keywords") or []) if str(x).strip()],
-        evidence={str(k).strip(): str(v) for k, v in (data.get("evidence") or {}).items()},
+        evidence={} if verbatim else {str(k).strip(): str(v) for k, v in (data.get("evidence") or {}).items()},
     )
+    if verbatim:
+        requirements = parsed.responsibilities + parsed.hard_requirements + parsed.soft_requirements
+        parsed.evidence = {requirement: requirement for requirement in requirements if requirement in jd_text}
     return _verify_evidence(jd_text, parsed)

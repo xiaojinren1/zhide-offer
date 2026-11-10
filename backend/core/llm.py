@@ -487,7 +487,7 @@ def chat_with_tools(
             break
         rounds_done = round_no + 1
         use_tools = round_no < max_rounds - 1
-        if not use_tools:
+        if tools and not use_tools:
             messages.append({"role": "user", "content": "工具检查轮次已结束。请立即按原始任务要求交付最终完整产物；仅使用已有事实，原始资料缺失的事实不得推断或补造。不要输出思考、工具讨论或继续修订的计划。"})
         # 下限 1s：预算可能已被前序环节吃尽，仍给一个最小的尝试窗口，
         # 而不是把负数/0 当成 deadline 传下去（那会连一次请求都发不出就失败）。

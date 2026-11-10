@@ -4,9 +4,12 @@ export function matchInputSnapshot(jdText: string, profile: ResumeProfile | null
   return JSON.stringify([jdText, profile, markdown])
 }
 
-export function matchSuggestions(report: MatchReport) {
+export function matchSuggestions(report: MatchReport, markdown = "") {
+  const draft = markdown.replace(/\s+/g, " ").trim().toLowerCase()
   return report.items.flatMap((item, index) => {
-    if (item.status === 'missing' || !item.evidence.trim()) return []
+    const evidence = item.evidence.replace(/\s+/g, " ").trim().toLowerCase()
+    if (item.status === 'missing' || !evidence || /^关键词[：:]/.test(item.requirement)) return []
+    if (draft.includes(evidence)) return []
     return [{
       id: `job-match-${index}`,
       type: 'job_match',
@@ -20,8 +23,8 @@ export function matchSuggestions(report: MatchReport) {
   })
 }
 
-export function chosenMatchSuggestions(report: MatchReport, selected: string[]) {
-  const suggestions = matchSuggestions(report).filter(item => selected.includes(item.id))
+export function chosenMatchSuggestions(report: MatchReport, selected: string[], markdown = "") {
+  const suggestions = matchSuggestions(report, markdown).filter(item => selected.includes(item.id))
   if (!suggestions.length) throw new Error('请先选择至少一条有事实依据的建议。')
   if (suggestions.length > 30) throw new Error('每次最多应用 30 条建议，请分批选择。')
   return suggestions

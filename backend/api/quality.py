@@ -116,16 +116,22 @@ def quality(req: QualityRequest):
         consistency_issues=_consistency_issues(req.resume_markdown, profile) if req.resume_markdown else [],
         suspicions=run_all(draft, jd_keywords),
     )
-    report.passed = (
-        (not req.jd_text.strip() or report.keyword_coverage >= 0.6)
-        and (not draft.experiences or report.quantified_ratio >= 0.5)
-        and not report.cliche_hits
-        and not report.consistency_issues
-        and not any(s.severity == "high" for s in report.suspicions)
-    )
+    reasons = []
+    if req.jd_text.strip() and report.keyword_coverage < 0.6:
+        reasons.append("JD 关键词覆盖率低于 60%。如有相关经历，可在正文补充实际做法；没有依据的关键词可以保留为岗位差距。")
+    if draft.experiences and report.quantified_ratio < 0.5:
+        reasons.append("当前稿含数字的经历少于一半。有真实数据时可补充。")
+    if report.cliche_hits:
+        reasons.append("正文仍有套话。")
+    if report.consistency_issues:
+        reasons.append("部分正文数字需要核对来源。")
+    if any(s.severity == "high" for s in report.suspicions):
+        reasons.append("仍有高优先级疑点，请查看下方详情。")
+    report.passed = not reasons
     events.emit("quality_done", passed=report.passed,
                 coverage=report.keyword_coverage, suspicions=len(report.suspicions))
     result = report.to_dict()
     result["ok"] = True
+    result["failure_reasons"] = reasons
     result["keyword_applicable"] = bool(req.jd_text.strip())
     return result

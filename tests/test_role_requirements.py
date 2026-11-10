@@ -163,6 +163,16 @@ class ResponsibilityMatchingContract(unittest.TestCase):
                 self.assertEqual(error.exception.status_code, 502)
                 matcher.assert_not_called()
 
+    def test_verbatim_retry_builds_evidence_from_source(self):
+        with patch("engine.jd_parser.chat_json", return_value={
+            "responsibilities": ["维护订单接口", "未在原文的要求"],
+            "hard_requirements": ["本科及以上"],
+        }) as model:
+            parsed = parse_jd("职责：维护订单接口；要求：本科及以上", verbatim=True)
+        self.assertIn("逐字摘录", model.call_args.args[0])
+        self.assertEqual(parsed.evidence, {"维护订单接口": "维护订单接口", "本科及以上": "本科及以上"})
+        self.assertEqual(parsed.inferred, ["未在原文的要求"])
+
     def test_all_unverified_requirement_categories_reject_whole_diagnosis(self):
         for requirement in ("调试设备接口", "Python", "本科"):
             for inferred in (False, True):

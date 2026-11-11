@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS feed_sources (
     tier        INTEGER NOT NULL DEFAULT 3,
     enabled     INTEGER NOT NULL DEFAULT 1,
     license_note TEXT NOT NULL DEFAULT '',
+    config_json TEXT NOT NULL DEFAULT '{}',
     last_run_at REAL,
     last_status TEXT NOT NULL DEFAULT ''
 );
@@ -135,3 +136,7 @@ def ensure(db: sqlite3.Connection) -> None:
     变成"看起来对"的错误结果，违反项目 `后端/RULES.md` 的硬性规则。
     """
     db.executescript(_SCHEMA)
+    # 旧库缺列时补齐（SQLite 不支持 ADD COLUMN IF NOT EXISTS，靠 pragma 判断）
+    columns = {row[1] for row in db.execute("PRAGMA table_info(feed_sources)")}
+    if "config_json" not in columns:
+        db.execute("ALTER TABLE feed_sources ADD COLUMN config_json TEXT NOT NULL DEFAULT '{}'")

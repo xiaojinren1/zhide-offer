@@ -240,7 +240,7 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
       {page === 'interview' && <div className="legacy-panel"><InterviewPage userId={user.id} jdText={jdText} profile={profile} markdown={markdown} /></div>}
       {persistence.loaded && page === 'resumes' && <ResumeLibraryPage markdown={markdown} appearance={state.resume_appearance}
         name={sourceName || profile?.name || '职得offer'} onOpenWorkbench={() => setPage('workbench', markdown.trim() ? 4 : 3)} />}
-      {page === 'jobs' && <JobsPage key={user.id} userId={user.id} disabled={busy || loggingOut || !persistence.loaded} onUseJd={(text) => { updateJd(text); setPage('diagnose') }} />}
+      {page === 'jobs' && <JobsPage key={user.id} userId={user.id} disabled={busy || loggingOut || !persistence.loaded} canManage={canManage} onUseJd={(text) => { updateJd(text); setPage('diagnose') }} />}
       {page === 'memory' && <LibraryPage key={user.id} currentProfile={profile} hasUnsaved={persistence.hasUnsaved()} userId={user.id} resumeName={sourceName || profile?.name || '职得offer'} disabled={busy || loggingOut || !persistence.loaded} onLoad={(loadedProfile, meta) => {
         update((previous) => ({
           ...previous,

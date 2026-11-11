@@ -1,0 +1,224 @@
+{
+  "_comment": "各省人社厅招聘公告信源模板。verified=true 表示 2026-11-11 实测首页可直连且含招聘公告链接；false 表示当前抓不到（WAF 拦截、前端渲染或域名不可达），需要在界面里手工换栏目页地址。默认用首页当列表页，关键词只要招聘/招录/选调/选聘/招考/遴选，并排除成绩、分数线、拟聘等非岗位公告。",
+  "default_config": {
+    "include_keywords": [
+      "招聘",
+      "招录",
+      "选调",
+      "选聘",
+      "招考",
+      "遴选"
+    ],
+    "exclude_keywords": [
+      "成绩",
+      "分数线",
+      "资格复审",
+      "面试人员",
+      "递补",
+      "体检",
+      "拟聘",
+      "公示",
+      "更多",
+      "首页"
+    ],
+    "min_title_length": 10,
+    "max_items": 10,
+    "fetch_detail": true
+  },
+  "provinces": [
+    {
+      "code": "11",
+      "name": "北京",
+      "url": "https://rsj.beijing.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "12",
+      "name": "天津",
+      "url": "https://hrss.tj.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "13",
+      "name": "河北",
+      "url": "https://rst.hebei.gov.cn/",
+      "verified": false,
+      "note": "首页返回的是前端渲染骨架，需改栏目页地址"
+    },
+    {
+      "code": "14",
+      "name": "山西",
+      "url": "https://rst.shanxi.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "15",
+      "name": "内蒙古",
+      "url": "https://rst.nmg.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "21",
+      "name": "辽宁",
+      "url": "https://rst.ln.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "22",
+      "name": "吉林",
+      "url": "https://hrss.jl.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "23",
+      "name": "黑龙江",
+      "url": "https://rst.hlj.gov.cn/",
+      "verified": false,
+      "note": "当前网络不可达，请换成可访问的栏目页"
+    },
+    {
+      "code": "31",
+      "name": "上海",
+      "url": "https://rsj.sh.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "32",
+      "name": "江苏",
+      "url": "https://jshrss.jiangsu.gov.cn/",
+      "verified": false,
+      "note": "站点 WAF 拦截非浏览器请求，需要手工确认栏目页"
+    },
+    {
+      "code": "33",
+      "name": "浙江",
+      "url": "https://rlsbt.zj.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "34",
+      "name": "安徽",
+      "url": "https://hrss.ah.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "35",
+      "name": "福建",
+      "url": "https://rst.fujian.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "36",
+      "name": "江西",
+      "url": "https://hrss.jiangxi.gov.cn/",
+      "verified": false,
+      "note": "当前网络不可达，请换成可访问的栏目页"
+    },
+    {
+      "code": "37",
+      "name": "山东",
+      "url": "https://hrss.shandong.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "41",
+      "name": "河南",
+      "url": "https://hrss.henan.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "42",
+      "name": "湖北",
+      "url": "https://rst.hubei.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "43",
+      "name": "湖南",
+      "url": "https://rst.hunan.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "44",
+      "name": "广东",
+      "url": "https://hrss.gd.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "45",
+      "name": "广西",
+      "url": "https://rst.gxzf.gov.cn/",
+      "verified": false,
+      "note": "当前网络不可达，请换成可访问的栏目页"
+    },
+    {
+      "code": "46",
+      "name": "海南",
+      "url": "https://hrss.hainan.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "50",
+      "name": "重庆",
+      "url": "https://rlsbj.cq.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "51",
+      "name": "四川",
+      "url": "https://rst.sc.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "52",
+      "name": "贵州",
+      "url": "https://rst.guizhou.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "53",
+      "name": "云南",
+      "url": "https://hrss.yn.gov.cn/",
+      "verified": false,
+      "note": "首页未发现招聘公告链接，需改栏目页地址"
+    },
+    {
+      "code": "54",
+      "name": "西藏",
+      "url": "",
+      "verified": false,
+      "note": "未验证，请填写可访问的招聘公告列表页"
+    },
+    {
+      "code": "61",
+      "name": "陕西",
+      "url": "https://rst.shaanxi.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "62",
+      "name": "甘肃",
+      "url": "https://rst.gansu.gov.cn/",
+      "verified": false,
+      "note": "站点返回 412，需要手工确认栏目页"
+    },
+    {
+      "code": "63",
+      "name": "青海",
+      "url": "https://rst.qinghai.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "64",
+      "name": "宁夏",
+      "url": "https://hrss.nx.gov.cn/",
+      "verified": true
+    },
+    {
+      "code": "65",
+      "name": "新疆",
+      "url": "https://rst.xinjiang.gov.cn/",
+      "verified": true
+    }
+  ]
+}

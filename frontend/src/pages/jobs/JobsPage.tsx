@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import { apiErrorMessage, jobsApi } from '../../lib/api'
-import type { JobDocument } from '../../lib/api'
+import { apiErrorMessage, jobsApi, jobsFetchAllApi, jobsProvinceApi, jobsSourceApi } from '../../lib/api'
+import type { JobDocument, JobProvince, JobSource } from '../../lib/api'
 import './jobs.css'
 
 interface Props {
   userId: string
   disabled: boolean
+  canManage: boolean
   onUseJd: (text: string, title: string) => void
 }
 
@@ -23,6 +24,21 @@ const emptyForm: ImportForm = {
   text: '', title: '', company: '', city: '', salary: '', url: '', parse: true,
 }
 
+interface SourceForm {
+  id: string
+  name: string
+  kind: 'rss' | 'html_list'
+  url: string
+  tier: string
+  license_note: string
+  config: string
+}
+
+const emptySourceForm: SourceForm = {
+  id: '', name: '', kind: 'html_list', url: '', tier: '1', license_note: '',
+  config: '{\n  "include_keywords": ["招聘", "公告"],\n  "max_items": 10,\n  "fetch_detail": true\n}',
+}
+
 function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
@@ -37,7 +53,7 @@ function subtitle(doc: JobDocument): string {
   return [doc.company, doc.city].filter(Boolean).join(' · ') || '未填写公司'
 }
 
-export default function JobsPage({ userId, disabled, onUseJd }: Props) {
+export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props) {
   const [items, setItems] = useState<JobDocument[]>([])
   const [selected, setSelected] = useState<JobDocument | null>(null)
   const [chunkCount, setChunkCount] = useState(0)
@@ -48,6 +64,13 @@ export default function JobsPage({ userId, disabled, onUseJd }: Props) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [sources, setSources] = useState<JobSource[]>([])
+  const [showSources, setShowSources] = useState(false)
+  const [sourceForm, setSourceForm] = useState<SourceForm>(emptySourceForm)
+  const [sourceBusy, setSourceBusy] = useState('')
+  const [provinces, setProvinces] = useState<JobProvince[]>([])
+  const [provinceCode, setProvinceCode] = useState('')
+  const [provinceUrl, setProvinceUrl] = useState('')
 
   const refresh = useCallback(async (keyword: string) => {
     setLoading(true)
@@ -62,7 +85,121 @@ export default function JobsPage({ userId, disabled, onUseJd }: Props) {
     }
   }, [])
 
-  useEffect(() => { void refresh('') }, [refresh, userId])
+  useEffect(() => { void refresh('') }, [refresh, userId, canManage])
+
+  const loadSources = useCallback(async () => {
+    if (!canManage) return
+    try {
+      const result = await jobsSourceApi.list()
+      setSources(result.items)
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    }
+  }, [canManage])
+
+  useEffect(() => { void loadSources() }, [loadSources])
+
+  const loadProvinces = useCallback(async () => {
+    if (!canManage) return
+    try {
+      const result = await jobsProvinceApi.list()
+      setProvinces(result.items)
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    }
+  }, [canManage])
+
+  useEffect(() => { void loadProvinces() }, [loadProvinces])
+
+  const selectedProvince = provinces.find(item => item.code === provinceCode) || null
+
+  async function toggleProvince() {
+    if (!canManage || !provinceCode || sourceBusy) return
+    setSourceBusy(`province-${provinceCode}`)
+    setError('')
+    try {
+      if (selectedProvince?.enabled) {
+        await jobsProvinceApi.disable(provinceCode)
+        setNotice(`已停用 ${selectedProvince.name}的信源`)
+      } else {
+        const result = await jobsProvinceApi.enable(provinceCode, provinceUrl.trim())
+        setNotice(`已启用 ${result.name}，在下方列表点「试抓」开始采集`)
+      }
+      await loadProvinces()
+      await loadSources()
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    } finally {
+      setSourceBusy('')
+    }
+  }
+
+  async function saveSource() {
+    if (!canManage || sourceBusy) return
+    let config: Record<string, unknown>
+    try {
+      config = sourceForm.config.trim() ? JSON.parse(sourceForm.config) : {}
+    } catch {
+      setError('配置需要是合法 JSON')
+      return
+    }
+    setSourceBusy('save')
+    setError('')
+    try {
+      await jobsSourceApi.save({
+        id: sourceForm.id.trim(), name: sourceForm.name.trim(), kind: sourceForm.kind,
+        url: sourceForm.url.trim(), tier: Number(sourceForm.tier) || 3,
+        license_note: sourceForm.license_note.trim(), config,
+      })
+      setSourceForm(emptySourceForm)
+      setNotice('信源已保存')
+      await loadSources()
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    } finally {
+      setSourceBusy('')
+    }
+  }
+
+  async function fetchAll() {
+    if (!canManage || sourceBusy) return
+    setSourceBusy('all')
+    setError('')
+    try {
+      const result = await jobsFetchAllApi.all()
+      const parts = [`抓取 ${result.sources} 个源：新增 ${result.created}，更新 ${result.updated}，跳过 ${result.skipped}`]
+      if (result.failed) parts.push(`${result.failed} 个源失败（看列表里的状态）`)
+      if (result.remaining) parts.push(`还有 ${result.remaining} 个源没跑完，再点一次继续`)
+      setNotice(parts.join('；'))
+      await loadSources()
+      await loadProvinces()
+      await refresh(query)
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    } finally {
+      setSourceBusy('')
+    }
+  }
+
+  async function fetchSource(id: string) {
+    if (!canManage || sourceBusy) return
+    setSourceBusy(id)
+    setError('')
+    try {
+      const result = await jobsSourceApi.fetch(id)
+      if (result.ok) {
+        setNotice(`抓取完成：新增 ${result.created ?? 0} 条，更新 ${result.updated ?? 0} 条，跳过 ${result.skipped ?? 0} 条（${result.seconds ?? 0} 秒）`)
+      } else {
+        setError(`抓取失败：${result.error ?? '未知原因'}`)
+      }
+      await loadSources()
+      await refresh(query)
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    } finally {
+      setSourceBusy('')
+    }
+  }
 
   async function openDocument(id: string) {
     try {
@@ -126,6 +263,10 @@ export default function JobsPage({ userId, disabled, onUseJd }: Props) {
           onClick={() => setShowForm(value => !value)}>
           {showForm ? '收起录入' : '录入岗位 / 资料'}
         </button>
+        {canManage && <button type="button" className="secondary-button" disabled={disabled}
+          onClick={() => setShowSources(value => !value)}>
+          {showSources ? '收起信源' : '信源（管理员）'}
+        </button>}
       </div>
 
       {showForm && <div className="jobs-form">
@@ -166,6 +307,104 @@ export default function JobsPage({ userId, disabled, onUseJd }: Props) {
             {saving ? '保存中…' : '保存到收件箱'}
           </button>
         </div>
+      </div>}
+
+      {canManage && showSources && <div className="jobs-form jobs-sources">
+        <p className="jobs-hint">
+          先选省份，一键启用该省人社厅的招聘公告源。标「未验证」的省份当前抓不到（WAF、页面需前端渲染或域名不可达），
+          需要把地址换成该站可直连的「招聘公告」栏目页。
+        </p>
+        <div className="jobs-form-grid">
+          <label>省份
+            <select value={provinceCode} disabled={disabled || Boolean(sourceBusy)}
+              onChange={event => {
+                setProvinceCode(event.target.value)
+                setProvinceUrl('')
+              }}>
+              <option value="">选择省份</option>
+              {provinces.map(province => <option key={province.code} value={province.code}>
+                {province.name}
+                {province.enabled ? '（已启用）' : province.verified ? '' : '（未验证）'}
+              </option>)}
+            </select>
+          </label>
+          <label>地址（可覆盖模板）
+            <input value={provinceUrl} disabled={disabled || !provinceCode}
+              placeholder={selectedProvince?.current_url || selectedProvince?.url || '该省需填写栏目页地址'}
+              onChange={event => setProvinceUrl(event.target.value)} />
+          </label>
+        </div>
+        {selectedProvince && <p className="jobs-hint">
+          当前状态：{selectedProvince.enabled ? '已启用' : '未启用'}
+          {selectedProvince.last_status ? ` · ${selectedProvince.last_status}` : ''}
+          {selectedProvince.verified ? '' : ` · ${selectedProvince.note ?? '未验证'}`}
+        </p>}
+        <div className="jobs-actions">
+          <button type="button" className="primary-button" disabled={disabled || !provinceCode || Boolean(sourceBusy)} onClick={() => void toggleProvince()}>
+            {sourceBusy === `province-${provinceCode}` ? '处理中…'
+              : selectedProvince?.enabled ? '停用该省信源' : '启用该省信源'}
+          </button>
+          <button type="button" className="secondary-button" disabled={disabled || Boolean(sourceBusy)}
+            onClick={() => void fetchAll()}>
+            {sourceBusy === 'all' ? '批量抓取中…' : '一键全抓已启用的源'}
+          </button>
+        </div>
+        <p className="jobs-hint">下面是手工录入，也是 BOSS 直聘/智联这类平台的唯一合法入口：把岗位详情复制成文本粘进来。
+          我们不抓取这些平台页面，只把你自己看到的内容存进收件箱。</p>
+        <div className="jobs-form-grid">
+          <label>标识
+            <input value={sourceForm.id} disabled={disabled} placeholder="如 gov-hr-js"
+              onChange={event => setSourceForm(previous => ({ ...previous, id: event.target.value }))} />
+          </label>
+          <label>名称
+            <input value={sourceForm.name} disabled={disabled} placeholder="如 江苏省人社厅公告"
+              onChange={event => setSourceForm(previous => ({ ...previous, name: event.target.value }))} />
+          </label>
+          <label>类型
+            <select value={sourceForm.kind} disabled={disabled}
+              onChange={event => setSourceForm(previous => ({ ...previous, kind: event.target.value as 'rss' | 'html_list' }))}>
+              <option value="html_list">公告列表页</option>
+              <option value="rss">RSS / Atom</option>
+            </select>
+          </label>
+          <label>层级（1 官方一手 ~ 3 媒体）
+            <input value={sourceForm.tier} disabled={disabled}
+              onChange={event => setSourceForm(previous => ({ ...previous, tier: event.target.value }))} />
+          </label>
+        </div>
+        <label>列表页 / Feed 地址
+          <input value={sourceForm.url} disabled={disabled} placeholder="https://…"
+            onChange={event => setSourceForm(previous => ({ ...previous, url: event.target.value }))} />
+        </label>
+        <label>来源说明
+          <input value={sourceForm.license_note} disabled={disabled} placeholder="如 政府公开信息"
+            onChange={event => setSourceForm(previous => ({ ...previous, license_note: event.target.value }))} />
+        </label>
+        <label>抓取配置（JSON）
+          <textarea rows={4} value={sourceForm.config} disabled={disabled}
+            onChange={event => setSourceForm(previous => ({ ...previous, config: event.target.value }))} />
+        </label>
+        <div className="jobs-actions">
+          <button type="button" className="primary-button" disabled={disabled || Boolean(sourceBusy)}
+            onClick={() => void saveSource()}>
+            {sourceBusy === 'save' ? '保存中…' : '保存信源'}
+          </button>
+        </div>
+        {sources.length > 0 && <ul className="jobs-source-list">
+          {sources.map(source => <li key={source.id}>
+            <div className="jobs-source-name">
+              <strong>{source.name}</strong>
+              <span>{source.kind} · tier {source.tier}</span>
+            </div>
+            <div className="jobs-source-actions">
+              <code title={source.last_status}>{source.last_status || '未抓取'}</code>
+              <button type="button" className="secondary-button" disabled={disabled || Boolean(sourceBusy)}
+                onClick={() => void fetchSource(source.id)}>
+                {sourceBusy === source.id ? '抓取中…' : '试抓'}
+              </button>
+            </div>
+          </li>)}
+        </ul>}
       </div>}
 
       <div className="jobs-search">

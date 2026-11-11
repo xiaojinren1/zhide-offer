@@ -305,3 +305,67 @@ export const jobsApi = {
   remove: (id: string) =>
     http.delete(`/jobs/${encodeURIComponent(id)}`).then(r => r.data) as Promise<{ ok: boolean }>,
 }
+
+export type JobSource = {
+  id: string
+  name: string
+  kind: string
+  url: string
+  tier: number
+  enabled: number
+  license_note: string
+  last_run_at: number | null
+  last_status: string
+}
+
+export type JobSourceInput = {
+  id: string
+  name: string
+  kind: 'rss' | 'html_list'
+  url: string
+  tier: number
+  license_note: string
+  config: Record<string, unknown>
+}
+
+export const jobsSourceApi = {
+  list: () => http.get('/jobs/sources').then(r => r.data) as Promise<{ ok: boolean; items: JobSource[] }>,
+  save: (payload: JobSourceInput) =>
+    http.post('/jobs/sources', payload).then(r => r.data) as Promise<{ ok: boolean; source: string }>,
+  fetch: (id: string) =>
+    http.post(`/jobs/sources/${encodeURIComponent(id)}/fetch`).then(r => r.data) as Promise<{
+      ok: boolean; source: string; items?: number; created?: number; updated?: number
+      skipped?: number; seconds?: number; error?: string; status?: string
+    }>,
+}
+
+export type JobProvince = {
+  code: string
+  name: string
+  url: string
+  verified: boolean
+  note?: string
+  source_id: string
+  enabled: boolean
+  current_url: string
+  last_run_at: number | null
+  last_status: string
+}
+
+export const jobsProvinceApi = {
+  list: () => http.get('/jobs/provinces').then(r => r.data) as Promise<{ ok: boolean; items: JobProvince[] }>,
+  enable: (code: string, url = '') =>
+    http.post(`/jobs/provinces/${encodeURIComponent(code)}/enable`, { url }).then(r => r.data) as Promise<{
+      ok: boolean; source_id: string; url: string; name: string
+    }>,
+  disable: (code: string) =>
+    http.post(`/jobs/provinces/${encodeURIComponent(code)}/disable`).then(r => r.data) as Promise<{ ok: boolean }>,
+}
+
+export const jobsFetchAllApi = {
+  all: () => http.post('/jobs/sources/fetch-all').then(r => r.data) as Promise<{
+    ok: boolean; sources: number; remaining: number; failed: number
+    created: number; updated: number; skipped: number
+    items: Array<{ source: string; ok: boolean; created: number; updated: number; skipped: number; error: string }>
+  }>,
+}

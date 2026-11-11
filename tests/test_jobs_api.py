@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 from fastapi.testclient import TestClient  # noqa: E402
 
 from core import accounts, document_tools  # noqa: E402
+from engine.sources import base as sources_base  # noqa: E402
 from main import app  # noqa: E402
 
 HEADER = {"X-Requested-With": "XMLHttpRequest"}
@@ -143,6 +144,139 @@ class JobsApiContract(unittest.TestCase):
         detail = executor("get_job", {"job_id": job_id})
         self.assertIn("SQL", detail["content_md"])
         self.assertEqual(detail["title"], "数据开发工程师")
+
+    # ---- 信源管理（管理员） ----
+
+    def _grant_admin(self) -> None:
+        with accounts.connection() as db:
+            db.execute("INSERT INTO user_roles(user_id, role) VALUES(?, 'admin')", ("u-alice",))
+
+    def test_sources_require_admin(self) -> None:
+        self.assertEqual(self.client.get("/api/jobs/sources").status_code, 403)
+
+    def test_admin_can_register_and_list_source(self) -> None:
+        self._grant_admin()
+        payload = {
+            "id": "src-gov", "name": "某省人社厅公告", "kind": "html_list",
+            "url": "https://hr.example.gov.cn/list/", "tier": 1,
+            "license_note": "政府公开信息",
+            "config": {"include_keywords": ["招聘", "公告"], "max_items": 5},
+        }
+        self.assertEqual(self.client.post("/api/jobs/sources", json=payload, headers=HEADER).status_code, 200)
+        listing = self.client.get("/api/jobs/sources").json()
+        self.assertEqual([item["id"] for item in listing["items"]], ["src-gov"])
+        self.assertEqual(listing["items"][0]["tier"], 1)
+
+    def test_admin_source_fetch_writes_public_jobs(self) -> None:
+        self._grant_admin()
+        self.client.post("/api/jobs/sources", json={
+            "id": "src-gov", "name": "某省人社厅公告", "kind": "rss",
+            "url": "https://hr.example.gov.cn/rss.xml", "tier": 1, "config": {},
+        }, headers=HEADER)
+        body = "薪资：10-15K\n" + "事业单位公开招聘公告。岗位职责：负责数据平台建设与指标口径维护。" * 4
+        found = [sources_base.RawItem(url="https://hr.example.gov.cn/1.html",
+                                     title="事业单位公开招聘公告", summary=body)]
+        with patch("engine.sources.base.fetch_items", return_value=found):
+            result = self.client.post("/api/jobs/sources/src-gov/fetch", headers=HEADER).json()
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["created"], 1)
+        # 采集结果进公共池：另一个账号也能看到
+        self.current_user = {"id": "u-bob", "username": "bob"}
+        listing = self.client.get("/api/jobs").json()
+        self.assertEqual(listing["total"], 1)
+
+    def test_source_fetch_missing_source_is_404(self) -> None:
+        self._grant_admin()
+        self.assertEqual(
+            self.client.post("/api/jobs/sources/nope/fetch", headers=HEADER).status_code, 404)
+
+    # ---- 一键全抓（人工触发） ----
+
+    def _create_source(self, source_id: str, name: str) -> None:
+        response = self.client.post("/api/jobs/sources", json={
+            "id": source_id, "name": name, "kind": "rss",
+            "url": f"https://hr.example.gov.cn/{source_id}.xml", "tier": 1, "config": {},
+        }, headers=HEADER)
+        self.assertEqual(response.status_code, 200, response.text)
+
+    def test_fetch_all_requires_admin(self) -> None:
+        self.assertEqual(self.client.post("/api/jobs/sources/fetch-all", headers=HEADER).status_code, 403)
+
+    def test_fetch_all_runs_enabled_sources_and_isolates_failures(self) -> None:
+        self._grant_admin()
+        self._create_source("src-a", "可用源")
+        self._create_source("src-b", "会失败的源")
+        body = "薪资：12-18K。" + "事业单位公开招聘公告，岗位职责与任职要求详见正文。" * 4
+
+        def fake_fetch(spec, *, client=None):
+            if spec.id == "src-b":
+                raise RuntimeError("连接超时")
+            return [sources_base.RawItem(url="https://hr.example.gov.cn/a1.html",
+                                         title="某市2026年公开招聘公告", summary=body)]
+
+        with patch("engine.sources.base.fetch_items", side_effect=fake_fetch):
+            result = self.client.post("/api/jobs/sources/fetch-all", headers=HEADER).json()
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["sources"], 2)
+        self.assertEqual(result["created"], 1)
+        self.assertEqual(result["failed"], 1)
+        self.assertEqual(result["remaining"], 0)
+        self.assertEqual(len(result["items"]), 2)
+        statuses = {item["source"]: item["ok"] for item in result["items"]}
+        self.assertEqual(statuses, {"src-a": True, "src-b": False}, "单源失败不能影响其它源")
+
+        # 抓取停了，服务还活着，收件箱能读到那一条
+        self.assertEqual(self.client.get("/api/jobs").json()["total"], 1)
+
+    def test_fetch_all_skips_disabled_sources(self) -> None:
+        self._grant_admin()
+        self._create_source("src-a", "启用源")
+        self._create_source("src-b", "停用源")
+        with accounts.connection() as db:
+            db.execute("UPDATE feed_sources SET enabled = 0 WHERE id = 'src-b'")
+        body = "薪资：12-18K。" + "事业单位公开招聘公告。" * 8
+        with patch("engine.sources.base.fetch_items", return_value=[
+                sources_base.RawItem(url="https://hr.example.gov.cn/a1.html",
+                                     title="某市2026年公开招聘公告", summary=body)]):
+            result = self.client.post("/api/jobs/sources/fetch-all", headers=HEADER).json()
+        self.assertEqual(result["sources"], 1)
+
+    # ---- 省份选择器 ----
+
+    def test_provinces_require_admin(self) -> None:
+        self.assertEqual(self.client.get("/api/jobs/provinces").status_code, 403)
+
+    def test_admin_sees_all_provinces(self) -> None:
+        self._grant_admin()
+        listing = self.client.get("/api/jobs/provinces").json()
+        self.assertEqual(len(listing["items"]), 31)
+        beijing = next(item for item in listing["items"] if item["code"] == "11")
+        self.assertTrue(beijing["verified"])
+        self.assertFalse(beijing["enabled"])
+        self.assertEqual(beijing["source_id"], "prov-11")
+
+    def test_enable_and_disable_province(self) -> None:
+        self._grant_admin()
+        enabled = self.client.post("/api/jobs/provinces/11/enable", json={"url": ""}, headers=HEADER)
+        self.assertEqual(enabled.status_code, 200, enabled.text)
+        self.assertEqual(enabled.json()["source_id"], "prov-11")
+
+        listing = self.client.get("/api/jobs/provinces").json()
+        self.assertTrue(next(i for i in listing["items"] if i["code"] == "11")["enabled"])
+
+        self.assertEqual(
+            self.client.post("/api/jobs/provinces/11/disable", headers=HEADER).status_code, 200)
+        self.assertEqual(
+            self.client.post("/api/jobs/provinces/11/disable", headers=HEADER).status_code, 404)
+
+    def test_enable_unverified_province_without_url_is_422(self) -> None:
+        self._grant_admin()
+        response = self.client.post("/api/jobs/provinces/54/enable", json={"url": ""}, headers=HEADER)
+        self.assertEqual(response.status_code, 422)
+        with_url = self.client.post("/api/jobs/provinces/54/enable",
+                                    json={"url": "https://example.gov.cn/jobs/"}, headers=HEADER)
+        self.assertEqual(with_url.status_code, 200, with_url.text)
 
     def test_tools_fail_softly(self) -> None:
         executor, _ = document_tools.build_executor(user_id="u-alice")

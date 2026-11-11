@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -22,10 +23,14 @@ from engine import documents
 from engine.documents import normalize as doc_normalize
 from engine.documents import store, text as text_util
 from engine.jd_parser import parse_jd
+from engine.sources import base as sources_base
+from engine.sources import provinces as province_templates
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"], dependencies=[Depends(accounts.require_csrf)])
 
 MAX_TEXT = 20000
+FETCH_ALL_SECONDS = 90.0
+FETCH_ALL_INTERVAL = 0.8
 
 
 class ImportRequest(BaseModel):
@@ -155,6 +160,157 @@ def list_jobs(
                                    limit=limit, offset=offset)
         return {"ok": True, "items": [_document_dict(row) for row in rows],
                 "total": len(rows), "query": None}
+
+
+class SourceRequest(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(min_length=1, max_length=60)
+    name: str = Field(min_length=1, max_length=120)
+    kind: str = Field(pattern="^(rss|html_list)$")
+    url: str = Field(min_length=1, max_length=500)
+    tier: int = 3
+    license_note: str = ""
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+def _require_admin(user: dict) -> None:
+    from api.user_stats import is_admin
+
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="只有管理员可以管理信源")
+
+
+@router.get("/sources")
+def list_sources(user: dict = Depends(accounts.require_user)):
+    """管理员查看信源列表与上次运行状态。"""
+    _require_admin(user)
+    with accounts.connection() as db:
+        rows = db.execute(
+            "SELECT id, name, kind, url, tier, enabled, license_note, last_run_at, last_status"
+            " FROM feed_sources ORDER BY tier, name"
+        ).fetchall()
+    return {"ok": True, "items": [dict(row) for row in rows]}
+
+
+@router.post("/sources")
+def upsert_source(req: SourceRequest, user: dict = Depends(accounts.require_user)):
+    """新增或修改一个信源配置；加新源不需要改代码。"""
+    _require_admin(user)
+    spec = sources_base.SourceSpec(
+        id=req.id, name=req.name, kind=req.kind, url=req.url,
+        tier=req.tier, license_note=req.license_note, config=req.config,
+    )
+    with accounts.connection() as db:
+        sources_base.upsert_spec(db, spec)
+    return {"ok": True, "source": req.id}
+
+
+@router.post("/sources/{source_id}/fetch")
+def fetch_source(source_id: str, user: dict = Depends(accounts.require_user)):
+    """试抓一个信源：抓取并入库，返回计数与失败原因（不抛异常，便于后台展示）。"""
+    _require_admin(user)
+    with accounts.connection() as db:
+        row = db.execute("SELECT * FROM feed_sources WHERE id = ?", (source_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="信源不存在")
+        spec = sources_base.spec_from_row(row)
+        result = sources_base.run_source(db, spec)
+    return result
+
+
+@router.get("/provinces")
+def list_provinces(user: dict = Depends(accounts.require_user)):
+    """省份信源选择器：模板 + 是否已启用 + 上次运行状态。"""
+    _require_admin(user)
+    with accounts.connection() as db:
+        rows = db.execute(
+            "SELECT id, url, enabled, last_run_at, last_status FROM feed_sources WHERE id LIKE 'prov-%'"
+        ).fetchall()
+    enabled = {row["id"]: dict(row) for row in rows}
+    items = []
+    for province in province_templates.list_provinces():
+        current = enabled.get(province_templates.source_id(province["code"]))
+        items.append({
+            **province,
+            "source_id": province_templates.source_id(province["code"]),
+            "enabled": bool(current and current["enabled"]),
+            "current_url": (current or {}).get("url") or "",
+            "last_run_at": (current or {}).get("last_run_at"),
+            "last_status": (current or {}).get("last_status") or "",
+        })
+    return {"ok": True, "items": items}
+
+
+class ProvinceEnableRequest(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    url: str = Field(default="", max_length=500)
+
+
+@router.post("/provinces/{code}/enable")
+def enable_province(code: str, req: ProvinceEnableRequest | None = None,
+                    user: dict = Depends(accounts.require_user)):
+    """启用某个省的招聘公告源；传 url 可覆盖模板地址。"""
+    _require_admin(user)
+    override = (req.url.strip() if req else "") or None
+    try:
+        with accounts.connection() as db:
+            spec = province_templates.enable(db, code, url=override)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"ok": True, "source_id": spec.id, "url": spec.url, "name": spec.name}
+
+
+@router.post("/sources/fetch-all")
+def fetch_all_sources(user: dict = Depends(accounts.require_user)):
+    """一键全抓：人工触发，串行跑完所有启用的信源。
+
+    只做人工触发、不做定时：无人看着的批量抓取会带来封 IP、脏数据和合规责任转移，
+    这些代价换不来多少体验。单轮 90 秒封顶，剩下的下一轮再跑。
+    """
+    _require_admin(user)
+    deadline = time.time() + FETCH_ALL_SECONDS
+    totals = {"created": 0, "updated": 0, "skipped": 0}
+    results: list[dict[str, Any]] = []
+    with accounts.connection() as db:
+        rows = db.execute(
+            "SELECT * FROM feed_sources WHERE enabled = 1 ORDER BY tier, name"
+        ).fetchall()
+        pending = list(rows)
+        remaining = 0
+        for index, row in enumerate(pending):
+            if time.time() >= deadline and index < len(pending):
+                remaining = len(pending) - index
+                break
+            spec = sources_base.spec_from_row(row)
+            result = sources_base.run_source(db, spec)
+            results.append({
+                "source": result.get("source"),
+                "ok": bool(result.get("ok")),
+                "created": result.get("created", 0),
+                "updated": result.get("updated", 0),
+                "skipped": result.get("skipped", 0),
+                "error": result.get("error", ""),
+            })
+            if result.get("ok"):
+                for key in totals:
+                    totals[key] += int(result.get(key, 0) or 0)
+            if index < len(pending) - 1:
+                time.sleep(FETCH_ALL_INTERVAL)
+
+    failed = [item for item in results if not item["ok"]]
+    return {"ok": True, "sources": len(results), "remaining": remaining,
+            "failed": len(failed), **totals, "items": results}
+
+
+@router.post("/provinces/{code}/disable")
+def disable_province(code: str, user: dict = Depends(accounts.require_user)):
+    _require_admin(user)
+    with accounts.connection() as db:
+        if not province_templates.disable(db, code):
+            raise HTTPException(status_code=404, detail="该省尚未启用")
+    return {"ok": True}
 
 
 @router.get("/{doc_id}")

@@ -15,15 +15,18 @@ import re
 import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
 from core import accounts, events
+from core.llm import LLMError
 from engine import documents
 from engine.documents import normalize as doc_normalize
 from engine.documents import paste as doc_paste
+from engine.documents import screenshot as doc_screenshot
 from engine.documents import store, text as text_util
 from engine.jd_parser import parse_jd
+from engine.resume_parser import MAX_IMAGE_BYTES, validate_image
 from engine.sources import base as sources_base
 from engine.sources import provinces as province_templates
 
@@ -44,6 +47,7 @@ class ImportRequest(BaseModel):
     salary: str = ""
     url: str = ""
     kind: str = "job"
+    # paste 粘贴文本 / image 截图转写后保存；只作来源记录
     source: str = "paste"
     # 关掉解析可以省一次模型调用；采集任务会关掉，用户手工录入默认开启
     parse: bool = True
@@ -83,6 +87,21 @@ def _salary_hint(body: str) -> str:
     return match.group(1).strip() if match else ""
 
 
+_NEGOTIABLE = re.compile(r"面议|待定|详谈")
+
+
+def _salary_fields(raw: str) -> tuple[str, int | None, int | None]:
+    """把一段薪资文本转成 (展示文本, 下限, 上限)。
+
+    解析不出数字就不写：早先把职责里的“Workflow”当成 K，存进去一条假薪资；
+    脱敏的 `**-***元` 也一样，只是平台挡着，不能当成已知数字或乱码入库。
+    """
+    salary = doc_normalize.parse_salary(raw)
+    if salary.parsed or _NEGOTIABLE.search(salary.text):
+        return salary.text, salary.min, salary.max
+    return "", None, None
+
+
 @router.post("/import")
 def import_document(req: ImportRequest, user: dict = Depends(accounts.require_user)):
     body = text_util.normalize_text(req.text)
@@ -104,7 +123,9 @@ def import_document(req: ImportRequest, user: dict = Depends(accounts.require_us
             events.emit_error("jobs_import_parse", exc)
             warnings.append("模型未能解析这份 JD，已按原文入库；标题与公司可以手动补充")
 
-    salary = doc_normalize.parse_salary(req.salary or _salary_hint(body))
+    salary_text, salary_min, salary_max = _salary_fields(req.salary or _salary_hint(body))
+    if not salary_text and re.search(r"\*{2,}", body):
+        warnings.append("薪资是平台脱敏的（**-***元），没识别出具体数字，需要自己填")
     draft = store.DocumentDraft(
         kind=doc_normalize.guess_kind(hint=req.kind, source=req.source, text=body),
         source=doc_normalize.clean_choice(req.source, doc_normalize.DOC_SOURCES, "paste"),
@@ -112,9 +133,9 @@ def import_document(req: ImportRequest, user: dict = Depends(accounts.require_us
         company=company,
         role=title,
         city=req.city,
-        salary_text=salary.text,
-        salary_min=salary.min,
-        salary_max=salary.max,
+        salary_text=salary_text,
+        salary_min=salary_min,
+        salary_max=salary_max,
         experience="",
         education="",
         url=text_util.normalize_text(req.url),
@@ -191,6 +212,46 @@ def list_jobs(
                                    limit=limit, offset=offset)
         return {"ok": True, "items": [_document_dict(row) for row in rows],
                 "total": len(rows), "query": None}
+
+
+@router.post("/parse-image")
+async def parse_job_screenshot(file: UploadFile = File(...)):
+    """截图导入第一步：把岗位截图读成文字，回填到录入表单。
+
+    **只识别不入库**：OCR 出来的字经常串行，存下去就是脏数据。前端拿这份文字和
+    本地识别出的字段回填表单，用户核对、改完、自己点保存，才走 `/import`。
+    """
+    # 先按上限读，避免超大请求直接把图片吃进内存；校验细节交给 validate_image
+    content = await file.read(MAX_IMAGE_BYTES + 1)
+    if len(content) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="图片超过 10 MB，请压缩图片后重试")
+    try:
+        validate_image(content, file.filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        body = doc_screenshot.read_job_screenshot(content, file.filename)
+    except (LLMError, HTTPException):
+        # 模型未配置（428）、额度/服务异常都要原样交给前端，不能盖成“识别失败”
+        raise
+    except ValueError as exc:  # 识别不出内容：明确失败，不返回半成品
+        return {"ok": False, "error": str(exc)}
+    except Exception as exc:  # 模型返回异常结构等
+        events.emit_error("jobs_screenshot_parse", exc)
+        return {"ok": False, "error": "截图识别失败，请重试或直接粘贴文字"}
+
+    warnings: list[str] = []
+    if len(body) > MAX_TEXT:
+        body = body[:MAX_TEXT]
+        warnings.append("截图文字过长，已截断，请确认正文是否完整")
+
+    guess = doc_paste.analyze(body)
+    return {
+        "ok": True,
+        "text": body,
+        "guess": guess.to_dict(),
+        "warnings": warnings,
+    }
 
 
 class SourceRequest(BaseModel):

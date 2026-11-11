@@ -309,3 +309,22 @@
 .jobs-guess-dup {
   color: #a13c2f !important;
 }
+
+/* 截图导入：按钮 + 说明同行，窄屏自动换行不横向溢出 */
+.jobs-screenshot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: -2px 0 10px;
+}
+
+.jobs-screenshot .jobs-hint {
+  margin: 0;
+  flex: 1 1 220px;
+}
+
+.jobs-screenshot .secondary-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}

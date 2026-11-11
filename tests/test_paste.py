@@ -40,6 +40,19 @@ MINIMAL_TEXT = """招前端。
 会 Vue。
 """
 
+# 真实 BOSS 直聘岗位截图里的文字（薪资被平台脱敏成 **-***元）。
+# 回得去的原因：职责里那句含 `Workflow`，单个 `k` 曾被当成“K”读出 min=max=2。
+BOSS_SCREENSHOT_TEXT = """AI应用开发工程师-JAVA **-***元
+北京 3-5年 本科
+职位描述
+Java Hadoop Spring AI应用开发
+岗位职责:
+1.设计与开发智能应用系统，整合文本、图像、音频等多模态能力，实现业务智能化。
+2.构建并优化多智能体协作框架(A2A)与工作流(Workflow)，提升复杂业务场景的自动化和效率。
+3.应用模型交互协议(MCP、FunctionCall)，实现多智能体与工具的统一调用与协作。
+4.设计和优化上下文工程，实现多轮对话和复杂任务的上下文管理，结合 RAG 技术进行知识检索与信息增强。
+"""
+
 
 class PasteAnalyzeTest(unittest.TestCase):
     def test_boss_style_paste(self) -> None:
@@ -79,6 +92,40 @@ class PasteAnalyzeTest(unittest.TestCase):
         guess = paste.analyze("   ")
         self.assertTrue(guess.warnings)
         self.assertEqual(guess.title, "")
+
+    # ---- 薪资不能从职责正文里 "撞" 出来 ----
+
+    def test_salary_is_not_read_from_responsibility_line(self) -> None:
+        guess = paste.analyze(BOSS_SCREENSHOT_TEXT)
+        self.assertEqual(guess.salary_text, "", "职责里的 Workflow 带一个 k，不能当薪资")
+        self.assertIsNone(guess.salary_min)
+        self.assertIsNone(guess.salary_max)
+
+    def test_masked_salary_is_left_blank_with_warning(self) -> None:
+        guess = paste.analyze(BOSS_SCREENSHOT_TEXT)
+        self.assertEqual(guess.salary_text, "")
+        self.assertTrue(any("脱敏" in item for item in guess.warnings))
+
+    def test_title_drops_trailing_salary_fragment(self) -> None:
+        guess = paste.analyze(BOSS_SCREENSHOT_TEXT)
+        self.assertEqual(guess.title, "AI应用开发工程师-JAVA")
+        self.assertEqual(guess.city, "北京")
+        self.assertEqual(guess.experience, "3-5年")
+        self.assertEqual(guess.education, "本科")
+
+    def test_number_in_prose_with_unit_is_not_salary(self) -> None:
+        guess = paste.analyze(chr(10).join([
+            "产品经理",
+            "岗位职责",
+            "1.负责把转化率提升 30% - 50%，月活 100 万",
+        ]))
+        self.assertEqual(guess.salary_text, "")
+        self.assertIsNone(guess.salary_min)
+
+    def test_salary_line_with_keyword_still_works(self) -> None:
+        guess = paste.analyze(chr(10).join(["数据开发工程师", "薪资：25-40K·14薪，六险一金"]))
+        self.assertIn("25-40K", guess.salary_text)
+        self.assertEqual((guess.salary_min, guess.salary_max), (25000, 40000))
 
 
 if __name__ == "__main__":

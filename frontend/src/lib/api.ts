@@ -286,6 +286,7 @@ export type JobImportPayload = {
   city?: string
   salary?: string
   url?: string
+  source?: 'paste' | 'image' | 'manual' | 'upload' | 'feed'
   parse?: boolean
 }
 
@@ -304,6 +305,18 @@ export const jobsApi = {
     }>,
   remove: (id: string) =>
     http.delete(`/jobs/${encodeURIComponent(id)}`).then(r => r.data) as Promise<{ ok: boolean }>,
+  // 截图导入第一步：只把图片读成文字，不入库；用户核对后走 import 保存
+  parseImage: (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return http.post('/jobs/parse-image', fd).then(r => r.data) as Promise<{
+      ok: boolean
+      error?: string
+      text?: string
+      guess?: PasteGuess
+      warnings?: string[]
+    }>
+  },
 }
 
 export type JobSource = {

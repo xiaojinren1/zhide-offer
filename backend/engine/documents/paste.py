@@ -46,6 +46,20 @@ _CITIES = (
 
 _EDUCATION = ("博士", "硕士", "本科", "大专", "专科", "中专", "高中", "学历不限")
 
+# 薪资行必须带明确信号：要么有“薪/待遇/工资”这类字段词，要么是紧贴数字的
+# K/千/万/元。不能只看单个 `k`——岗位职责里的 `Workflow` 就自带一个 k，
+# 曾经把“2.构建并优化多智能体协作框架…”整句当成了薪资（min=max=2）。
+_SALARY_KEYWORD = re.compile(r"薪|待遇|工资|报酬|元/月|元/天|元/时|元每天")
+_SALARY_TOKEN = re.compile(
+    r"\d[\d,.]*\s*[-~—至到]\s*\d[\d,.]*\s*(?:[kK]|千|万|元)"
+    r"|\d[\d,.]*\s*(?:[kK]|千|万)(?![A-Za-z])", re.I)
+# 平台默认脱敏展示（BOSS 直聘对求职者显示 **-***元）；这种不该写成数字
+_MASKED_SALARY = re.compile(r"[*＊]{2,}\s*[-~—至]\s*[*＊]{2,}\s*(?:[kK]|千|万|元)")
+# 语句型内容行：职责描述里经常同时带数字和单位，不能当薪资读
+_PROSE_MARKER = re.compile(
+    r"职责|任职|要求|负责|参与|构建|设计|优化|实现|开发|搭建|熟悉|熟练|掌握|推进|保障")
+_ENUM_PREFIX = re.compile(r"^\s*(?:\d{1,2}[.、)）]|[一二三四五六七八九十]+[、.]|[（(]\d{1,2}[)）])")
+
 
 @dataclass
 class PasteGuess:
@@ -88,16 +102,28 @@ def _find_title(lines: list[str]) -> str:
     for line in lines[:6]:
         if 6 <= len(line) <= 60 and not _is_field_line(line) \
                 and re.search(r"招聘|招录|选调|公告|通知|简章|启事", line):
-            return line
+            return _strip_salary_suffix(line)
     for line in lines[:8]:
         if not (2 <= len(line) <= 40) or _is_field_line(line):
             continue
         if any(word in line for word in _ROLE_WORDS):
-            return line
+            return _strip_salary_suffix(line)
     for line in lines[:3]:
         if 2 <= len(line) <= 40 and not _is_field_line(line) and not line.endswith("招聘"):
-            return line
+            return _strip_salary_suffix(line)
     return ""
+
+
+# 截图和粘贴里标题与薪资常常挤在同一行：`AI应用开发工程师-JAVA **-***元`
+_TITLE_SALARY_SUFFIX = re.compile(
+    r"\s*(?:[\d*＊]{1,6}\s*[-~—至]\s*[\d*＊]{1,6}\s*(?:[kK]|千|万|元)(?:\s*[·・]\s*\d{1,2}\s*薪)?"
+    r"|面议|薪资面议)\s*$")
+
+
+def _strip_salary_suffix(line: str) -> str:
+    """去掉标题尾巴上的薪资片段，但不把标题清成空字符串。"""
+    cleaned = _TITLE_SALARY_SUFFIX.sub("", line).strip(" ·-—|")
+    return cleaned or line
 
 
 def _is_field_line(line: str) -> bool:
@@ -138,19 +164,43 @@ def _find_city(text: str) -> str:
     return ""
 
 
+def _salary_candidate(line: str) -> bool:
+    """这一行看起来是不是“薪资字段”，而不是职责正文里的一句。"""
+    if len(line) > 40 or _ENUM_PREFIX.match(line) or _PROSE_MARKER.search(line):
+        return False
+    if _MASKED_SALARY.search(line):
+        return True
+    if _SALARY_KEYWORD.search(line):
+        return True
+    # 没有字段词时，只接受“短到只剩薪资”的行（如 `20-35K·14薪`）
+    return len(line) <= 16 and bool(_SALARY_TOKEN.search(line))
+
+
 def _find_salary(text: str) -> str:
+    """只在像薪资字段的短行里找；解析不出数字就返回空，不写猜出来的值。"""
     for line in _lines(text)[:20]:
-        if re.search(r"\d", line) and re.search(r"薪|待遇|K|k|万|元/月|元/天", line):
-            salary = parse_salary(line)
-            if salary.parsed:
-                return salary.text
-    # 兜底：整段里找 "20-35K" / "15k-25k" 这类写法
-    match = re.search(r"\d+(?:\.\d+)?\s*[-~至]\s*\d+(?:\.\d+)?\s*[kK千万]", text)
-    if match:
+        if not _salary_candidate(line) or not re.search(r"\d", line):
+            continue
+        salary = parse_salary(line)
+        if salary.parsed:
+            return salary.text
+    # 兜底：只为“整段里唯一那个薪资片段”服务，且片段所在行必须是薪资行
+    for line in _lines(text)[:20]:
+        if not _salary_candidate(line):
+            continue
+        match = re.search(
+            r"\d+(?:\.\d+)?\s*[-~至]\s*\d+(?:\.\d+)?\s*[kK千万]", line)
+        if not match:
+            continue
         salary = parse_salary(match.group(0))
         if salary.parsed:
             return salary.text
     return ""
+
+
+def _has_masked_salary(text: str) -> bool:
+    """是否有脱敏薪资（`**-***元`）：有的话要提示用户手填，不当作已识别。"""
+    return bool(_MASKED_SALARY.search(text[:800]))
 
 
 def _find_experience(text: str) -> str:
@@ -198,4 +248,6 @@ def analyze(raw: object) -> PasteGuess:
         guess.warnings.append("没识别出岗位名，请手动填写")
     if not guess.company:
         guess.warnings.append("没识别出公司名，可手动填写")
+    if not guess.salary_text and _has_masked_salary(text):
+        guess.warnings.append("薪资被平台脱敏（**-***元），没有具体数字，需要自己填")
     return guess

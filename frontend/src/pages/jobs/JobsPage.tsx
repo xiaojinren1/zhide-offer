@@ -17,11 +17,12 @@ interface ImportForm {
   city: string
   salary: string
   url: string
+  source: 'paste' | 'image'
   parse: boolean
 }
 
 const emptyForm: ImportForm = {
-  text: '', title: '', company: '', city: '', salary: '', url: '', parse: true,
+  text: '', title: '', company: '', city: '', salary: '', url: '', source: 'paste', parse: true,
 }
 
 interface SourceForm {
@@ -53,6 +54,10 @@ function subtitle(doc: JobDocument): string {
   return [doc.company, doc.city].filter(Boolean).join(' · ') || '未填写公司'
 }
 
+const SOURCE_LABELS: Record<string, string> = {
+  feed: '信源采集', paste: '粘贴文本', image: '截图转写', upload: '上传文件', manual: '手工录入',
+}
+
 export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props) {
   const [items, setItems] = useState<JobDocument[]>([])
   const [selected, setSelected] = useState<JobDocument | null>(null)
@@ -72,6 +77,8 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
   const [provinceCode, setProvinceCode] = useState('')
   const [provinceUrl, setProvinceUrl] = useState('')
   const [guess, setGuess] = useState<{ fields: PasteGuess; duplicate: { id: string; title: string } | null } | null>(null)
+  const [imageBusy, setImageBusy] = useState(false)
+  const imageInput = useRef<HTMLInputElement>(null)
   const analysisSeq = useRef(0)
 
   // 粘贴后自动识别：只补空字段，用户已经改了的不覆盖；停手 600ms 才发请求
@@ -255,6 +262,7 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
         city: form.city,
         salary: form.salary,
         url: form.url,
+        source: form.source,
         parse: form.parse,
       })
       setForm(emptyForm)
@@ -267,6 +275,53 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
       setError(apiErrorMessage(reason))
     } finally {
       setSaving(false)
+    }
+  }
+
+  function pickScreenshot() {
+    if (disabled || saving || imageBusy) return
+    imageInput.current?.click()
+  }
+
+  /** 截图导入第一步：只把图片读成文字并回填表单，绝不直接入库。 */
+  async function uploadScreenshot(file: File) {
+    if (disabled || saving || imageBusy) return
+    const replace = form.text.trim() ? '识别结果会替换当前正文（没保存的内容会丢失）。' : ''
+    const sent = '截图会发给你配置的图片模型服务商转写成文字，识别结果需要你核对后才会保存。继续？'
+    if (!window.confirm(replace + sent)) return
+    setImageBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const result = await jobsApi.parseImage(file)
+      if (!result.ok || !result.text) {
+        // 识别失败不写半成品：正文和字段都保持原样
+        setError(result.error || '截图识别失败，请换一张更清晰的截图或直接粘贴文字')
+        return
+      }
+      const fields = result.guess
+      // 规则：识别到什么就是什么，没识别出的字段清空。
+      // 不能“没识别出就保留上一次的值”——那会把上一份 JD 的薪资带到这一份上，
+      // 用户看到的是一个不属于这个岗位的数字（比留空危险得多）。
+      setForm(previous => ({
+        ...previous,
+        text: result.text || '',
+        source: 'image',
+        title: fields?.title || '',
+        company: fields?.company || '',
+        city: fields?.city || '',
+        salary: fields?.salary_text || '',
+        url: fields?.url || '',
+      }))
+      // 同一句提示可能同时来自字段识别和接口 warnings，去重后再展示
+      const notices = Array.from(new Set(['截图已转写成文字，请核对正文与字段后再保存',
+        ...(fields?.warnings || []), ...(result.warnings || [])]))
+      setNotice(notices.join('；'))
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    } finally {
+      setImageBusy(false)
+      if (imageInput.current) imageInput.current.value = ''
     }
   }
 
@@ -302,6 +357,19 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
             placeholder="把 JD 全文粘进来（BOSS 直聘、智联这类平台：复制岗位详情文字即可）。会先自动识别岗位名、公司、城市、薪资，再保存。"
             onChange={event => setForm(previous => ({ ...previous, text: event.target.value }))} />
         </label>
+        <div className="jobs-screenshot">
+          <input ref={imageInput} type="file" hidden accept="image/png,image/jpeg,image/webp"
+            onChange={event => {
+              const file = event.target.files?.[0]
+              if (file) void uploadScreenshot(file)
+            }} />
+          <button type="button" className="secondary-button" disabled={disabled || saving || imageBusy}
+            onClick={pickScreenshot}>
+            {imageBusy ? '识别中…' : '从截图导入'}
+          </button>
+          {form.source === 'image' && <span className="jobs-hint">正文来自截图转写</span>}
+          <span className="jobs-hint">手机上刷到岗位就截图：识别结果先回填到下面，你核对修改后才会存进收件箱。</span>
+        </div>
         {guess && <div className="jobs-guess">
           <p className="jobs-hint">
             已识别：{[guess.fields.title, guess.fields.company, guess.fields.city, guess.fields.salary_text]
@@ -310,6 +378,9 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
           {guess.duplicate && <p className="jobs-hint jobs-guess-dup">
             这份已在收件箱（{guess.duplicate.title || '未命名'}），保存会更新内容而不是新增
           </p>}
+          {guess.fields.warnings.map((warning, index) => <p className="jobs-hint" key={`guess-warning-${index}`}>
+            {warning}
+          </p>)}
         </div>}
         <div className="jobs-form-grid">
           <label>岗位名称
@@ -456,7 +527,7 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
 
       {loading ? <p className="jobs-empty">正在读取…</p>
         : items.length === 0 ? <p className="jobs-empty">
-          {query.trim() ? '没有匹配的资料。' : '收件箱还是空的。点右上角「录入岗位 / 资料」，把 JD 粘进来就能开始。'}
+          {query.trim() ? '没有匹配的资料。' : '收件箱还是空的。点右上角「录入岗位 / 资料」，粘贴 JD 或从截图导入就能开始。'}
         </p>
         : <ul className="jobs-list">
           {items.map(item => <li key={item.id}>
@@ -488,6 +559,7 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
           <div><dt>公司</dt><dd>{selected.company || '—'}</dd></div>
           <div><dt>城市</dt><dd>{selected.city || '—'}</dd></div>
           <div><dt>薪资</dt><dd>{salaryLine(selected) || '—'}</dd></div>
+          <div><dt>来源</dt><dd>{SOURCE_LABELS[selected.source] || selected.source || '—'}</dd></div>
           <div><dt>分块</dt><dd>{chunkCount} 段已建索引</dd></div>
         </dl>
         {selected.url && <p className="jobs-source">来源：

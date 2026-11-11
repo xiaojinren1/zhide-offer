@@ -34,6 +34,39 @@ JD_TEXT = """数据开发工程师
 """
 
 
+def png_bytes(size: tuple[int, int] = (32, 16)) -> bytes:
+    """生成一张最小的合法 PNG，用于走真实的图片格式校验。"""
+    import io
+
+    from PIL import Image
+
+    stream = io.BytesIO()
+    Image.new("RGB", size, color=(240, 240, 240)).save(stream, format="PNG")
+    return stream.getvalue()
+
+
+def gif_bytes() -> bytes:
+    import io
+
+    from PIL import Image
+
+    stream = io.BytesIO()
+    Image.new("RGB", (8, 8), color=(240, 240, 240)).save(stream, format="GIF")
+    return stream.getvalue()
+
+
+SCREENSHOT_TEXT = chr(10).join([
+    "数据开发工程师",
+    "某科技有限公司",
+    "上海·浦东新区",
+    "薪资：25-40K·14薪",
+    "岗位职责",
+    "负责数据平台建设与指标口径维护。",
+    "任职要求",
+    "熟悉 SQL 与数据仓库建模。",
+])
+
+
 class JobsApiContract(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -317,11 +350,147 @@ class JobsApiContract(unittest.TestCase):
                                     json={"url": "https://example.gov.cn/jobs/"}, headers=HEADER)
         self.assertEqual(with_url.status_code, 200, with_url.text)
 
+    # ---- 截图导入（识别不入库） ----
+
+    def _post_image(self, content: bytes, name: str = "job.png"):
+        return self.client.post("/api/jobs/parse-image",
+                                files={"file": (name, content, "image/png")}, headers=HEADER)
+
+    def test_screenshot_returns_text_and_fields_without_saving(self) -> None:
+        with patch("api.jobs.doc_screenshot.read_job_screenshot",
+                   return_value=SCREENSHOT_TEXT) as reader:
+            response = self._post_image(png_bytes())
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["text"], SCREENSHOT_TEXT)
+        self.assertEqual(body["guess"]["title"], "数据开发工程师")
+        self.assertEqual(body["guess"]["city"], "上海")
+        reader.assert_called_once()
+        # 关键边界：识别完就入库会把 OCR 串行的脏字存进收件箱，这里必须为空
+        self.assertEqual(self.client.get("/api/jobs").json()["total"], 0)
+
+    def test_screenshot_result_is_saved_only_after_user_confirmation(self) -> None:
+        with patch("api.jobs.doc_screenshot.read_job_screenshot", return_value=SCREENSHOT_TEXT):
+            recognized = self._post_image(png_bytes()).json()
+        self.assertEqual(self.client.get("/api/jobs").json()["total"], 0)
+
+        # 用户在表单里改完再点保存：走的就是普通导入接口
+        saved = self._import(text=recognized["text"] + chr(10) + "补充：可远程",
+                             title=recognized["guess"]["title"],
+                             company=recognized["guess"]["company"],
+                             city=recognized["guess"]["city"],
+                             source="image").json()
+        self.assertTrue(saved["created"])
+        self.assertEqual(saved["document"]["source"], "image")
+        self.assertEqual(saved["document"]["city"], "上海")
+        self.assertEqual(self.client.get("/api/jobs").json()["total"], 1)
+
+    def test_screenshot_unreadable_image_returns_error_and_writes_nothing(self) -> None:
+        with patch("api.jobs.doc_screenshot.read_job_screenshot",
+                   side_effect=ValueError("截图里没读出可用文字，请换一张更清晰的岗位截图")):
+            response = self._post_image(png_bytes())
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertIn("没读出可用文字", body["error"])
+        self.assertNotIn("text", body, "失败不能返回半成品文字")
+        self.assertEqual(self.client.get("/api/jobs").json()["total"], 0)
+
+        with patch("api.jobs.doc_screenshot.read_job_screenshot",
+                   side_effect=RuntimeError("模型返回结构不对")):
+            failed = self._post_image(png_bytes())
+        self.assertEqual(failed.status_code, 200, failed.text)
+        self.assertFalse(failed.json()["ok"])
+        self.assertEqual(self.client.get("/api/jobs").json()["total"], 0)
+
+    def test_screenshot_without_vision_model_points_to_config(self) -> None:
+        """没配图片模型时要让用户去配置，不能被盖成含糊的“识别失败”。"""
+        from fastapi import HTTPException
+
+        with patch("api.jobs.doc_screenshot.read_job_screenshot",
+                   side_effect=HTTPException(status_code=428, detail="请先在模型设置中配置并启用图片解析模型")):
+            response = self._post_image(png_bytes())
+        self.assertEqual(response.status_code, 428, response.text)
+        self.assertIn("图片解析模型", response.json()["detail"])
+        self.assertEqual(self.client.get("/api/jobs").json()["total"], 0)
+
+    def test_screenshot_rejects_bad_image_before_model(self) -> None:
+        with patch("api.jobs.doc_screenshot.read_job_screenshot") as reader:
+            bad_format = self._post_image(gif_bytes(), "job.gif")
+        self.assertEqual(bad_format.status_code, 422)
+        reader.assert_not_called()
+
+        with patch("api.jobs.doc_screenshot.read_job_screenshot") as reader:
+            too_large = self._post_image(png_bytes((5000, 5000)))
+        self.assertEqual(too_large.status_code, 422)
+        reader.assert_not_called()
+
+    def test_screenshot_with_masked_salary_stores_no_salary(self) -> None:
+        """真实 BOSS 截图：薪资是 **-***元，职责里又有 Workflow。
+
+        存进去的薪资必须是空，而不是把职责句或 min=max=2 当成工资。
+        """
+        ocr_text = chr(10).join([
+            "AI应用开发工程师-JAVA **-***元",
+            "北京 3-5年 本科",
+            "岗位职责:",
+            "2.构建并优化多智能体协作框架(A2A)与工作流(Workflow)，提升效率。",
+        ])
+        with patch("api.jobs.doc_screenshot.read_job_screenshot", return_value=ocr_text):
+            body = self._post_image(png_bytes()).json()
+        self.assertTrue(body["ok"], body)
+        self.assertEqual(body["guess"]["salary_text"], "")
+        self.assertEqual(body["guess"]["title"], "AI应用开发工程师-JAVA")
+        self.assertTrue(any("脱敏" in item for item in body["guess"]["warnings"]))
+
+        saved = self._import(text=ocr_text, title=body["guess"]["title"], source="image").json()
+        document = saved["document"]
+        self.assertEqual(document["salary_text"], "")
+        self.assertIsNone(document["salary_min"])
+        self.assertIsNone(document["salary_max"])
+        self.assertTrue(any("脱敏" in item for item in saved["warnings"]), saved["warnings"])
+
+    def test_import_keeps_blank_salary_when_text_has_no_number(self) -> None:
+        """“薪资面议”之外，解析不出数字的薪资文本不入库（不写乱码）。"""
+        saved = self._import(text=JD_TEXT, salary="**-***元").json()
+        self.assertEqual(saved["document"]["salary_text"], "")
+        self.assertIsNone(saved["document"]["salary_min"])
+
+        negotiated = self._import(text=JD_TEXT + chr(10) + "补充说明", salary="面议").json()
+        self.assertEqual(negotiated["document"]["salary_text"], "面议")
+        self.assertIsNone(negotiated["document"]["salary_min"])
+
     def test_tools_fail_softly(self) -> None:
         executor, _ = document_tools.build_executor(user_id="u-alice")
         self.assertIn("error", executor("search_jobs", {"query": "  "}))
         self.assertIn("error", executor("get_job", {"job_id": "不存在"}))
         self.assertIn("error", executor("unknown_tool", {}))
+
+
+class ScreenshotTranscription(unittest.TestCase):
+    """转写层本身：只管读字，读不出就失败，不返回半成品。"""
+
+    def test_short_text_is_rejected(self) -> None:
+        from engine.documents import screenshot
+
+        with patch("engine.documents.screenshot.chat_json_multimodal",
+                   return_value={"text": "招聘"}):
+            with self.assertRaisesRegex(ValueError, "没读出可用文字"):
+                screenshot.read_job_screenshot(png_bytes(), "job.png")
+
+    def test_prompt_sends_image_as_data_uri(self) -> None:
+        from engine.documents import screenshot
+
+        with patch("engine.documents.screenshot.chat_json_multimodal",
+                   return_value={"text": SCREENSHOT_TEXT}) as model:
+            text = screenshot.read_job_screenshot(png_bytes(), "job.png")
+        # 转写结果统一做 NFKC 归一化（全角冒号会变成半角），这里只比对关键内容
+        self.assertIn("数据开发工程师", text)
+        self.assertIn("25-40K", text)
+        args = model.call_args.args
+        self.assertIn("data:image/png;base64,", args[2])
+        self.assertIn("只做转写", args[0])
 
 
 if __name__ == "__main__":

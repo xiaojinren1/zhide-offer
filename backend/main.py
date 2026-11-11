@@ -76,7 +76,7 @@ from api.resume_share import public_router as public_resume_router  # noqa: E402
 app.include_router(public_resume_router)
 
 for module_path in ("api.diagnose", "api.resume", "api.quality", "api.interview", "api.profiles",
-                    "api.workspace", "api.interview_records", "api.export", "api.evidence", "api.model_preferences", "api.user_stats", "api.feedback", "api.resume_share"):
+                    "api.workspace", "api.interview_records", "api.export", "api.evidence", "api.model_preferences", "api.user_stats", "api.feedback", "api.resume_share", "api.jobs"):
     module = __import__(module_path, fromlist=["router"])
     app.include_router(module.router, dependencies=[Depends(accounts.require_user), Depends(accounts.require_csrf), Depends(model_preferences.bind)])
 

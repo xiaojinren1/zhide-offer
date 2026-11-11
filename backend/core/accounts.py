@@ -137,6 +137,9 @@ def connection() -> Iterator[sqlite3.Connection]:
             db.execute("ALTER TABLE users ADD COLUMN recovery_code_hash TEXT")
         if "guest_until" not in user_columns:
             db.execute("ALTER TABLE users ADD COLUMN guest_until REAL")
+        # 资料层与账户同库同连接：任何入口拿到连接时，docs 相关表已就绪
+        from engine.documents import schema as documents_schema
+        documents_schema.ensure(db)
         with db:
             yield db
     finally:

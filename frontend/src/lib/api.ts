@@ -255,3 +255,53 @@ export const libraryApi = {
   apply: (material: import('./library').Material, revision: number, choices: import('./library').Choice[]) => http.post('/library/import', {...material, revision, choices, facts_confirmed: true}).then(r => r.data) as Promise<{changed: number}>,
   action: (id: string, expected_user_id: string, revision: number, action: 'delete' | 'restore' | 'revert', version?: number) => http.post('/library/'+encodeURIComponent(id)+'/action', {expected_user_id,revision,action,version}).then(r => r.data),
 }
+
+// 岗位收件箱：文档列表 / 详情 / 导入 / 删除。权限由服务端按账户裁决。
+export type JobDocument = {
+  id: string
+  kind: string
+  source: string
+  title: string
+  company: string
+  role: string
+  city: string
+  salary_text: string
+  salary_min: number | null
+  salary_max: number | null
+  experience: string
+  education: string
+  url: string
+  content_md: string
+  structured: Record<string, unknown>
+  visibility: string
+  published_at: number | null
+  updated_at: number
+  matched_excerpt?: string
+}
+
+export type JobImportPayload = {
+  text: string
+  title?: string
+  company?: string
+  city?: string
+  salary?: string
+  url?: string
+  parse?: boolean
+}
+
+export const jobsApi = {
+  list: (params: { kind?: string; q?: string; limit?: number; offset?: number } = {}) =>
+    http.get('/jobs', { params }).then(r => r.data) as Promise<{
+      ok: boolean; items: JobDocument[]; total: number; query: string | null
+    }>,
+  detail: (id: string) =>
+    http.get(`/jobs/${encodeURIComponent(id)}`).then(r => r.data) as Promise<{
+      ok: boolean; document: JobDocument; chunks: Array<{ index: number; text: string }>
+    }>,
+  import: (payload: JobImportPayload) =>
+    http.post('/jobs/import', payload).then(r => r.data) as Promise<{
+      ok: boolean; id: string; created: boolean; warnings: string[]; document: JobDocument
+    }>,
+  remove: (id: string) =>
+    http.delete(`/jobs/${encodeURIComponent(id)}`).then(r => r.data) as Promise<{ ok: boolean }>,
+}

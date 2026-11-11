@@ -1,21 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, libraryApi, apiErrorMessage } from '../lib/api'
-import { downloadMarkdown, downloadPdf, downloadWord } from '../lib/export'
 import { assembled } from '../lib/library'
 import type { Bank, Material } from '../lib/library'
 import type { ResumeProfile } from '../lib/types'
 import ImportReview from './library/ImportReview'
 import './library/library.css'
-interface Props {userId:string; currentProfile:ResumeProfile|null; markdown:string; resumeName:string; disabled?:boolean;hasUnsaved?:boolean;onLoad:(profile:ResumeProfile,meta:{name:string})=>void}
-export default function LibraryPage({userId,currentProfile,markdown,resumeName,disabled,onLoad}:Props){
+interface Props {userId:string; currentProfile:ResumeProfile|null; resumeName:string; disabled?:boolean;hasUnsaved?:boolean;onLoad:(profile:ResumeProfile,meta:{name:string})=>void}
+export default function LibraryPage({userId,currentProfile,resumeName,disabled,onLoad}:Props){
  const [bank,setBank]=useState<Bank|null>(null),[error,setError]=useState(''),[selected,setSelected]=useState<string[]>([]),[material,setMaterial]=useState<Material|null>(null),[trash,setTrash]=useState(false),[loadConfirm,setLoadConfirm]=useState(false),[busy,setBusy]=useState(false),[archive,setArchive]=useState<ResumeProfile|null>(null)
- const epoch=useRef(0), lock=useRef(false), mounted=useRef(true), controller=useRef<AbortController|null>(null)
+ const epoch=useRef(0), lock=useRef(false), mounted=useRef(true)
  const refresh=async()=>{const token=++epoch.current;try{const b=await libraryApi.list();if(epoch.current===token){setBank(b);setSelected(old=>old.filter(id=>b.cards.some(c=>c.id===id&&!c.deleted)));setError('')}}catch(e){if(epoch.current===token)setError(apiErrorMessage(e))}}
- useEffect(()=>{mounted.current=true;void refresh();return()=>{mounted.current=false;++epoch.current;controller.current?.abort()}},[userId])
+ useEffect(()=>{mounted.current=true;void refresh();return()=>{mounted.current=false;++epoch.current}},[userId])
  const act=async(id:string,action:'delete'|'restore'|'revert',version?:number)=>{if(!bank||disabled||lock.current)return;lock.current=true;setBusy(true);const token=epoch.current;try{await libraryApi.action(id,userId,bank.revision,action,version);if(token===epoch.current)await refresh()}catch(e){if(token===epoch.current)setError(apiErrorMessage(e))}finally{lock.current=false;if(mounted.current)setBusy(false)}}
  const legacy=async(id:string)=>{const token=epoch.current;try{const r=await api.loadProfile(id);if(token===epoch.current&&r.profile)setArchive(r.profile)}catch(e){if(token===epoch.current)setError(apiErrorMessage(e))}}
  const done=()=>{void refresh()}
- const download=async(format:string)=>{if(disabled||lock.current)return;lock.current=true;setBusy(true);controller.current=new AbortController();try{if(format==='md')downloadMarkdown(markdown,resumeName);else if(format==='pdf')await downloadPdf(markdown,resumeName,controller.current.signal);else await downloadWord(markdown,resumeName,controller.current.signal)}catch(e){if(mounted.current)setError(apiErrorMessage(e))}finally{lock.current=false;if(mounted.current)setBusy(false)}}
  return <div className="library-page"><section className="panel"><h2>个人经历库</h2><p>一个项目一张卡片。上传材料后在工作台核对，再查重入库；已有事实不会因重复上传而多存一份。</p>{error&&<p role="alert">{error}<button onClick={()=>void refresh()}>刷新经历库</button></p>}
  <fieldset disabled={disabled||busy}><button className="secondary-button" onClick={()=>{setTrash(!trash);setLoadConfirm(false)}}>{trash?'返回经历卡片':'回收站'}</button>{currentProfile&&<button className="secondary-button" onClick={()=>setMaterial({expected_user_id:userId,profile:currentProfile,source_name:resumeName})}>整理工作台材料</button>}
  {!trash&&<button className="primary-button" disabled={!selected.length} onClick={()=>setLoadConfirm(true)}>将所选 {selected.length} 张卡片载入工作台</button>}
@@ -29,6 +27,5 @@ export default function LibraryPage({userId,currentProfile,markdown,resumeName,d
  </div></div></details></article>)}</div>)}</div></section>})}
  {bank&&!bank.cards.some(c=>c.deleted===trash)&&<p className="panel">{trash?'回收站为空。':'尚无经历卡片。请在工作台整理材料，或从下方历史材料确认导入。'}</p>}
  {!!bank?.legacy.length&&<section className="panel"><h3>历史材料</h3><p>旧版保存的完整材料仍保留。逐份预览查重后整理为卡片；不会删除原记录。</p>{bank.legacy.map(l=><div className="library-archive" key={l.id}><span>{l.name} · {l.saved_at} {bank.migrated.includes(l.id)?'（已整理）':''}</span><button disabled={busy||disabled} onClick={()=>void legacy(l.id)}>查看原记录</button><button disabled={busy||disabled} onClick={()=>setMaterial({expected_user_id:userId,legacy_id:l.id,source_name:l.name})}>预览整理</button></div>)}{archive&&<details open><summary>原记录内容</summary><pre>{JSON.stringify(archive,null,2)}</pre></details>}</section>}
- {markdown&&<section className="panel"><h3>当前简历导出</h3><p>仅导出生成稿，不修改经历事实。</p>{['md','docx','pdf'].map(format=><button className="secondary-button" key={format} disabled={busy||disabled} onClick={()=>void download(format)}>{format.toUpperCase()}</button>)}</section>}
  </div>
 }

@@ -1,6 +1,9 @@
 """Authenticated, stateless Markdown-to-DOCX export; never reads paths or URLs."""
 from __future__ import annotations
 
+import base64
+import binascii
+
 import re
 import html
 import os
@@ -9,6 +12,8 @@ from io import BytesIO
 from urllib.parse import quote
 
 from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.image.exceptions import UnrecognizedImageError
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
@@ -17,6 +22,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from core import accounts
+from api.workspace import ResumeAppearance
 
 router = APIRouter(prefix="/api/export", tags=["export"], dependencies=[
     Depends(accounts.require_user), Depends(accounts.require_csrf),
@@ -28,6 +34,7 @@ MIME_PDF = "application/pdf"
 class ExportRequest(BaseModel):
     markdown: str = Field(min_length=1, max_length=100_000)
     name: str = Field(default="职得offer", max_length=200)
+    appearance: ResumeAppearance | None = None
 
     @field_validator("markdown", "name", mode="before")
     @classmethod
@@ -51,12 +58,24 @@ def _inline(paragraph, text: str) -> None:
         code = part.startswith("`") and part.endswith("`")
         italic = not bold and part.startswith("*") and part.endswith("*")
         run = paragraph.add_run(part[2:-2] if bold else part[1:-1] if code or italic else part)
-        run.bold, run.italic = bold, italic
+        if bold:
+            run.bold = True
+        if italic:
+            run.italic = True
         if code:
             run.font.name = "Consolas"
 
 
-def build_docx(markdown: str) -> BytesIO:
+def _set_docx_font(style, name: str) -> None:
+    style.font.name = name
+    fonts = style.element.get_or_add_rPr().rFonts
+    for attribute in ("asciiTheme", "hAnsiTheme", "eastAsiaTheme", "cstheme"):
+        fonts.attrib.pop(qn(f"w:{attribute}"), None)
+    for attribute in ("ascii", "hAnsi", "eastAsia", "cs"):
+        fonts.set(qn(f"w:{attribute}"), name)
+
+
+def build_docx(markdown: str, appearance: ResumeAppearance | None = None) -> BytesIO:
     document = Document()
     section = document.sections[0]
     section.page_width, section.page_height = Cm(21), Cm(29.7)
@@ -64,9 +83,8 @@ def build_docx(markdown: str) -> BytesIO:
     section.left_margin = section.right_margin = Cm(2)
     for name in ("Normal", "Title", "Heading 1", "Heading 2", "Heading 3", "List Bullet", "List Number"):
         style = document.styles[name]
-        style.font.name = "Microsoft YaHei"
-        style.element.get_or_add_rPr().rFonts.set(qn("w:eastAsia"), "Microsoft YaHei")
-        style.font.color.rgb = RGBColor.from_string("183252")
+        _set_docx_font(style, "Microsoft YaHei")
+        style.font.color.rgb = RGBColor.from_string("26384D")
     normal = document.styles["Normal"]
     normal.font.size = Pt(10.5)
     normal.paragraph_format.space_after = Pt(5)
@@ -75,6 +93,7 @@ def build_docx(markdown: str) -> BytesIO:
     for name, size in (("Heading 1", 18), ("Heading 2", 13), ("Heading 3", 11)):
         style = document.styles[name]
         style.font.size = Pt(size)
+        style.font.bold = True
         style.paragraph_format.keep_with_next = True
         style.paragraph_format.keep_together = True
         style.paragraph_format.space_before = Pt(10)
@@ -84,6 +103,50 @@ def build_docx(markdown: str) -> BytesIO:
         style.font.size = Pt(10.5)
         style.paragraph_format.space_after = Pt(3)
         style.paragraph_format.widow_control = True
+    intro = body = document
+    if appearance:
+        background = OxmlElement("w:background")
+        background.set(qn("w:color"), appearance.paper[1:].upper())
+        document.element.insert(0, background)
+        for name in ("Normal", "List Bullet", "List Number"):
+            style = document.styles[name]
+            style.font.size = Pt(appearance.fontSize * .75)
+            style.paragraph_format.line_spacing = appearance.spacing
+            if appearance.template == "compact":
+                style.paragraph_format.space_after = Pt(2)
+    accent = appearance.accent if appearance else "#254264"
+    name_color = appearance.nameColor if appearance else None
+    for level, color in enumerate((name_color or accent, accent, "#26384d"), 1):
+        style = document.styles[f"Heading {level}"]
+        style.font.color.rgb = RGBColor.from_string(color[1:].upper())
+        if appearance and appearance.headingFont == "serif":
+            _set_docx_font(style, "SimSun")
+        if appearance and level == 1 and appearance.headerAlign == "center":
+            style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if appearance:
+        if appearance.headerStyle == "portrait":
+            table = document.add_table(rows=1, cols=2)
+            table.autofit = False
+            table.columns[0].width, table.columns[1].width = Cm(14), Cm(3)
+            intro, photo_cell = table.rows[0].cells
+            intro.width, photo_cell.width = Cm(14), Cm(3)
+            if appearance.portrait:
+                try:
+                    image = BytesIO(base64.b64decode(appearance.portrait.split(",", 1)[1], validate=True))
+                    photo_cell.paragraphs[0].add_run().add_picture(image, width=Cm(2.5), height=Cm(3.5))
+                except (UnrecognizedImageError, ValueError, binascii.Error, EOFError, IndexError, OSError) as exc:
+                    raise HTTPException(422, "证件照无法导出，请重新上传照片") from exc
+        elif appearance.template == "sidebar" and re.search(r"(?m)^##\s", markdown):
+            table = document.add_table(rows=1, cols=2)
+            table.autofit = False
+            side = 1 if appearance.sidebarSide == "right" else 0
+            intro, body = table.cell(0, side), table.cell(0, 1 - side)
+            table.columns[side].width = intro.width = Cm(5)
+            table.columns[1 - side].width = body.width = Cm(12)
+            shading = OxmlElement("w:shd")
+            shading.set(qn("w:fill"), appearance.background[1:].upper())
+            intro._tc.get_or_add_tcPr().append(shading)
+    target = intro
     fenced = False
     for line in markdown.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         stripped = line.strip()
@@ -95,10 +158,12 @@ def build_docx(markdown: str) -> BytesIO:
         heading = re.match(r"^(#{1,6})\s+(.+)$", stripped)
         bullet = re.match(r"^[-*+]\s+(.+)$", stripped)
         numbered = re.match(r"^\d+[.)]\s+(.+)$", stripped)
+        if heading and len(heading[1]) == 2 and not fenced:
+            target = body
         if fenced:
-            document.add_paragraph(line)
+            target.add_paragraph(line)
         elif re.fullmatch(r"([-*_])(?:\s*\1){2,}", stripped):
-            p = document.add_paragraph()
+            p = target.add_paragraph()
             border = OxmlElement("w:pBdr")
             bottom = OxmlElement("w:bottom")
             for key, value in (("val", "single"), ("sz", "4"), ("color", "D7E3F4")):
@@ -106,13 +171,13 @@ def build_docx(markdown: str) -> BytesIO:
             border.append(bottom)
             p._p.get_or_add_pPr().append(border)
         elif heading:
-            p = document.add_paragraph(style=f"Heading {min(len(heading[1]), 3)}")
+            p = target.add_paragraph(style=f"Heading {min(len(heading[1]), 3)}")
             _inline(p, heading[2])
         elif bullet or numbered:
             match = bullet or numbered
-            _inline(document.add_paragraph(style="List Bullet" if bullet else "List Number"), match[1])
+            _inline(target.add_paragraph(style="List Bullet" if bullet else "List Number"), match[1])
         else:
-            _inline(document.add_paragraph(), stripped)
+            _inline(target.add_paragraph(), stripped)
     output = BytesIO()
     document.save(output)
     output.seek(0)
@@ -237,7 +302,7 @@ def _safe_filename(name: str, extension: str) -> str:
 @router.post("/docx")
 def export_docx(request: ExportRequest):
     filename = _safe_filename(request.name, "docx")
-    return StreamingResponse(build_docx(request.markdown), media_type=MIME, headers={
+    return StreamingResponse(build_docx(request.markdown, request.appearance), media_type=MIME, headers={
         "Content-Disposition": f"attachment; filename=resume.docx; filename*=UTF-8''{filename}",
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
     })

@@ -72,9 +72,11 @@ app.add_middleware(
 from api.auth import router as auth_router  # noqa: E402
 
 app.include_router(auth_router)
+from api.resume_share import public_router as public_resume_router  # noqa: E402
+app.include_router(public_resume_router)
 
 for module_path in ("api.diagnose", "api.resume", "api.quality", "api.interview", "api.profiles",
-                    "api.workspace", "api.interview_records", "api.export", "api.evidence", "api.model_preferences", "api.user_stats", "api.feedback"):
+                    "api.workspace", "api.interview_records", "api.export", "api.evidence", "api.model_preferences", "api.user_stats", "api.feedback", "api.resume_share"):
     module = __import__(module_path, fromlist=["router"])
     app.include_router(module.router, dependencies=[Depends(accounts.require_user), Depends(accounts.require_csrf), Depends(model_preferences.bind)])
 
@@ -127,6 +129,8 @@ if DIST.is_dir():
                 status_code=503,
                 content={"ok": False, "error": "Frontend Build Missing"},
             )
+        if full_path.startswith("resume/share/"):
+            return FileResponse(str(index), headers={"X-Robots-Tag": "noindex, nofollow", "Referrer-Policy": "no-referrer"})
         return FileResponse(str(index))
 else:
     @app.get("/")

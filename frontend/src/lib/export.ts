@@ -1,5 +1,6 @@
 /** 只导出当前正文；不持久化、上传附件或请求外部资源。 */
 import { ACCOUNT_CHANGED_EVENT, SESSION_EXPIRED_EVENT } from './api'
+import type { ResumeAppearance } from '../pages/workbench/ResumePreview'
 
 export function exportFilename(name: string, extension: 'md' | 'docx' | 'pdf'): string {
   const safe = name.replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g, '-').replace(/[. ]+$/g, '').trim().slice(0, 80)
@@ -27,7 +28,25 @@ export function downloadMarkdown(markdown: string, name = '职得offer') {
   saveBlob(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }), exportFilename(name, 'md'))
 }
 
-export async function downloadWord(markdown: string, name = '职得offer', signal?: AbortSignal) {
+export function printResume(preview: HTMLElement, name = '职得offer') {
+  const page = document.createElement('div')
+  page.className = 'role-b-workbench resume-print-root'
+  page.appendChild(preview.cloneNode(true))
+  const title = document.title
+  const cleanup = () => {
+    page.remove()
+    document.title = title
+  }
+  document.body.appendChild(page)
+  document.title = exportFilename(name, 'pdf').slice(0, -4)
+  try {
+    window.print()
+  } finally {
+    cleanup()
+  }
+}
+
+export async function downloadWord(markdown: string, name = '职得offer', signal?: AbortSignal, appearance?: ResumeAppearance) {
   requireMarkdown(markdown)
   const controller = new AbortController()
   const cancel = () => controller.abort()
@@ -40,7 +59,7 @@ export async function downloadWord(markdown: string, name = '职得offer', signa
     const response = await fetch('/api/export/docx', {
       method: 'POST', credentials: 'same-origin', signal: controller.signal,
       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      body: JSON.stringify({ markdown, name }),
+      body: JSON.stringify({ markdown, name, appearance }),
     })
     if (!response.ok) {
       if (response.status === 401 && !controller.signal.aborted) window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT))

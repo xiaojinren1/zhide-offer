@@ -152,7 +152,7 @@ def resolved_provider() -> dict | None:
 
 async def bind(request: Request, user: dict = Depends(accounts.require_user),
                _usage=Depends(model_usage.bind)):
-    kind: ModelKind = "vision" if request.url.path.rstrip("/").endswith("/parse-image") else "text"
+    kind: ModelKind = "vision" if request.url.path.rstrip("/").endswith(("/parse-image", "/template-image")) else "text"
     config = await run_in_threadpool(get_for_user, user, kind)
     if config and request.url.scheme != "https" and request.url.hostname not in {"localhost", "127.0.0.1", "::1"}:
         config = {**config, "insecure_request": True}

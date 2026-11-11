@@ -96,6 +96,12 @@ CREATE TABLE IF NOT EXISTS workspaces (
     saved_at TEXT NOT NULL,
     state_json TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS resume_shares (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    token TEXT UNIQUE NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    published_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS evidence_banks (
     user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     revision INTEGER NOT NULL,

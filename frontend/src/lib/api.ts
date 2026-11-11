@@ -5,6 +5,9 @@ import type {
 } from './types'
 import type { InterviewRecord, InterviewRecordInput, WorkspaceResponse, WorkspaceState } from './workspace'
 import type { TailoringReport } from './tailoring'
+import type { ResumeAppearance } from '../pages/workbench/ResumePreview'
+
+type ResumeShare = { token: string; published_at: string }
 
 export type AccountUser = { id: string; username: string; avatar_url?: string | null; guest?: boolean }
 export const MODEL_CONFIGURATION_REQUIRED_EVENT = 'zhide:model-configuration-required'
@@ -93,6 +96,12 @@ export type FeedbackStatus = 'pending' | 'reviewing' | 'resolved'
 type FeedbackItem = { id: number; message: string; status: FeedbackStatus; created_at: string; username: string }
 
 export const api = {
+  currentResumeShare: () => http.get<ResumeShare | null>('/resume-share').then(r => r.data),
+  publishResume: (expected_user_id: string, markdown: string, appearance: ResumeAppearance) =>
+    http.post<ResumeShare>('/resume-share', { expected_user_id, markdown, appearance }).then(r => r.data),
+  revokeResume: (expected_user_id: string) => http.post('/resume-share/revoke', { expected_user_id }),
+  sharedResume: (token: string) =>
+    http.get<{ markdown: string; appearance: ResumeAppearance }>(`/shared-resumes/${encodeURIComponent(token)}`).then(r => r.data),
   contact: () => http.get<{ qq: string | null }>('/contact').then(r => r.data),
   updateContact: (qq: string) => http.put('/user-stats/contact', { qq }),
   listFeedback: (manage: boolean, before?: number) =>
@@ -160,6 +169,12 @@ export const api = {
     return http.post('/resume/parse-image', fd).then((r) => r.data) as Promise<{
       ok: boolean; error?: string; profile?: ResumeProfile; raw_text?: string
     }>
+  },
+
+  recognizeResumeTemplate: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return http.post<ResumeAppearance>('/resume/template-image', form).then(r => r.data)
   },
 
   parseResumeText: (text: string) =>

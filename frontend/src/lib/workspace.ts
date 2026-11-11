@@ -1,4 +1,5 @@
 import type { ResumeProfile } from './types'
+import type { ResumeAppearance } from '../pages/workbench/ResumePreview'
 
 export type WorkspacePage = 'workbench' | 'diagnose' | 'quality' | 'interview' | 'memory'
 export interface WorkspaceState {
@@ -8,6 +9,7 @@ export interface WorkspaceState {
   profile: ResumeProfile | null
   jd_keywords: string[]
   markdown: string
+  resume_appearance?: ResumeAppearance | null
   page: WorkspacePage
 }
 export const emptyWorkspace = (): WorkspaceState => ({

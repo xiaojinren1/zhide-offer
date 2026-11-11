@@ -36,6 +36,25 @@ class ProfileState(BaseModel):
     user_confirmed: bool = False
 
 
+class ResumeLayout(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    template: Literal["classic", "sidebar", "compact"]
+    background: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+    paper: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+    accent: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+    fontSize: Literal[13, 14, 16]
+    spacing: Literal[1.35, 1.6, 1.85]
+    headerAlign: Literal["left", "center"] = "left"
+    sidebarSide: Literal["left", "right"] = "left"
+    headerStyle: Literal["standard", "portrait"] = "standard"
+    nameColor: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    headingFont: Literal["sans", "serif"] = "sans"
+
+
+class ResumeAppearance(ResumeLayout):
+    portrait: str | None = Field(default=None, max_length=80_000, pattern=r"^data:image/jpeg;base64,[A-Za-z0-9+/]+={0,2}$")
+
+
 class WorkspaceState(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     source_text: str
@@ -44,6 +63,7 @@ class WorkspaceState(BaseModel):
     profile: ProfileState | None
     jd_keywords: list[str]
     markdown: str
+    resume_appearance: ResumeAppearance | None = None
     page: Literal["workbench", "diagnose", "quality", "interview", "memory"]
 
 

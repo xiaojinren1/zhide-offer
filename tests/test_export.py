@@ -45,6 +45,24 @@ class ExportContract(unittest.TestCase):
         self.client.headers.pop("X-Requested-With")
         self.assertEqual(self.client.post("/api/export/docx", json=self.payload).status_code, 403)
 
+    def test_styled_docx_headings_keep_level_color_and_inherit_bold(self):
+        self.register()
+        response = self.client.post("/api/export/docx", json={
+            "markdown": "# 示例姓名\n## 教育背景\n## **工作经历**\n### 示例项目\n普通正文",
+            "appearance": {
+                "template": "classic", "background": "#edf2f8", "paper": "#ffffff",
+                "accent": "#2468AC", "nameColor": "#153050", "fontSize": 14, "spacing": 1.6,
+            },
+        })
+        self.assertEqual(response.status_code, 200)
+        doc = Document(BytesIO(response.content))
+        headings = doc.paragraphs[:4]
+        self.assertEqual([str(p.style.font.color.rgb) for p in headings],
+                         ["153050", "2468AC", "2468AC", "26384D"])
+        self.assertTrue(all(p.style.font.bold for p in headings))
+        self.assertTrue(all(run.bold is not False for p in headings for run in p.runs))
+        self.assertIsNone(doc.paragraphs[4].runs[0].bold)
+
     def test_actual_docx_has_chinese_headings_lists_and_no_saved_file(self):
         self.register()
         response = self.client.post("/api/export/docx", json=self.payload)

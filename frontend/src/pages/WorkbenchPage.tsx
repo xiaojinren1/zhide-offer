@@ -2,9 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import ImportReview from './library/ImportReview'
 import './library/library.css'
 import { api } from '../lib/api'
+import { downloadWord, printResume } from '../lib/export'
 import type { Experience, ResumeProfile } from '../lib/types'
 import { UiIcon } from '../components/Brand'
-import ResumePreview from './workbench/ResumePreview'
+import ResumePreview, { defaultResumeAppearance, type ResumeAppearance } from './workbench/ResumePreview'
+import ResumeAppearanceControls from './workbench/ResumeAppearanceControls'
+import ResumeShare from './workbench/ResumeShare'
 import ResumeComparison from './workbench/ResumeComparison'
 import RoleRequirementsEditor from './workbench/RoleRequirementsEditor'
 import DiagnosePage from './DiagnosePage'
@@ -16,6 +19,9 @@ import type { TailoringReport } from '../lib/tailoring'
 import './workbench/workbench.css'
 interface Props {
   userId?: string
+  guest?: boolean
+  savedAppearance?: ResumeAppearance | null
+  onAppearanceChange?: (appearance: ResumeAppearance) => void
   initialStep?: 3 | 4
   sourceText: string; setSourceText: (text: string) => void
   sourceName: string; setSourceName: (name: string) => void
@@ -26,7 +32,7 @@ interface Props {
 }
 const SAMPLE = '陈同学\n某大学，本科，2022.09—2026.06\n求职方向：产品经理\n项目：校园活动报名流程优化，2025.03—2025.06\n角色：项目成员\n负责收集同学的报名反馈，整理重复填报、信息分散等问题，绘制报名流程原型，并与开发同学沟通需求。\n产出：需求文档与流程原型，协助完成反馈整理。\n技能：需求分析、原型设计、用户反馈整理、跨团队协作。'
 const SAMPLE_JD = '产品经理（示例岗位）\n工作职责：收集用户需求，分析业务流程，完成产品原型与需求文档，与研发团队沟通并推动方案落地。\n岗位要求：具备需求分析、原型设计和沟通协作能力，有校园项目或实习经历。'
-export default function WorkbenchPage({ userId, initialStep = 3, sourceText, setSourceText, sourceName, setSourceName, profile, onProfileChange, jdText, onJdChange, markdown, onMarkdownChange, jdKeywords, onJdKeywordsChange, busy, onBusyChange, onDiagnose, onQuality, onInterview }: Props) {
+export default function WorkbenchPage({ userId, guest, savedAppearance, onAppearanceChange, initialStep = 3, sourceText, setSourceText, sourceName, setSourceName, profile, onProfileChange, jdText, onJdChange, markdown, onMarkdownChange, jdKeywords, onJdKeywordsChange, busy, onBusyChange, onDiagnose, onQuality, onInterview }: Props) {
   // 保留旧调用方的可选参数，避免队友页面或测试在联调时因接口变化中断。
   void onDiagnose; void onQuality
   const [activity, setActivity] = useState('')
@@ -38,7 +44,25 @@ export default function WorkbenchPage({ userId, initialStep = 3, sourceText, set
   const [activeStep, setActiveStep] = useState(markdown.trim() ? (initialStep === 4 && profile?.user_confirmed && !factIssues(profile).length ? 4 : 3) : profile ? 2 : 1)
   const [optimizationTool, setOptimizationTool] = useState<'quality' | 'match'>('quality')
   const [comparison, setComparison] = useState<{ before: string; after: string } | null>(null)
-  const [cleanPreview, setCleanPreview] = useState(false)
+  const [localAppearance, setLocalAppearance] = useState(defaultResumeAppearance)
+  const previewCanvas = useRef<HTMLDivElement>(null)
+  const [exportingWord, setExportingWord] = useState(false)
+  const [exportError, setExportError] = useState('')
+  const appearance = savedAppearance ?? localAppearance
+  const setAppearance = onAppearanceChange ?? setLocalAppearance
+
+  async function exportWord() {
+    if (exportingWord) return
+    setExportingWord(true)
+    setExportError('')
+    try {
+      await downloadWord(markdown, sourceName || '职得offer', undefined, appearance)
+    } catch (reason) {
+      setExportError(reason instanceof Error ? reason.message : 'Word 导出失败，请重试。')
+    } finally {
+      setExportingWord(false)
+    }
+  }
   const [initialDraft, setInitialDraft] = useState(false)
   const [manuallyEdited, setManuallyEdited] = useState(false)
   const requestLock = useRef(false)
@@ -175,6 +199,7 @@ export default function WorkbenchPage({ userId, initialStep = 3, sourceText, set
     {error && <div className="error-banner" role="alert"><strong>这一步没有完成</strong><span>{error}</span>{retryAction && <button className="secondary-button" disabled={busy} onClick={() => retryAction === 'parse' ? void parse(lastFile.current) : void generate(initialGeneration.current)}>重试{retryAction === 'parse' ? '整理材料' : '生成简历'}</button>}<button className="wb-dismiss" onClick={() => setError('')} aria-label="关闭错误提示">×</button></div>}
     {busy && <div className="activity-banner" role="status"><span className="spinner" />{activity || '正在处理…'}<span className="muted">{waiting ? '模型仍在处理，请勿重复提交；若超时会显示重试入口。' : '完成后可继续编辑，请勿刷新页面。'}</span></div>}
     <div className="workbench-grid step-page-grid">
+      {userId && !guest && <ResumeShare userId={userId} markdown={markdown} appearance={appearance} canPublish={activeStep === 4 && previewMode === 'preview' && Boolean(markdown.trim()) && !busy} />}
       <section id="wb-step-1" hidden={activeStep !== 1} aria-hidden={activeStep !== 1} tabIndex={-1} className="panel materials-panel"><div className="panel-heading"><div><span className="section-kicker">01 / MATERIALS</span><h2>求职材料</h2></div><UiIcon name="folder" /></div><fieldset disabled={busy}>
         <label className="upload-zone"><input aria-label="上传求职材料" type="file" accept={FILE_ACCEPT} onChange={(e) => { const file = e.target.files?.[0]; if (file) void parse(file); e.target.value = '' }} /><span className="upload-icon"><UiIcon name="upload" /></span><strong>上传简历或经历材料</strong><span>DOCX · 文字 PDF · TXT · Markdown · JPG/PNG/WebP</span></label>
         <p className="wb-hint">单文件不超过 10 MB。图片会交给视觉模型整理，结果仍需你逐项确认；语音、旧版 DOC 和扫描 PDF 的 OCR 尚未接入。</p>
@@ -233,7 +258,17 @@ export default function WorkbenchPage({ userId, initialStep = 3, sourceText, set
       <section id="wb-step-4" hidden={activeStep !== 4} aria-hidden={activeStep !== 4} tabIndex={-1} className="panel preview-panel"><div className="panel-heading"><div><span className="section-kicker">04 / YOUR NEXT OFFER</span><h2>简历预览</h2></div><span className={`tag ${markdown && review.warning ? 'amber' : 'blue'}`}>{markdown ? '草稿待核对' : '待生成'}</span></div><p className="panel-description">此处直接预览当前稿。需要按岗位重新生成，请返回「检查与优化」。</p>
         {markdown && (blocked ? <p className="warning-note" role="status">以下是保留的草稿，尚不能作为当前已确认结果。请补全真实事实、重新确认后生成。</p> : <p className={review.warning || tailoringNeedsReview ? 'warning-note' : 'wb-success'} role="status">简历已生成草稿，可预览和编辑；请核对下方检查信息后再下载使用。</p>)}
         {markdown && <div className="wb-review warning-note" role="status" aria-label="生成稿检查状态"><strong>{review.title}</strong><p>{review.detail}</p><p>请逐句核对职责、动作、上线/落地、成果和数字。原材料未说明的内容不能因 AI 润色就当成事实；自动检查及数字检查通过也不等于事实认证。</p></div>}
-        {markdown ? <><div className="preview-toolbar"><div className="segmented"><button className={previewMode === 'preview' ? 'selected' : ''} disabled={busy} onClick={() => setPreviewMode('preview')}>预览</button><button className={previewMode === 'edit' ? 'selected' : ''} disabled={busy} onClick={() => setPreviewMode('edit')}>编辑</button></div><span className="muted">Markdown</span></div>{previewMode === 'preview' ? <><label>简历样式 <select value={cleanPreview ? "clean" : "classic"} onChange={event => setCleanPreview(event.target.value === "clean")}><option value="classic">经典</option><option value="clean">简洁</option></select></label><ResumePreview markdown={markdown} clean={cleanPreview} /></> : <textarea className="markdown-editor" aria-label="编辑简历 Markdown" disabled={busy} value={markdown} onChange={(e) => editMarkdown(e.target.value)} />}
+        {markdown ? <><div className="preview-toolbar"><div className="segmented"><button className={previewMode === 'preview' ? 'selected' : ''} disabled={busy} onClick={() => setPreviewMode('preview')}>预览</button><button className={previewMode === 'edit' ? 'selected' : ''} disabled={busy} onClick={() => setPreviewMode('edit')}>编辑</button></div><span className="muted">Markdown</span></div>{previewMode === 'preview' ? <><div className="wb-actions" aria-label="导出当前样式">
+            <button type="button" className="primary-button" disabled={busy} onClick={() => {
+              if (previewCanvas.current) printResume(previewCanvas.current, sourceName || '职得offer')
+            }}>按预览保存 PDF</button>
+            <button type="button" className="secondary-button" disabled={busy || exportingWord} onClick={() => void exportWord()}>
+              {exportingWord ? '正在导出 Word…' : '导出可编辑 Word'}
+            </button>
+          </div>
+          <p className="field-hint">PDF 在浏览器打印窗口中选择「另存为 PDF」。Word 保留可编辑内容，分页由 Word 决定。</p>
+          {exportError && <p className="warning-note" role="alert">{exportError}</p>}
+          <ResumeAppearanceControls markdown={markdown} appearance={appearance} onChange={setAppearance} /><div ref={previewCanvas} className="resume-preview-canvas" style={{ backgroundColor: appearance.background }}><ResumePreview markdown={markdown} appearance={appearance} /></div></> : <textarea className="markdown-editor" aria-label="编辑简历 Markdown" disabled={busy} value={markdown} onChange={(e) => editMarkdown(e.target.value)} />}
           {manuallyEdited && <p className="warning-note">稿件已手动修改，原数字检查不再代表当前内容，请重新核对所有事实和数字。</p>}
           {numberWarnings.length > 0 && <div className="warning-note" role="status"><strong>数字检查：以下内容缺少材料依据</strong><ul>{numberWarnings.map((item, i) => <li key={i}>{item}</li>)}</ul></div>}<p className="field-hint">初稿及手动修改均需人工核对，数字检查不等于事实认证。</p><button className="secondary-button full" disabled={busy || !markdown.trim()} onClick={download}><UiIcon name="download" />下载 Markdown 简历</button></> : <div className="preview-empty"><div className="paper-skeleton"><span className="skeleton-name" /><span className="skeleton-sub" /><div className="skeleton-divider" /><span className="skeleton-title" /><span /><span /><span className="short" /><div className="skeleton-divider" /><span className="skeleton-title" /><span /><span className="short" /></div><h3>你的下一份简历，从这里开始</h3><p>确认经历并生成初稿后，结果会显示在这里。</p></div>}
         <div className="export-note">本轮支持 Markdown；Word 和 PDF 可在个人记忆页导出。</div>{stepActions(4)}

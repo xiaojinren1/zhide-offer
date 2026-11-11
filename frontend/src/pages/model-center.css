@@ -1,0 +1,36 @@
+.model-center-modules {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 1rem;
+}
+
+.model-center-modules button {
+  display: grid;
+  align-content: start;
+  gap: .45rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid #ccd9e7;
+  border-radius: 16px;
+  background: #fff;
+  color: #23313f;
+  text-align: left;
+  cursor: pointer;
+}
+
+.model-center-modules button:hover,
+.model-center-modules button[aria-pressed="true"] {
+  border-color: #496883;
+  background: #edf4fa;
+}
+
+.model-center-modules button[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 1px #496883;
+}
+
+.model-center-modules strong {
+  font-size: 1.2rem;
+}
+
+.model-center-modules span {
+  color: #486078;
+}

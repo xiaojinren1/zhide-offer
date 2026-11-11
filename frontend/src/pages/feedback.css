@@ -1,0 +1,56 @@
+.feedback-panel,
+.feedback-panel form {
+  display: grid;
+  gap: .8rem;
+}
+
+.feedback-panel textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.feedback-panel button {
+  justify-self: start;
+}
+
+.feedback-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .65rem;
+}
+
+.feedback-toolbar h4 {
+  margin: 0 auto 0 0;
+}
+
+.feedback-item {
+  padding: 1rem 0;
+  border-top: 1px solid #dbe5ef;
+}
+
+.feedback-item p {
+  margin: .6rem 0 0 3rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.feedback-item small { display: grid; margin-right: auto; }
+.feedback-avatar {
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #e7eff8;
+  color: #2e506e;
+  font-weight: 700;
+}
+.feedback-status {
+  border-radius: 999px;
+  padding: .2rem .65rem;
+  background: #fff0cf;
+  color: #744c12;
+}
+.feedback-status[data-status="reviewing"] { background: #e7eff8; color: #2e506e; }
+.feedback-status[data-status="resolved"] { background: #e2f4eb; color: #285c44; }

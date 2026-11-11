@@ -1,0 +1,23 @@
+.admin-contact-entry {
+  white-space: nowrap;
+}
+
+.admin-contact-dialog {
+  width: min(26rem, calc(100% - 2rem));
+  margin: auto;
+  padding: 1.4rem;
+  border: 1px solid #ccd9e7;
+  border-radius: 16px;
+  background: #fff;
+  color: #23313f;
+}
+
+.admin-contact-dialog::backdrop {
+  background: rgb(20 36 51 / 45%);
+}
+
+.admin-contact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .65rem;
+}

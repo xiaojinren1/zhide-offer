@@ -1,0 +1,40 @@
+.admin-metrics,
+.admin-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: 1rem;
+  margin: 0;
+}
+.admin-metrics > div,
+.admin-trend {
+  padding: 1rem 1.2rem;
+  background: #fff;
+  border: 1px solid #ccd9e7;
+  border-radius: 16px;
+  margin: 0;
+  min-width: 0;
+}
+.admin-metrics dd { margin: .25rem 0 0; font-size: 2rem; font-weight: 700; }
+.admin-trend figcaption { font-weight: 700; }
+.admin-trend ol {
+  display: grid;
+  grid-template-columns: repeat(14, minmax(0, 1fr));
+  gap: .3rem;
+  padding: 0;
+  list-style: none;
+}
+.admin-trend li { min-width: 0; text-align: center; }
+.admin-bar-track {
+  display: flex;
+  align-items: end;
+  height: 7rem;
+  border-radius: 5px;
+  background: #eff4f8;
+}
+.admin-bar-track > span { width: 100%; border-radius: 5px; background: #3f7892; }
+.admin-trend time { font-size: .7rem; white-space: nowrap; }
+.admin-trend li:not(:first-child):not(:nth-child(7)):not(:last-child) time { visibility: hidden; }
+.admin-roles form,
+.admin-roles li { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.admin-roles ul { padding: 0; list-style: none; }
+.admin-roles li { padding: .65rem 0; border-top: 1px solid #dbe5ef; }

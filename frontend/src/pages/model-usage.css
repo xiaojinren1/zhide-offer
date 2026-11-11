@@ -1,0 +1,78 @@
+.model-usage {
+  display: grid;
+  gap: 1rem;
+}
+
+.model-usage-header,
+.model-usage-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.model-usage-summary {
+  margin: 0;
+}
+
+.model-usage-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: .65rem;
+}
+
+.model-usage-filters label {
+  display: grid;
+  gap: .3rem;
+}
+
+.model-usage-summary > div {
+  flex: 1 1 10rem;
+  padding: .85rem 1rem;
+  border: 1px solid #d3dfec;
+  border-radius: 12px;
+  background: #f3f7fb;
+}
+
+.model-usage-summary dd {
+  margin: .2rem 0 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.model-usage h4 {
+  margin: 0;
+}
+
+.model-usage-table {
+  overflow-x: auto;
+  border: 1px solid #d3dfec;
+  border-radius: 12px;
+}
+
+.model-usage table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.model-usage th,
+.model-usage td {
+  padding: .65rem .8rem;
+  border-bottom: 1px solid #d3dfec;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.model-usage thead {
+  background: #f3f7fb;
+}
+
+.model-usage tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.model-usage > button {
+  justify-self: start;
+}

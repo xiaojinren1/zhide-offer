@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from core import accounts, events
 from engine import documents
 from engine.documents import normalize as doc_normalize
+from engine.documents import paste as doc_paste
 from engine.documents import store, text as text_util
 from engine.jd_parser import parse_jd
 from engine.sources import base as sources_base
@@ -130,6 +131,36 @@ def import_document(req: ImportRequest, user: dict = Depends(accounts.require_us
         raise HTTPException(status_code=500, detail="资料已保存但读取失败，请刷新后重试")
     return {"ok": True, "id": doc_id, "created": created,
             "warnings": warnings, "document": _document_dict(row)}
+
+
+class AnalyzeRequest(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    text: str = Field(min_length=1, max_length=MAX_TEXT)
+
+
+@router.post("/analyze")
+def analyze_paste(req: AnalyzeRequest, user: dict = Depends(accounts.require_user)):
+    """粘贴识别：本地启发式猜岗位名/公司/城市/薪资，并告知是否已在收件箱。
+
+    纯本地计算，不调模型、不抓网页，所以可以随输入频繁调用。
+    """
+    guess = doc_paste.analyze(req.text)
+    draft = store.DocumentDraft(
+        kind="job", source="paste", title=guess.title, company=guess.company,
+        role=guess.title, url=guess.url, content_md=req.text, user_id=user["id"],
+    )
+    key = draft.resolved_key()
+    duplicate = None
+    if key:
+        with accounts.connection() as db:
+            row = db.execute(
+                "SELECT id, title FROM documents WHERE COALESCE(user_id,'') = ? AND source_key = ?",
+                (user["id"], key),
+            ).fetchone()
+        if row is not None:
+            duplicate = {"id": row["id"], "title": row["title"]}
+    return {"ok": True, "guess": guess.to_dict(), "duplicate": duplicate}
 
 
 @router.get("")

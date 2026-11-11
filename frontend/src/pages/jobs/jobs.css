@@ -291,3 +291,21 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* 粘贴识别提示 */
+.jobs-guess {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(47, 111, 79, 0.07);
+}
+
+.jobs-guess .jobs-hint {
+  margin: 0;
+  color: #2f6f4f;
+}
+
+.jobs-guess-dup {
+  color: #a13c2f !important;
+}

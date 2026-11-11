@@ -369,3 +369,25 @@ export const jobsFetchAllApi = {
     items: Array<{ source: string; ok: boolean; created: number; updated: number; skipped: number; error: string }>
   }>,
 }
+
+export type PasteGuess = {
+  title: string
+  company: string
+  city: string
+  salary_text: string
+  salary_min: number | null
+  salary_max: number | null
+  experience: string
+  education: string
+  url: string
+  warnings: string[]
+}
+
+export const jobsPasteApi = {
+  analyze: (text: string) =>
+    http.post('/jobs/analyze', { text }).then(r => r.data) as Promise<{
+      ok: boolean
+      guess: PasteGuess
+      duplicate: { id: string; title: string } | null
+    }>,
+}

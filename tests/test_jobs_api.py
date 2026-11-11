@@ -190,6 +190,45 @@ class JobsApiContract(unittest.TestCase):
         self.assertEqual(
             self.client.post("/api/jobs/sources/nope/fetch", headers=HEADER).status_code, 404)
 
+    # ---- 粘贴识别 ----
+
+    def test_analyze_extracts_fields_without_model(self) -> None:
+        text = chr(10).join([
+            "数据开发工程师",
+            "20-35K·14薪",
+            "北京·朝阳区 3-5年 本科",
+            "某某科技有限公司",
+            "职责：建设数据平台",
+        ])
+        response = self.client.post("/api/jobs/analyze", json={"text": text}, headers=HEADER)
+        self.assertEqual(response.status_code, 200, response.text)
+        guess = response.json()["guess"]
+        self.assertEqual(guess["title"], "数据开发工程师")
+        self.assertEqual(guess["company"], "某某科技有限公司")
+        self.assertEqual(guess["city"], "北京")
+        self.assertEqual((guess["salary_min"], guess["salary_max"]), (20000, 35000))
+        self.assertIsNone(response.json()["duplicate"])
+
+    def test_analyze_flags_same_url_as_duplicate(self) -> None:
+        text = chr(10).join([
+            "Java 开发工程师",
+            "https://www.zhipin.com/job_detail/abc123.html",
+            "职责：负责后端服务。" * 5,
+        ])
+        first = self._import(text=text, url="https://www.zhipin.com/job_detail/abc123.html").json()
+        self.assertTrue(first["created"])
+
+        result = self.client.post("/api/jobs/analyze", json={"text": text}, headers=HEADER).json()
+        self.assertIsNotNone(result["duplicate"], "同一个链接再粘一次要提示已存在")
+        self.assertEqual(result["duplicate"]["id"], first["id"])
+
+    def test_analyze_does_not_invent_company(self) -> None:
+        result = self.client.post("/api/jobs/analyze",
+                                  json={"text": chr(10).join(["招前端。", "会 Vue。"])},
+                                  headers=HEADER).json()
+        self.assertEqual(result["guess"]["company"], "")
+        self.assertTrue(result["guess"]["warnings"])
+
     # ---- 一键全抓（人工触发） ----
 
     def _create_source(self, source_id: str, name: str) -> None:

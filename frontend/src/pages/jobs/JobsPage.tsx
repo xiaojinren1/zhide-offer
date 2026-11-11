@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
-import { apiErrorMessage, jobsApi, jobsFetchAllApi, jobsProvinceApi, jobsSourceApi } from '../../lib/api'
-import type { JobDocument, JobProvince, JobSource } from '../../lib/api'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { apiErrorMessage, jobsApi, jobsFetchAllApi, jobsPasteApi, jobsProvinceApi, jobsSourceApi } from '../../lib/api'
+import type { JobDocument, JobProvince, JobSource, PasteGuess } from '../../lib/api'
 import './jobs.css'
 
 interface Props {
@@ -71,6 +71,33 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
   const [provinces, setProvinces] = useState<JobProvince[]>([])
   const [provinceCode, setProvinceCode] = useState('')
   const [provinceUrl, setProvinceUrl] = useState('')
+  const [guess, setGuess] = useState<{ fields: PasteGuess; duplicate: { id: string; title: string } | null } | null>(null)
+  const analysisSeq = useRef(0)
+
+  // 粘贴后自动识别：只补空字段，用户已经改了的不覆盖；停手 600ms 才发请求
+  useEffect(() => {
+    const body = form.text.trim()
+    if (body.length < 40) {
+      setGuess(null)
+      return
+    }
+    const seq = ++analysisSeq.current
+    const timer = setTimeout(() => {
+      jobsPasteApi.analyze(body).then(result => {
+        if (seq !== analysisSeq.current) return
+        setGuess({ fields: result.guess, duplicate: result.duplicate })
+        setForm(previous => ({
+          ...previous,
+          title: previous.title || result.guess.title || '',
+          company: previous.company || result.guess.company || '',
+          city: previous.city || result.guess.city || '',
+          salary: previous.salary || result.guess.salary_text || '',
+          url: previous.url || result.guess.url || '',
+        }))
+      }).catch(() => { /* 识别失败不打扰用户，手动填即可 */ })
+    }, 600)
+    return () => clearTimeout(timer)
+  }, [form.text])
 
   const refresh = useCallback(async (keyword: string) => {
     setLoading(true)
@@ -272,9 +299,18 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
       {showForm && <div className="jobs-form">
         <label>岗位 JD 或资料正文
           <textarea value={form.text} rows={8} disabled={disabled}
-            placeholder="把 JD 全文粘进来。模型可用时会自动解析岗位名、公司、要求；解析失败也会按原文保存。"
+            placeholder="把 JD 全文粘进来（BOSS 直聘、智联这类平台：复制岗位详情文字即可）。会先自动识别岗位名、公司、城市、薪资，再保存。"
             onChange={event => setForm(previous => ({ ...previous, text: event.target.value }))} />
         </label>
+        {guess && <div className="jobs-guess">
+          <p className="jobs-hint">
+            已识别：{[guess.fields.title, guess.fields.company, guess.fields.city, guess.fields.salary_text]
+              .filter(Boolean).join(' · ') || '没有足够信息，下面手动填'}
+          </p>
+          {guess.duplicate && <p className="jobs-hint jobs-guess-dup">
+            这份已在收件箱（{guess.duplicate.title || '未命名'}），保存会更新内容而不是新增
+          </p>}
+        </div>}
         <div className="jobs-form-grid">
           <label>岗位名称
             <input value={form.title} disabled={disabled} placeholder="留空则由模型解析"

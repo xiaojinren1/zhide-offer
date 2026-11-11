@@ -24,7 +24,7 @@ STATE = {
             "start": [2025, 1], "end": None, "source_text": "校园项目", "quantified": []}],
         "skills": ["需求分析"], "education": ["某大学"], "raw_text": "合成材料", "user_confirmed": True,
     },
-    "jd_keywords": ["需求"], "markdown": "# 演示简历", "page": "workbench",
+    "jd_keywords": ["需求"], "markdown": "# 演示简历", "resume_appearance": None, "page": "workbench",
 }
 
 

@@ -1,0 +1,239 @@
+"""社群卡片合约：投稿只有审核后可见、对外匿名、入库脱敏、举报与有帮助幂等。"""
+from __future__ import annotations
+
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+from fastapi.testclient import TestClient  # noqa: E402
+
+from core import accounts  # noqa: E402
+from engine.community import redact  # noqa: E402
+from main import app  # noqa: E402
+
+HEADER = {"X-Requested-With": "XMLHttpRequest"}
+BODY = "一面先问项目，追问了数据口径和调度失败怎么处理，建议把指标定义写清楚再讲实现。" * 2
+
+
+class CommunityContract(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        patcher = patch.object(accounts, "DATABASE_PATH", Path(self.tmp.name) / "community.sqlite3")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        with accounts.connection() as db:
+            for user_id, name, guest in (
+                ("u-alice", "alice", None),
+                ("u-bob", "bob", None),
+                ("u-admin", "admin", None),
+                ("u-guest", "trial_one", 1.0),
+            ):
+                db.execute(
+                    "INSERT INTO users(id,username,password_hash,created_at,guest_until) VALUES(?,?,?,0,?)",
+                    (user_id, name, "pbkdf2_sha256$1$00$00", guest),
+                )
+            db.execute("INSERT INTO user_roles(user_id, role) VALUES('u-admin', 'admin')")
+
+        self.current_user = {"id": "u-alice", "username": "alice"}
+        previous = dict(app.dependency_overrides)
+        app.dependency_overrides[accounts.require_user] = lambda: self.current_user
+        self.addCleanup(lambda: (app.dependency_overrides.clear(), app.dependency_overrides.update(previous)))
+        self.client = TestClient(app)
+
+    def submit(self, **overrides):
+        payload = {"kind": "interview", "title": "某公司数据岗一面", "body_md": BODY,
+                   "company": "某科技", "role": "数据开发", "round": "一面", "tags": ["SQL"], **overrides}
+        return self.client.post("/api/community/cards", json=payload, headers=HEADER)
+
+    def as_user(self, user_id: str) -> None:
+        names = {"u-bob": "bob", "u-admin": "admin", "u-guest": "trial_one", "u-alice": "alice"}
+        # 真实 require_user 会按 guest_until 标记 guest，这里同步模拟
+        self.current_user = {"id": user_id, "username": names[user_id],
+                             **({"guest": True} if user_id == "u-guest" else {})}
+
+    def approve(self, card_id: str, note: str = "") -> dict:
+        self.as_user("u-admin")
+        response = self.client.patch(f"/api/community/cards/{card_id}",
+                                     json={"action": "approve", "note": note}, headers=HEADER)
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()
+
+    # ---- 投稿与可见性 ----
+
+    def test_pending_is_invisible_to_others_and_public_after_review(self) -> None:
+        created = self.submit()
+        self.assertEqual(created.status_code, 201, created.text)
+        card_id = created.json()["id"]
+        self.assertEqual(created.json()["status"], "pending")
+
+        self.assertEqual(self.client.get("/api/community/cards").json()["items"], [])
+        self.as_user("u-bob")
+        self.assertEqual(self.client.get("/api/community/cards").json()["items"], [])
+        self.assertEqual(self.client.get(f"/api/community/cards/{card_id}").status_code, 404,
+                         "未审核内容对其他人不可见")
+
+        self.approve(card_id)
+        self.as_user("u-bob")
+        items = self.client.get("/api/community/cards").json()["items"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["title"], "某公司数据岗一面")
+
+    def test_payload_never_exposes_account_identity(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-bob")
+        card = self.client.get(f"/api/community/cards/{card_id}").json()["card"]
+        self.assertNotIn("user_id", card)
+        self.assertNotIn("anon_id", card)
+        self.assertTrue(card["author"], "应该给出匿名马甲名")
+        self.assertNotIn("alice", str(card))
+
+    def test_same_author_reuses_one_pseudonym(self) -> None:
+        first = self.submit().json()["id"]
+        second = self.submit(title="同一个人的第二条", body_md=BODY).json()["id"]
+        self.approve(first)
+        self.approve(second)
+        self.as_user("u-bob")
+        items = self.client.get("/api/community/cards").json()["items"]
+        self.assertEqual(len({item["author"] for item in items}), 1)
+
+    # ---- 投稿来源与校验 ----
+
+    def test_can_submit_from_own_document_only(self) -> None:
+        created = self.client.post("/api/jobs/import", json={
+            "text": "数据开发工程师\n岗位职责\n负责离线数仓建设与指标口径维护。",
+            "title": "数据开发工程师", "parse": False,
+        }, headers=HEADER).json()
+        response = self.submit(title="", body_md="", company="", role="", doc_id=created["id"])
+        self.assertEqual(response.status_code, 201, response.text)
+
+        self.as_user("u-bob")
+        doc = self.client.post("/api/jobs/import", json={
+            "text": "前端工程师\n岗位职责\n负责页面开发。", "title": "前端工程师", "parse": False,
+        }, headers=HEADER).json()
+        self.as_user("u-alice")
+        denied = self.submit(doc_id=doc["id"])
+        self.assertEqual(denied.status_code, 404, "别人的资料不能当投稿来源")
+
+    def test_short_body_and_bad_kind_are_rejected(self) -> None:
+        self.assertEqual(self.submit(body_md="太短").status_code, 422)
+        self.assertEqual(self.submit(kind="rumor").status_code, 422)
+
+    def test_guest_cannot_submit_or_report(self) -> None:
+        self.as_user("u-guest")
+        self.assertEqual(self.submit().status_code, 403)
+        self.assertEqual(self.client.get("/api/community/mine").status_code, 403)
+
+    # ---- 审核 ----
+
+    def test_reject_requires_note_and_hides_content(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.as_user("u-admin")
+        empty = self.client.patch(f"/api/community/cards/{card_id}",
+                                  json={"action": "reject", "note": " "}, headers=HEADER)
+        self.assertEqual(empty.status_code, 422)
+
+        rejected = self.client.patch(f"/api/community/cards/{card_id}",
+                                     json={"action": "reject", "note": "缺少岗位和轮次信息"}, headers=HEADER)
+        self.assertEqual(rejected.status_code, 200, rejected.text)
+        self.assertEqual(rejected.json()["status"], "rejected")
+
+        self.as_user("u-alice")
+        mine = self.client.get("/api/community/mine").json()["items"]
+        self.assertEqual(mine[0]["status"], "rejected")
+        self.assertEqual(mine[0]["review_note"], "缺少岗位和轮次信息")
+        self.as_user("u-bob")
+        self.assertEqual(self.client.get("/api/community/cards").json()["items"], [])
+
+    def test_review_requires_admin(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.assertEqual(self.client.get("/api/community/review").status_code, 403)
+        self.assertEqual(self.client.patch(f"/api/community/cards/{card_id}",
+                                           json={"action": "approve", "note": ""},
+                                           headers=HEADER).status_code, 403)
+
+    def test_review_queue_counts(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.as_user("u-admin")
+        queue = self.client.get("/api/community/review").json()
+        self.assertEqual([item["id"] for item in queue["items"]], [card_id])
+        self.assertEqual(queue["counts"]["pending"], 1)
+        self.approve(card_id)
+        queue = self.client.get("/api/community/review").json()
+        self.assertEqual(queue["items"], [])
+        self.assertEqual(queue["counts"]["public"], 1)
+
+    # ---- 互动 ----
+
+    def test_helpful_is_idempotent(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-bob")
+        first = self.client.post(f"/api/community/cards/{card_id}/helpful", headers=HEADER).json()
+        second = self.client.post(f"/api/community/cards/{card_id}/helpful", headers=HEADER).json()
+        self.assertEqual(first["helpful_count"], 1)
+        self.assertFalse(first["already"])
+        self.assertEqual(second["helpful_count"], 1, "同一人重复点击不能刷高计数")
+        self.assertTrue(second["already"])
+
+    def test_reports_hide_card_after_threshold(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        for user_id in ("u-bob", "u-alice", "u-admin"):
+            self.as_user(user_id)
+            self.client.post(f"/api/community/cards/{card_id}/report",
+                             json={"reason": "内容包含联系方式"}, headers=HEADER)
+        self.as_user("u-bob")
+        self.assertEqual(self.client.get("/api/community/cards").json()["items"], [],
+                         "累计举报达到阈值要先撤下待审")
+        self.as_user("u-admin")
+        queue = self.client.get("/api/community/review").json()
+        self.assertEqual(queue["items"][0]["id"], card_id)
+        self.assertIn("举报", queue["items"][0]["review_note"])
+
+    def test_same_user_reports_once(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-bob")
+        first = self.client.post(f"/api/community/cards/{card_id}/report",
+                                 json={"reason": "疑似广告"}, headers=HEADER).json()
+        second = self.client.post(f"/api/community/cards/{card_id}/report",
+                                  json={"reason": "疑似广告"}, headers=HEADER).json()
+        self.assertEqual(first["report_count"], 1)
+        self.assertTrue(second["already"])
+        self.assertEqual(second["report_count"], 1)
+
+    # ---- 撤回 ----
+
+    def test_author_can_withdraw_but_others_cannot(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.as_user("u-bob")
+        self.assertEqual(self.client.delete(f"/api/community/cards/{card_id}", headers=HEADER).status_code, 404)
+        self.as_user("u-alice")
+        self.assertEqual(self.client.delete(f"/api/community/cards/{card_id}", headers=HEADER).status_code, 200)
+        mine = self.client.get("/api/community/mine").json()["items"]
+        self.assertEqual(mine, [])
+
+    # ---- 脱敏 ----
+
+    def test_contact_details_are_masked_before_storage(self) -> None:
+        body = BODY + "想聊的加微信 abc_123456 或手机 138-1234-5678，邮箱 me@example.com"
+        card_id = self.submit(title="一面复盘 13812345678", body_md=body).json()["id"]
+        self.approve(card_id)
+        self.as_user("u-bob")
+        card = self.client.get(f"/api/community/cards/{card_id}").json()["card"]
+        self.assertNotIn("138-1234-5678", card["body_md"])
+        self.assertNotIn("me@example.com", card["body_md"])
+        self.assertNotIn("abc_123456", card["body_md"])
+        self.assertNotIn("13812345678", card["title"])
+        self.assertIn(redact.PHONE, card["body_md"])
+        self.assertEqual(card["company"], "某科技", "公司名是内容，不该被遮")
+
+
+if __name__ == "__main__":
+    unittest.main()

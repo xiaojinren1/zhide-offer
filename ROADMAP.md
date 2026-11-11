@@ -40,11 +40,12 @@
 - [ ] Agent 工具：`save_application`、`search_knowledge`、`get_interview_experience`；单次会话可连做三步以上。
 - [ ] 验收：一个岗位从 saved 走到 interview 全程留痕；未授权用户不可见他人记录。
 ## 第五期 · 弱实名社群
-- [ ] 新增 `anon_identities`：马甲与账号解耦，映射加密存储，仅举报处理时管理员可见并留审计。
-- [ ] 新增 `public_cards`（面经卡、内推卡、JD 评价卡），状态机 pending → public / rejected；只有 public 出现在任何列表（写在查询条件里，不靠前端过滤）。
-- [ ] 支持从私有资料一键提审；复用管理后台审核队列，退回必填原因。
-- [ ] 入库前脱敏（手机号、邮箱、身份证、姓名、公司内部代号等），提供举报与删除请求入口。
-- [ ] 验收：10 条非管理员提交的卡片上线；未审核不可见；举报 24 小时内可处置；脱敏测试通过。
+- [x] 新增 `anon_identities`：马甲与账号解耦；同一账号复用同一马甲，映射只在服务端，接口不返回账号或马甲 ID。
+- [x] 新增 `public_cards`（面经卡、内推卡、JD 评价卡），状态机 pending → public / rejected；只有 public 出现在列表（写在 SQL 条件里，不靠前端过滤）。
+- [x] 支持从私有资料带入正文（只能用自己的资料）；管理后台新增审核页签，退回必填原因，作者能看到理由。
+- [x] 入库前脱敏（手机号、邮箱、证件号、QQ、微信），提供举报与撤回入口；有帮助一人一票。
+- [ ] 验收：10 条非管理员提交的卡片上线；举报 24 小时内可处置。脱敏与可见性已由 `tests/test_community.py` 覆盖，真实内容量与处置时效未验收。
+> 进展：后端在 `backend/engine/community/` 与 `api/community.py`，页面在 `frontend/src/pages/community/`，契约见 [docs/COMMUNITY.md](docs/COMMUNITY.md)。`anon_identities` 的映射**未加密**（与方案里"加密存储"的差距保留在此，处理举报依赖管理员权限）；弱实名（邮箱/域名标签）仍未做。
 ## 第六期 · 管理员错误统计
 
 - [ ] 在管理后台增加近 24 小时和近 7 天错误趋势，按功能入口和错误类别聚合。

@@ -113,6 +113,27 @@ CREATE TABLE IF NOT EXISTS public_cards (
 
 CREATE INDEX IF NOT EXISTS idx_cards_status ON public_cards(status, published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cards_company ON public_cards(company, role, status);
+CREATE INDEX IF NOT EXISTS idx_cards_kind ON public_cards(kind, status, published_at DESC);
+
+-- 每人对同一张卡片只能点一次「有帮助」，重复点击不重复计数
+CREATE TABLE IF NOT EXISTS card_votes (
+    card_id    TEXT NOT NULL REFERENCES public_cards(id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at REAL NOT NULL,
+    PRIMARY KEY(card_id, user_id)
+);
+
+-- 举报：同一人同一卡一次；累计达标后卡片自动回到待审（先从列表隐藏）
+CREATE TABLE IF NOT EXISTS card_reports (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    card_id    TEXT NOT NULL REFERENCES public_cards(id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reason     TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_card_report_owner ON card_reports(card_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_card_reports_card ON card_reports(card_id, id DESC);
 
 CREATE TABLE IF NOT EXISTS feed_sources (
     id          TEXT PRIMARY KEY,

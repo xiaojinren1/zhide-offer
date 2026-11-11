@@ -22,6 +22,8 @@
 | 信源采集 | `backend/engine/sources/` | ✅ RSS/Atom、公告列表页、正文抽取、省份模板、一键全抓 |
 | 前端 | `frontend/src/pages/jobs/` | ✅ 收件箱、详情、粘贴自动识别、截图导入（回填表单）、信源与省份管理（管理员） |
 | 文档 | `docs/plan-jobs-knowledge-community.md` | ✅ 完整方案（表结构、工具契约、分期验收、风险） |
+| 面经与内推（社群） | `backend/engine/community/` + `api/community.py` + `pages/community/` | ✅ 匿名投稿 → 审核 → 公开、有帮助、举报、撤回；契约见 `docs/COMMUNITY.md` |
+| 管理员开通 CLI | `backend/manage.py` | ✅ `admin grant/revoke/list`，无管理员时启动日志给出补救命令 |
 
 提交记录：
 
@@ -50,15 +52,24 @@
 - 同一岗位只能有一条 `applications` 记录（已有唯一索引 `idx_applications_doc`）
 - 未授权用户看不到别人的投递记录
 
+### 2. 社群 v1 还差的东西
+
+已经能跑：匿名投稿 → 审核（退回必填理由）→ 公开、有帮助、举报（累计 3 条自动撤下）、作者撤回，见 [COMMUNITY.md](COMMUNITY.md)。
+
+- `anon_identities` 的账号映射是**明文**存库，方案里写的"加密存储"没做；处理举报只靠管理员权限。
+- 没有弱实名（邮箱/域名标签），也没有举报处置记录与时效统计。
+- 没有从面经卡片一键生成面试题/关联到面试记录。
+
 ## 四、不能碰的边界（写进 AGENTS.md 了，这里是摘要）
 
 1. **不抓招聘平台**。BOSS/智联/猎聘的岗位只能由用户复制文本粘贴导入；粘贴的链接只记录地址，服务端不发请求。
 2. **采集只人工触发**，不做定时任务。单轮 90 秒封顶、源间间隔 0.8 秒、失败只写 `last_status`。
 3. **导入不依赖模型**。`parse_jd` 失败或没配模型时按原文入库，原因放 `warnings`，禁止因为模型不可用丢数据。
 4. **截图只做转写，不入库**。`/api/jobs/parse-image` 把图读成文字回填表单，用户核对后自己点保存才入库；识别失败不写半成品、不改动正文。
-5. **薪资认不准就不写**。只在薪资字段行内识别（带薪资字段词，或短到只剩 `20-35K·14薪`）；职责句、脱敏的 `**-***元`、解析不出数字的文本都留空并提示，绝不拿职责里的数字当工资。
-6. **省份模板必须如实标注 `verified`**，没实测的写 `false` 并在 `note` 说明原因，不臆造地址。
-7. **新增页面要登记两处**：`App.tsx` 的 `canOpen()`（不登记点击无效）和 `setPage()` 的 `pageOverride` 分支（否则会污染工作台快照的 `page` 字段）。
+5. **社群只出 public**。`public_cards` 的状态机是 `pending → public / rejected`，公开列表在 SQL 里限定 `status='public'`；对外只给匿名马甲，接口不得返回 `user_id` / `anon_id`；投稿入库前必须脱敏，退回必须写理由。
+6. **薪资认不准就不写**。只在薪资字段行内识别（带薪资字段词，或短到只剩 `20-35K·14薪`）；职责句、脱敏的 `**-***元`、解析不出数字的文本都留空并提示，绝不拿职责里的数字当工资。
+7. **省份模板必须如实标注 `verified`**，没实测的写 `false` 并在 `note` 说明原因，不臆造地址。
+8. **新增页面要登记两处**：`App.tsx` 的 `canOpen()`（不登记点击无效）和 `setPage()` 的 `pageOverride` 分支（否则会污染工作台快照的 `page` 字段）。
 
 ## 五、常用命令
 
@@ -75,6 +86,10 @@
 
 :: 前端构建（改前端后必须做，否则浏览器还是旧包）
 npm.cmd --prefix frontend run build
+
+:: 管理员开通 / 查看（部署时忘了配名单就用它补）
+.\.venv\Scripts\python.exe backend/manage.py admin list
+.\.venv\Scripts\python.exe backend/manage.py admin grant 用户名
 ```
 
 改完后端要**重启服务**；改完前端要**重启 + Ctrl+F5**（普通刷新可能用缓存的 `index.html`）。

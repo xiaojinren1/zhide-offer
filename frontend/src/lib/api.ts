@@ -404,3 +404,83 @@ export const jobsPasteApi = {
       duplicate: { id: string; title: string } | null
     }>,
 }
+
+export type CommunityCard = {
+  id: string
+  kind: 'interview' | 'referral' | 'jd_review'
+  company: string
+  role: string
+  round: string
+  title: string
+  body_md: string
+  tags: string[]
+  status: 'pending' | 'public' | 'rejected'
+  author: string
+  helpful_count: number
+  report_count: number
+  review_note: string
+  created_at: number
+  published_at: number | null
+}
+
+export type CommunitySubmitPayload = {
+  kind: CommunityCard['kind']
+  title: string
+  body_md: string
+  company?: string
+  role?: string
+  round?: string
+  tags?: string[]
+  doc_id?: string
+}
+
+export const communityApi = {
+  list: (params: { kind?: string; company?: string; q?: string; before?: number } = {}) =>
+    http.get('/community/cards', { params }).then(r => r.data) as Promise<{
+      ok: boolean
+      items: CommunityCard[]
+      next_before: number | null
+    }>,
+  detail: (id: string) =>
+    http.get(`/community/cards/${encodeURIComponent(id)}`).then(r => r.data) as Promise<{
+      ok: boolean
+      card: CommunityCard
+    }>,
+  mine: () =>
+    http.get('/community/mine').then(r => r.data) as Promise<{ ok: boolean; items: CommunityCard[] }>,
+  submit: (payload: CommunitySubmitPayload) =>
+    http.post('/community/cards', payload).then(r => r.data) as Promise<{
+      ok: boolean
+      id: string
+      status: string
+      message: string
+    }>,
+  helpful: (id: string) =>
+    http.post(`/community/cards/${encodeURIComponent(id)}/helpful`).then(r => r.data) as Promise<{
+      ok: boolean
+      helpful_count: number
+      already: boolean
+    }>,
+  report: (id: string, reason: string) =>
+    http.post(`/community/cards/${encodeURIComponent(id)}/report`, { reason }).then(r => r.data) as Promise<{
+      ok: boolean
+      report_count: number
+      already: boolean
+      hidden: boolean
+      message: string
+    }>,
+  remove: (id: string) =>
+    http.delete(`/community/cards/${encodeURIComponent(id)}`).then(r => r.data) as Promise<{ ok: boolean }>,
+  reviewQueue: (params: { status?: string; before?: number } = {}) =>
+    http.get('/community/review', { params }).then(r => r.data) as Promise<{
+      ok: boolean
+      items: CommunityCard[]
+      counts: Record<string, number>
+    }>,
+  reviewCard: (id: string, action: 'approve' | 'reject', note: string) =>
+    http.patch(`/community/cards/${encodeURIComponent(id)}`, { action, note }).then(r => r.data) as Promise<{
+      ok: boolean
+      status: string
+      review_note: string
+    }>,
+}

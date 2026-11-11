@@ -7,7 +7,10 @@ Type=simple
 User=jobagent
 Group=jobagent
 WorkingDirectory=/opt/jobagent
-Environment=JOBAGENT_ENV_FILE=/etc/jobagent/jobagent.env
+# 默认读取 /opt/jobagent/backend/.env（首次部署用它就行）。
+# 想把配置放到仓库目录之外（推荐服务器上这样做）时，取消下面一行的注释，
+# 并把 deploy/jobagent.env.example 复制到该路径后填写；文件不存在会直接启动失败。
+#Environment=JOBAGENT_ENV_FILE=/etc/jobagent/jobagent.env
 ExecStart=/opt/jobagent/.venv/bin/python /opt/jobagent/backend/main.py
 Restart=on-failure
 RestartSec=5

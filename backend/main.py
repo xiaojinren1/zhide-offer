@@ -76,7 +76,7 @@ from api.resume_share import public_router as public_resume_router  # noqa: E402
 app.include_router(public_resume_router)
 
 for module_path in ("api.diagnose", "api.resume", "api.quality", "api.interview", "api.profiles",
-                    "api.workspace", "api.interview_records", "api.export", "api.evidence", "api.model_preferences", "api.user_stats", "api.feedback", "api.resume_share", "api.jobs"):
+                    "api.workspace", "api.interview_records", "api.export", "api.evidence", "api.model_preferences", "api.user_stats", "api.feedback", "api.resume_share", "api.jobs", "api.community"):
     module = __import__(module_path, fromlist=["router"])
     app.include_router(module.router, dependencies=[Depends(accounts.require_user), Depends(accounts.require_csrf), Depends(model_preferences.bind)])
 
@@ -145,10 +145,31 @@ else:
         )
 
 
+def admin_bootstrap_hint() -> str:
+    """没有任何管理员时给运维一句明确的开通提示。
+
+    部署时忘了配 JOBAGENT_ADMIN_USERNAMES 就没人能打开「管理后台」，这个函数
+    让日志里直接出现补救命令，而不是让运维去翻文档或改数据库。
+    """
+    try:
+        with accounts.connection() as db:
+            if db.execute("SELECT 1 FROM user_roles WHERE role = 'admin' LIMIT 1").fetchone():
+                return ""
+    except Exception:  # 数据库未就绪不影响启动
+        return ""
+    return (
+        "[jobagent] 站上还没有管理员账号，没有人能打开「管理后台」。"
+        "先在网站上注册账号，然后执行：python backend/manage.py admin grant <用户名>"
+    )
+
+
 def main() -> None:
     try:
         import uvicorn
 
+        hint = admin_bootstrap_hint()
+        if hint:
+            print(hint, file=sys.stderr)
         cfg = settings()
         uvicorn.run(
             app, host=cfg["host"], port=cfg["port"], log_level="info",

@@ -4,8 +4,9 @@
 
 ## 配置契约
 
-- 真实配置保存为 `/etc/jobagent/jobagent.env`，不要写入 Python、前端源码或 Git 跟踪文件。仓库仅提供 `deploy/jobagent.env.example`。
-- systemd 使用 `JOBAGENT_ENV_FILE` 指定该文件。显式指定文件不存在或不可读时启动失败，不回退本机配置；未指定时保留原有 `.env` 查找顺序。进程环境变量优先，修改后必须重启服务。
+- 配置默认读项目里的 `backend/.env`（服务单元 `WorkingDirectory=/opt/jobagent`，因此实际是 `/opt/jobagent/backend/.env`），文件名沿用本机习惯，部署时直接复制 `backend/.env.example` 填写即可。
+- 想把配置放到仓库目录之外时，在 systemd 单元里设 `JOBAGENT_ENV_FILE=/etc/jobagent/jobagent.env`（或在该 shell 里导出），并把 `deploy/jobagent.env.example` 复制过去填写。**一旦设了 `JOBAGENT_ENV_FILE`，文件不存在或不可读就是启动失败，不回退到 `.env`**；没设时才按 `backend/.env` → 当前目录 `.env` → 项目根 `.env` 的顺序查找。
+- 两种方式都不要把真实密钥写进 Python、前端源码或 Git 跟踪文件；仓库只提供 `backend/.env.example` 与 `deploy/jobagent.env.example` 两个无密钥模版。进程环境变量优先于文件。
 - `JOBAGENT_HOST` 默认 `127.0.0.1`，Nginx 转发到该地址；`JOBAGENT_PORT` 必须在 1–65535 内。单进程运行，数据仍保存到项目 `data/`，更新代码时必须保留并备份整个目录。
 - Nginx 传递 HTTPS 协议头，后端仅信任本机代理。HTTPS 登录 Cookie 会带 Secure。生产访问前应通过服务器已有的证书管理方式配置 HTTPS。
 - 模型健康字段只证明配置存在；真实文本、图片和工具调用能力需单独验收。PDF 导出需可用的中文 TrueType 字体，用 `JOBAGENT_PDF_FONT` 指定服务器实际路径。
@@ -13,7 +14,7 @@
 
 ## 环境变量清单
 
-全部写在 `JOBAGENT_ENV_FILE` 指向的私有文件里；进程环境变量优先。
+全部写在配置文件里（默认 `backend/.env`，或 `JOBAGENT_ENV_FILE` 指向的文件）；进程环境变量优先。
 
 | 变量 | 默认 | 作用 |
 | --- | --- | --- |
@@ -46,13 +47,24 @@ npm --prefix frontend ci
 npm --prefix frontend run build
 ```
 
-首次创建配置（已有文件时停止，不覆盖）：
+首次创建配置。默认方式（与本机一致，推荐先这样做）：
+
+```sh
+cd /opt/jobagent
+test ! -e backend/.env && cp backend/.env.example backend/.env
+chmod 600 backend/.env && chown jobagent:jobagent backend/.env
+$EDITOR backend/.env
+```
+
+可选加固（配置不放在代码目录）：
 
 ```sh
 sudo install -d -m 750 -o root -g jobagent /etc/jobagent
 sudo test ! -e /etc/jobagent/jobagent.env && sudo install -m 640 -o root -g jobagent deploy/jobagent.env.example /etc/jobagent/jobagent.env
 sudoedit /etc/jobagent/jobagent.env
 ```
+
+然后取消 `deploy/jobagent.service` 里 `Environment=JOBAGENT_ENV_FILE=...` 的注释再安装服务单元。两者不共存：设了 `JOBAGENT_ENV_FILE` 后就**不再读** `backend/.env`。
 
 必填两项：
 
@@ -139,7 +151,20 @@ curl --fail -o /dev/null http://127.0.0.1:8000/
 
 ## 管理员角色
 
-先注册并确认首个管理员账号由你控制，再把用户名填入 JOBAGENT_ADMIN_USERNAMES 并重启后端。用该账号登录并打开管理后台，已有正式账号会一次性迁移到数据库。确认左侧出现「管理后台」后，可移除环境变量。后续在「管理后台 → 管理员角色」授予或撤销其他账号的权限。角色保存在账户 SQLite 中，随数据库一起备份。
+先注册一个你控制的正式账号（试用账号不能当管理员），然后任选一种方式开通：
+
+```sh
+# 推荐：服务器终端直接执行，不需要改配置也不用重启
+cd /opt/jobagent
+.venv/bin/python backend/manage.py admin grant 你的用户名
+.venv/bin/python backend/manage.py admin list
+```
+
+也可以用 `JOBAGENT_ADMIN_USERNAMES=你的用户名` 重启后端做一次性迁移（只接受已注册的正式账号，成功后不再需要这个变量）。两种方式都只是把角色写进数据库 `user_roles`：之后均在「管理后台 → 管理员角色」给其他账号授予或撤销，管理员不能撤销自己，CLI 也不允许撤销最后一个管理员。
+
+CLI 的两个安全边界：找不到账号时提示先去网站注册；试用账号直接拒绝。角色随账户 SQLite 一起备份。
+
+**忘了开通的补救**：站上没有任何管理员时，后端启动会往 `journalctl -u jobagent` 打一行提示，里面就是上面那条 `admin grant` 命令；服务照常运行，不需要重新部署。
 
 ## 联系管理员
 

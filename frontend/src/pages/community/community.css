@@ -1,0 +1,242 @@
+/* 社群：左侧浏览/投稿/审核，右侧详情。沿用 panel 与按钮的既有视觉。 */
+.community-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.community-main,
+.community-detail {
+  min-height: 320px;
+}
+
+.community-main .panel-heading,
+.community-detail .panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.community-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.community-tabs button {
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  background: #fff;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.community-tabs button.active {
+  background: rgba(47, 111, 79, 0.1);
+  border-color: rgba(47, 111, 79, 0.45);
+  color: #2f6f4f;
+}
+
+.community-tabs button:focus-visible,
+.community-card:focus-visible,
+.community-actions button:focus-visible {
+  outline: 2px solid #2f6f4f;
+  outline-offset: 2px;
+}
+
+.community-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-muted, #6b7280);
+}
+
+.community-message {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #2f6f4f;
+}
+
+.community-error {
+  color: #a13c2f;
+}
+
+.community-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.community-filters input {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.community-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.community-card {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.community-card.active {
+  border-color: rgba(47, 111, 79, 0.5);
+  background: rgba(47, 111, 79, 0.05);
+}
+
+.community-card-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.community-card-meta,
+.community-card-foot {
+  font-size: 12px;
+  color: var(--text-muted, #6b7280);
+}
+
+.community-form {
+  display: grid;
+  gap: 10px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed rgba(0, 0, 0, 0.12);
+  margin-bottom: 14px;
+}
+
+.community-form label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-muted, #5c6470);
+}
+
+.community-form textarea,
+.community-form input,
+.community-form select,
+.community-review input {
+  width: 100%;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.community-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.community-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.community-subtitle {
+  font-size: 15px;
+  margin: 4px 0 8px;
+}
+
+.community-mine,
+.community-review {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.community-mine > div,
+.community-review > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 220px;
+}
+
+.community-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-muted, #5c6470);
+}
+
+.community-badge[data-status='public'] {
+  background: rgba(47, 111, 79, 0.12);
+  color: #2f6f4f;
+}
+
+.community-badge[data-status='rejected'] {
+  background: rgba(161, 60, 47, 0.12);
+  color: #a13c2f;
+}
+
+.community-note {
+  margin: 0;
+  font-size: 12px;
+  color: #a13c2f;
+}
+
+.community-facts {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 6px 0 10px;
+}
+
+.community-facts span {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-muted, #5c6470);
+}
+
+.community-body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.8;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 8px;
+  padding: 10px 12px;
+  max-height: 420px;
+  overflow: auto;
+}
+
+@media (max-width: 900px) {
+  .community-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

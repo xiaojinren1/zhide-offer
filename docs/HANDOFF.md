@@ -63,7 +63,7 @@
 ## 五、常用命令
 
 ```bat
-:: 启动 / 停止（前台运行，需在自己的终端里敲）
+:: 启动 / 停止（start 会占住当前终端；停止在另一个终端执行，或直接 Ctrl+C）
 .\.venv\Scripts\python.exe start.py start
 .\.venv\Scripts\python.exe start.py stop
 
@@ -78,6 +78,8 @@ npm.cmd --prefix frontend run build
 ```
 
 改完后端要**重启服务**；改完前端要**重启 + Ctrl+F5**（普通刷新可能用缓存的 `index.html`）。
+
+细节见 [RUNBOOK.md](../RUNBOOK.md)：`start` 要求 `frontend/dist/index.html` 存在，进程号记在 `data/local-server.pid.json`；绕开 `start.py` 直接跑 `backend/main.py` 启动的进程无法用 `stop` 关闭。服务器用 systemd 启停，不用 `start.py`，见 [DEPLOY.md](../DEPLOY.md)。
 
 ## 六、验收基线（别把既有失败当成自己弄坏的）
 

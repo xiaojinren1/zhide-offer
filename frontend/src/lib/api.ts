@@ -441,6 +441,18 @@ export type CommunityComment = {
   can_manage: boolean
 }
 
+export type CommunityRevisionMeta = {
+  revision: number
+  title: string
+  company: string
+  role: string
+  round: string
+  tags: string[]
+  created_at: number
+}
+
+export type CommunityRevision = CommunityRevisionMeta & { body_md: string }
+
 export type CommunityReportGroup = {
   card_id: string
   title: string
@@ -556,6 +568,17 @@ export const communityApi = {
       ok: boolean
       status: string
       message: string
+    }>,
+  revisions: (id: string) =>
+    http.get(`/community/cards/${encodeURIComponent(id)}/revisions`).then(r => r.data) as Promise<{
+      ok: boolean
+      items: CommunityRevisionMeta[]
+      total: number
+    }>,
+  revision: (id: string, revision: number) =>
+    http.get(`/community/cards/${encodeURIComponent(id)}/revisions/${revision}`).then(r => r.data) as Promise<{
+      ok: boolean
+      revision: CommunityRevision
     }>,
   resubmit: (id: string) =>
     http.post(`/community/cards/${encodeURIComponent(id)}/resubmit`).then(r => r.data) as Promise<{

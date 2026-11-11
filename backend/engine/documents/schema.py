@@ -157,6 +157,22 @@ CREATE TABLE IF NOT EXISTS card_comments (
 CREATE INDEX IF NOT EXISTS idx_comments_card ON card_comments(card_id, status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_comments_status ON card_comments(status, id DESC);
 
+-- 内容版本快照：作者每次改内容留一份，供作者/管理员查历史与对比上一版
+CREATE TABLE IF NOT EXISTS card_revisions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    card_id    TEXT NOT NULL REFERENCES public_cards(id) ON DELETE CASCADE,
+    revision   INTEGER NOT NULL,
+    title      TEXT NOT NULL DEFAULT '',
+    body_md    TEXT NOT NULL DEFAULT '',
+    company    TEXT NOT NULL DEFAULT '',
+    role       TEXT NOT NULL DEFAULT '',
+    round      TEXT NOT NULL DEFAULT '',
+    tags_json  TEXT NOT NULL DEFAULT '[]',
+    created_at REAL NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_card_revisions_version ON card_revisions(card_id, revision);
+
 -- 评论举报：一人一条评论一次，避免一个人刷举报把评论顶掉
 CREATE TABLE IF NOT EXISTS comment_reports (
     comment_id TEXT NOT NULL REFERENCES card_comments(id) ON DELETE CASCADE,

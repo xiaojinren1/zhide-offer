@@ -626,3 +626,58 @@ class CommunityRevisionSemantics(unittest.TestCase):
         self.assertEqual(card["revision"], 1, "内容没改，版本不变")
         self.assertEqual(card["helpful_count"], 1)
         self.assertEqual(card["comment_count"], 1)
+
+
+class CommunityRevisionHistory(unittest.TestCase):
+    """历史版本：作者与管理员可查，其他人不可见，内容按版本留存。"""
+
+    setUp = CommunityContract.setUp
+    submit = CommunityContract.submit
+    as_user = CommunityContract.as_user
+    approve = CommunityContract.approve
+
+    def revise(self, card_id: str, body: str) -> None:
+        self.as_user("u-alice")
+        response = self.client.put(f"/api/community/cards/{card_id}", json={"body_md": body}, headers=HEADER)
+        self.assertEqual(response.status_code, 200, response.text)
+
+    def test_history_keeps_old_body_and_is_owner_only(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.revise(card_id, "第二版正文：补充了二面的窗口函数题与调度补偿思路，其余保持原样。")
+        self.revise(card_id, "第三版正文：再去掉一面内容，只留二面与手写 LRU 的追问细节。")
+
+        history = self.client.get(f"/api/community/cards/{card_id}/revisions").json()
+        self.assertEqual([item["revision"] for item in history["items"]], [3, 2, 1])
+        self.assertNotIn("body_md", history["items"][0], "列表只给元信息，正文按版本单独取")
+
+        first = self.client.get(f"/api/community/cards/{card_id}/revisions/1").json()["revision"]
+        self.assertEqual(first["title"], "某公司数据岗一面")
+        self.assertIn("一面先问项目", first["body_md"])
+        third = self.client.get(f"/api/community/cards/{card_id}/revisions/3").json()["revision"]
+        self.assertIn("手写 LRU", third["body_md"])
+
+        self.as_user("u-bob")
+        self.assertEqual(self.client.get(f"/api/community/cards/{card_id}/revisions").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/community/cards/{card_id}/revisions/1").status_code, 404)
+
+        self.as_user("u-admin")
+        items = self.client.get(f"/api/community/cards/{card_id}/revisions").json()["items"]
+        self.assertEqual(len(items), 3, "管理员处理举报时需要能看历史内容")
+
+    def test_history_survives_unpublish_and_resubmit_does_not_add_version(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-admin")
+        self.client.patch(f"/api/community/cards/{card_id}",
+                          json={"action": "unpublish", "note": "需要补充信息"}, headers=HEADER)
+        self.as_user("u-alice")
+        self.client.post(f"/api/community/cards/{card_id}/resubmit", headers=HEADER)
+        history = self.client.get(f"/api/community/cards/{card_id}/revisions").json()["items"]
+        self.assertEqual([item["revision"] for item in history], [1], "重新提交不算新版本")
+
+    def test_legacy_card_without_snapshot_backfills_current(self) -> None:
+        card_id = self.submit().json()["id"]
+        with accounts.connection() as db:
+            db.execute("DELETE FROM card_revisions WHERE card_id = ?", (card_id,))
+        history = self.client.get(f"/api/community/cards/{card_id}/revisions").json()["items"]
+        self.assertEqual(len(history), 1, "老卡片至少能看到当前这一版")

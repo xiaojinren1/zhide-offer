@@ -337,3 +337,30 @@ def resubmit_card(card_id: str, user: dict = Depends(_require_account)):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"ok": True, **result, "message": "已重新提交审核。"}
+
+
+# ---- 历史版本 ----
+
+
+@router.get("/cards/{card_id}/revisions")
+def list_revisions(card_id: str, user: dict = Depends(accounts.require_user)):
+    """作者与管理员可查历史版本（含正文），其他人 404。"""
+    try:
+        with accounts.connection() as db:
+            items = community.cards.list_revisions(
+                db, card_id, viewer_id=user["id"], admin=is_admin(user))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"ok": True, "items": [{key: value for key, value in item.items() if key != "body_md"}
+                                  for item in items], "total": len(items)}
+
+
+@router.get("/cards/{card_id}/revisions/{revision}")
+def get_revision(card_id: str, revision: int, user: dict = Depends(accounts.require_user)):
+    try:
+        with accounts.connection() as db:
+            item = community.cards.get_revision(
+                db, card_id, revision, viewer_id=user["id"], admin=is_admin(user))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"ok": True, "revision": item}

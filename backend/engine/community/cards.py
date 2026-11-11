@@ -61,6 +61,68 @@ def ensure_anon_id(db, user_id: str) -> str:
     return anon_id
 
 
+def snapshot_revision(db, card_id: str, revision: int | None = None) -> None:
+    """把卡片当前内容存成一份版本快照（同版本重复写只保留一次）。"""
+    row = db.execute("SELECT * FROM public_cards WHERE id = ?", (card_id,)).fetchone()
+    if row is None:
+        return
+    version = int(revision if revision is not None else row["revision"])
+    db.execute(
+        "INSERT OR IGNORE INTO card_revisions(card_id, revision, title, body_md, company, role,"
+        " round, tags_json, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        (card_id, version, row["title"], row["body_md"], row["company"], row["role"],
+         row["round"], row["tags_json"], _now()),
+    )
+
+
+def _revision_dict(row: Any) -> dict[str, Any]:
+    try:
+        tags = json.loads(row["tags_json"] or "[]")
+    except (TypeError, ValueError):
+        tags = []
+    return {
+        "revision": row["revision"],
+        "title": row["title"],
+        "body_md": row["body_md"],
+        "company": row["company"],
+        "role": row["role"],
+        "round": row["round"],
+        "tags": tags if isinstance(tags, list) else [],
+        "created_at": row["created_at"],
+    }
+
+
+def list_revisions(db, card_id: str, *, viewer_id: str, admin: bool) -> list[dict[str, Any]]:
+    """作者与管理员可看全部版本；其他人一律看不到（历史内容可能已因合规撤下）。
+
+    没有快照的老卡片（本功能上线前创建）会把当前内容补一份，保证至少能看到现状。
+    """
+    card = db.execute("SELECT user_id FROM public_cards WHERE id = ?", (card_id,)).fetchone()
+    if card is None or (card["user_id"] != viewer_id and not admin):
+        raise LookupError("投稿不存在或无权查看历史")
+    rows = db.execute(
+        "SELECT * FROM card_revisions WHERE card_id = ? ORDER BY revision DESC", (card_id,)
+    ).fetchall()
+    if not rows:
+        snapshot_revision(db, card_id)
+        rows = db.execute(
+            "SELECT * FROM card_revisions WHERE card_id = ? ORDER BY revision DESC", (card_id,)
+        ).fetchall()
+    return [_revision_dict(row) for row in rows]
+
+
+def get_revision(db, card_id: str, revision: int, *, viewer_id: str, admin: bool) -> dict[str, Any]:
+    card = db.execute("SELECT user_id FROM public_cards WHERE id = ?", (card_id,)).fetchone()
+    if card is None or (card["user_id"] != viewer_id and not admin):
+        raise LookupError("投稿不存在或无权查看历史")
+    row = db.execute(
+        "SELECT * FROM card_revisions WHERE card_id = ? AND revision = ?", (card_id, revision)
+    ).fetchone()
+    if row is None:
+        raise LookupError("这个版本不存在")
+    return _revision_dict(row)
+
+
 def _card_dict(row: Any, anon_name: str, *, viewer_helpful: bool = False,
                comment_count: int = 0) -> dict[str, Any]:
     """对外形态：不含 user_id / anon_id / 审核人。"""
@@ -155,6 +217,7 @@ def submit(db, user_id: str, *, kind: str, title: object, body_md: object,
         (card_id, user_id, anon_id, kind, _clip(company, MAX_COMPANY), _clip(role, MAX_ROLE),
          _clip(round, 20), clean_title, clean_body, json.dumps(clean_tags, ensure_ascii=False), now),
     )
+    snapshot_revision(db, card_id, 1)
     return {"id": card_id, "status": "pending", "created_at": now}
 
 
@@ -283,6 +346,7 @@ def revise(db, card_id: str, user_id: str, *, title: object = None, body_md: obj
         " WHERE card_id = ? AND status = 'open'",
         (_now(), card_id),
     )
+    snapshot_revision(db, card_id, revision)
     return {"id": card_id, "status": "pending", "revision": revision}
 
 

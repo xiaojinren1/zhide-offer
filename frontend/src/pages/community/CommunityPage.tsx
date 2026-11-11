@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiErrorMessage, communityApi, jobsApi } from '../../lib/api'
-import type { CommunityCard, CommunityComment, CommunityReportGroup, CommunitySubmitPayload, JobDocument } from '../../lib/api'
+import type { CommunityCard, CommunityComment, CommunityReportGroup, CommunityRevision, CommunityRevisionMeta, CommunitySubmitPayload, JobDocument } from '../../lib/api'
+import { diffLines, diffSummary } from '../../lib/textDiff'
 import './community.css'
 
 interface Props {
@@ -78,6 +79,11 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
   const [docs, setDocs] = useState<JobDocument[]>([])
   // 非空表示正在改这篇投稿；保存后回到待审
   const [editingId, setEditingId] = useState('')
+  // 历史版本：展开哪篇投稿、版本列表、选中版本与对比基准
+  const [historyId, setHistoryId] = useState('')
+  const [historyItems, setHistoryItems] = useState<CommunityRevisionMeta[]>([])
+  const [historyVersion, setHistoryVersion] = useState<CommunityRevision | null>(null)
+  const [historyCompare, setHistoryCompare] = useState<CommunityRevision | null>(null)
 
   const loadLibrary = useCallback(async () => {
     setLoading(true)
@@ -196,6 +202,48 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
       setEditingId('')
       await loadMine()
       await loadQueue()
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  /** 打开/收起某篇投稿的历史版本，默认展示最新一版与它的上一版对比。 */
+  async function toggleHistory(card: CommunityCard) {
+    if (historyId === card.id) {
+      setHistoryId('')
+      setHistoryItems([])
+      setHistoryVersion(null)
+      setHistoryCompare(null)
+      return
+    }
+    setBusy(`history-${card.id}`)
+    setError('')
+    try {
+      const result = await communityApi.revisions(card.id)
+      setHistoryId(card.id)
+      setHistoryItems(result.items)
+      const latest = result.items[0]?.revision ?? 1
+      await pickHistoryVersion(card.id, latest, result.items)
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  /** 选中某一版，并自动取它的上一版做对比（第 1 版没有上一版）。 */
+  async function pickHistoryVersion(cardId: string, revision: number,
+                                     items: CommunityRevisionMeta[] = historyItems) {
+    setBusy(`history-${cardId}`)
+    try {
+      const current = (await communityApi.revision(cardId, revision)).revision
+      setHistoryVersion(current)
+      const previous = items.find(item => item.revision === revision - 1)
+      setHistoryCompare(previous
+        ? (await communityApi.revision(cardId, previous.revision)).revision
+        : null)
     } catch (reason) {
       setError(apiErrorMessage(reason))
     } finally {
@@ -543,8 +591,48 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
                   审核说明：{item.review_note}
                   {item.status === 'rejected' ? '（可以点「编辑」改完再提交，或直接「重新提交」）' : ''}
                 </p>}
+                {historyId === item.id && <div className="community-history">
+                  <div className="community-history-list" role="tablist" aria-label="历史版本">
+                    {historyItems.map(version => <button key={version.revision} type="button"
+                      role="tab" aria-selected={historyVersion?.revision === version.revision}
+                      className={historyVersion?.revision === version.revision ? 'active' : ''}
+                      disabled={disabled || busy === `history-${item.id}`}
+                      onClick={() => void pickHistoryVersion(item.id, version.revision)}>
+                      第 {version.revision} 版 · {stamp(version.created_at)}
+                    </button>)}
+                  </div>
+                  {historyVersion && <div className="community-history-body">
+                    <p className="community-hint">
+                      正在查看第 {historyVersion.revision} 版
+                      {historyCompare
+                        ? `；下面是相对第 ${historyCompare.revision} 版的变化（绿色为新增，红色为删除）`
+                        : '；这是最早的版本，没有上一版可对比'}
+                    </p>
+                    <p className="community-hint">标题：{historyVersion.title}</p>
+                    {historyCompare ? <pre className="community-diff">
+                      {diffLines(historyCompare.body_md, historyVersion.body_md).map((line, index) => (
+                        <span key={`${historyVersion.revision}-${index}`} className={`diff-${line.type}`}>
+                          {line.type === 'add' ? '+ ' : line.type === 'remove' ? '- ' : '  '}
+                          {line.text}
+                          {String.fromCharCode(10)}
+                        </span>
+                      ))}
+                    </pre> : <pre className="community-body">{historyVersion.body_md}</pre>}
+                    {historyCompare && (() => {
+                      const summary = diffSummary(diffLines(historyCompare.body_md, historyVersion.body_md))
+                      return <p className="community-hint">
+                        本次变化：新增 {summary.added} 行，删除 {summary.removed} 行。
+                      </p>
+                    })()}
+                  </div>}
+                </div>}
               </div>
               <div className="community-actions">
+                <button type="button" className="secondary-button" disabled={disabled || busy === `history-${item.id}`}
+                  aria-expanded={historyId === item.id}
+                  onClick={() => void toggleHistory(item)}>
+                  {item.revision > 1 ? `历史版本（${item.revision}）` : '历史版本'}
+                </button>
                 <button type="button" className="secondary-button" disabled={disabled}
                   onClick={() => startEdit(item)}>
                   {item.status === 'public' ? '编辑（会重新审核）' : '编辑'}

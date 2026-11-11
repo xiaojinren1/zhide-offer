@@ -366,3 +366,69 @@
   border-style: dashed;
   opacity: 0.85;
 }
+
+/* 历史版本：版本切换 + 行级对比 */
+.community-history {
+  margin-top: 10px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.15);
+  padding-top: 10px;
+}
+
+.community-history-list {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.community-history-list button {
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  background: #fff;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.community-history-list button.active {
+  background: rgba(47, 111, 79, 0.1);
+  border-color: rgba(47, 111, 79, 0.45);
+  color: #2f6f4f;
+}
+
+.community-history-body {
+  display: grid;
+  gap: 4px;
+}
+
+.community-diff {
+  margin: 0;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.7;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 8px;
+  padding: 8px 10px;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.community-diff .diff-add {
+  display: block;
+  background: rgba(47, 111, 79, 0.12);
+  color: #2f6f4f;
+}
+
+.community-diff .diff-remove {
+  display: block;
+  background: rgba(161, 60, 47, 0.1);
+  color: #a13c2f;
+  text-decoration: line-through;
+}
+
+.community-diff .diff-same {
+  display: block;
+  color: var(--text-muted, #5c6470);
+}

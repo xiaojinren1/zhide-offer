@@ -61,11 +61,18 @@ def _require_admin(user: dict = Depends(accounts.require_user)) -> dict:
 
 
 def _from_draft(doc_id: str, user_id: str) -> dict[str, Any]:
-    """从自己的资料里取正文；看不见的资料一律当作不存在。"""
+    """从自己的资料里取正文；看不见的资料明确报错，不静默当成"没选"。
+
+    用 422 而不是 404：这是"你选中的引用对象用不了"的表单错误，不是"页面不存在"。
+    静默忽略更糟——用户会以为自己引用了资料，实际却是另一段正文。
+    """
     with accounts.connection() as db:
         row = store.get_document(db, doc_id, user_id=user_id)
         if row is None:
-            raise HTTPException(status_code=404, detail="资料不存在或无权使用")
+            raise HTTPException(
+                status_code=422,
+                detail="选中的资料不存在或不属于当前账号，请重新选择；如果不需要引用资料，留空直接写正文",
+            )
         return {
             "title": row["title"],
             "body_md": row["content_md"],
@@ -78,8 +85,9 @@ def _from_draft(doc_id: str, user_id: str) -> dict[str, Any]:
 def submit_card(req: SubmitRequest, user: dict = Depends(_require_account)):
     title, body = req.title, req.body_md
     company, role = req.company, req.role
-    if req.doc_id:
-        draft = _from_draft(req.doc_id, user["id"])
+    doc_id = req.doc_id.strip()
+    if doc_id:
+        draft = _from_draft(doc_id, user["id"])
         title = title or draft["title"]
         body = body or draft["body_md"]
         company = company or draft["company"]
@@ -100,9 +108,11 @@ def submit_card(req: SubmitRequest, user: dict = Depends(_require_account)):
 def list_cards(response: Response, kind: str | None = None, company: str = "", q: str = "",
                before: float | None = None, limit: int = Query(20, ge=1, le=50),
                user: dict = Depends(accounts.require_user)):
+    if kind and kind not in community.cards.KINDS:
+        raise HTTPException(status_code=422, detail="卡片类型不合法")
     with accounts.connection() as db:
         items = community.cards.list_public(
-            db, kind=kind, company=company, q=q, limit=limit, before=before)
+            db, kind=kind, company=company[:60], q=q[:100], limit=limit, before=before)
     response.headers["Cache-Control"] = "no-store"
     return {"ok": True, "items": items,
             "next_before": items[-1]["published_at"] if len(items) == limit else None}

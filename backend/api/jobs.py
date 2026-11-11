@@ -190,8 +190,10 @@ def list_jobs(
     q: str | None = None,
     limit: int = 20,
     offset: int = 0,
+    mine: bool = False,
     user: dict = Depends(accounts.require_user),
 ):
+    """资料列表。`mine=true` 只看自己录入的，用于「引用我的资料」这类下拉。"""
     kinds = [kind] if kind else None
     with accounts.connection() as db:
         if q and q.strip():
@@ -209,7 +211,7 @@ def list_jobs(
             return {"ok": True, "items": items, "total": len(items), "query": q}
 
         rows = store.list_documents(db, user_id=user["id"], kinds=kinds,
-                                   limit=limit, offset=offset)
+                                   limit=limit, offset=offset, own_only=mine)
         return {"ok": True, "items": [_document_dict(row) for row in rows],
                 "total": len(rows), "query": None}
 

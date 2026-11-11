@@ -118,7 +118,41 @@ class CommunityContract(unittest.TestCase):
         }, headers=HEADER).json()
         self.as_user("u-alice")
         denied = self.submit(doc_id=doc["id"])
-        self.assertEqual(denied.status_code, 404, "别人的资料不能当投稿来源")
+        self.assertEqual(denied.status_code, 422, "别人的资料不能当投稿来源")
+        self.assertIn("重新选择", denied.json()["detail"])
+        # 提示要能指导用户（普通用户看到"资料不存在或无权使用"会一头雾水）
+        self.assertIn("留空直接写正文", denied.json()["detail"])
+
+    def test_unknown_doc_id_is_a_form_error_not_a_missing_page(self) -> None:
+        response = self.submit(doc_id="not-a-real-id")
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("选中的资料不存在", response.json()["detail"])
+
+    def test_submit_without_doc_id_never_touches_documents(self) -> None:
+        payload = {"kind": "jd_review", "title": "JD 评价：要求虚高",
+                   "body_md": "这个 JD 写着 3 年经验却要求全栈加算法，薪资区间也不透明。", "tags": []}
+        response = self.client.post("/api/community/cards", json=payload, headers=HEADER)
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.json()["status"], "pending")
+
+    def test_unknown_kind_filter_is_rejected(self) -> None:
+        self.assertEqual(self.client.get("/api/community/cards", params={"kind": "rumor"}).status_code, 422)
+
+    def test_mine_filter_only_lists_own_documents(self) -> None:
+        own = self.client.post("/api/jobs/import", json={
+            "text": chr(10).join(["数据开发工程师", "岗位职责", "负责离线数仓建设与指标口径维护。"]),
+            "title": "我录入的岗位", "parse": False,
+        }, headers=HEADER).json()["id"]
+        self.as_user("u-bob")
+        self.client.post("/api/jobs/import", json={
+            "text": chr(10).join(["前端工程师", "岗位职责", "负责页面开发与组件维护。"]),
+            "title": "别人录入的岗位", "parse": False,
+        }, headers=HEADER).json()
+
+        self.as_user("u-alice")
+        mine = self.client.get("/api/jobs", params={"mine": True}).json()["items"]
+        self.assertEqual([item["id"] for item in mine], [own])
+        self.assertNotIn("别人录入的岗位", [item["title"] for item in mine])
 
     def test_short_body_and_bad_kind_are_rejected(self) -> None:
         self.assertEqual(self.submit(body_md="太短").status_code, 422)

@@ -106,9 +106,18 @@ def list_documents(
     visibility: str | None = None,
     limit: int = 20,
     offset: int = 0,
+    own_only: bool = False,
 ) -> list[sqlite3.Row]:
-    """列出本人资料与公共资料；`visibility` 只作为附加过滤条件。"""
-    clauses = ["visibility != 'rejected'", "(COALESCE(user_id,'') = ? OR visibility = 'public')"]
+    """列出本人资料与公共资料；`visibility` 只作为附加过滤条件。
+
+    `own_only=True` 只返回该账号自己录入的资料，用在"引用自己的资料"这类场景：
+    公共岗位池是采集来的公告，拿来当投稿正文来源会是一堆无关的转载。
+    """
+    clauses = ["visibility != 'rejected'"]
+    if own_only:
+        clauses.append("COALESCE(user_id,'') = ?")
+    else:
+        clauses.append("(COALESCE(user_id,'') = ? OR visibility = 'public')")
     params: list[Any] = [_owner(user_id)]
 
     kinds = list(kinds or [])

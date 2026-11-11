@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { apiErrorMessage, communityApi } from '../../lib/api'
-import type { CommunityCard, CommunitySubmitPayload } from '../../lib/api'
+import { apiErrorMessage, communityApi, jobsApi } from '../../lib/api'
+import type { CommunityCard, CommunitySubmitPayload, JobDocument } from '../../lib/api'
 import './community.css'
 
 interface Props {
@@ -68,6 +68,7 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
   const [form, setForm] = useState(emptyForm)
   const [rejectNote, setRejectNote] = useState<Record<string, string>>({})
   const [reportReason, setReportReason] = useState('')
+  const [docs, setDocs] = useState<JobDocument[]>([])
 
   const loadLibrary = useCallback(async () => {
     setLoading(true)
@@ -94,6 +95,16 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
     }
   }, [])
 
+  // 引用收件箱里的资料时用下拉选择：用户看不到内部 ID，也不该手输
+  const loadDocs = useCallback(async () => {
+    try {
+      // 只列自己录入的资料：公共岗位池是采集来的公告，拿来当投稿来源全是无关转载
+      setDocs((await jobsApi.list({ limit: 50, mine: true })).items)
+    } catch {
+      setDocs([])
+    }
+  }, [])
+
   const loadQueue = useCallback(async () => {
     if (!canManage) return
     try {
@@ -108,6 +119,7 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
   useEffect(() => { void loadLibrary() }, [loadLibrary, userId])
   useEffect(() => { void loadMine() }, [loadMine, userId])
   useEffect(() => { void loadQueue() }, [loadQueue, userId])
+  useEffect(() => { void loadDocs() }, [loadDocs, userId])
 
   async function submit() {
     if (disabled || busy) return
@@ -296,9 +308,24 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
               <input value={form.tags} disabled={disabled} placeholder="选填，如 SQL 数仓 一面"
                 onChange={event => setForm(previous => ({ ...previous, tags: event.target.value }))} />
             </label>
-            <label>从收件箱带入（可选）
-              <input value={form.docId} disabled={disabled} placeholder="岗位资料 ID，留空则手写"
-                onChange={event => setForm(previous => ({ ...previous, docId: event.target.value }))} />
+            <label>引用收件箱资料（可选）
+              <select value={form.docId} disabled={disabled || busy === 'submit'}
+                onChange={event => {
+                  const id = event.target.value
+                  const doc = docs.find(item => item.id === id)
+                  setForm(previous => ({
+                    ...previous,
+                    docId: id,
+                    title: doc ? (previous.title || doc.title) : previous.title,
+                    company: doc ? (previous.company || doc.company) : previous.company,
+                    role: doc ? (previous.role || doc.role) : previous.role,
+                  }))
+                }}>
+                <option value="">不引用，直接写正文</option>
+                {docs.map(doc => <option key={doc.id} value={doc.id}>
+                  {doc.title || '未命名资料'}{doc.company ? ` · ${doc.company}` : ''}
+                </option>)}
+              </select>
             </label>
           </div>
           <div className="community-actions">

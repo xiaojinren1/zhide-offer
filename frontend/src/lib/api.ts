@@ -291,7 +291,7 @@ export type JobImportPayload = {
 }
 
 export const jobsApi = {
-  list: (params: { kind?: string; q?: string; limit?: number; offset?: number } = {}) =>
+  list: (params: { kind?: string; q?: string; limit?: number; offset?: number; mine?: boolean } = {}) =>
     http.get('/jobs', { params }).then(r => r.data) as Promise<{
       ok: boolean; items: JobDocument[]; total: number; query: string | null
     }>,

@@ -171,10 +171,10 @@ export const api = {
     }>
   },
 
-  recognizeResumeTemplate: (file: File) => {
+  recognizeResumeTemplate: (file: File, visual: boolean) => {
     const form = new FormData()
     form.append('file', file)
-    return http.post<ResumeAppearance>('/resume/template-image', form).then(r => r.data)
+    return http.post<ResumeAppearance>(visual ? '/resume/template-image' : '/resume/template-document', form).then(r => r.data)
   },
 
   parseResumeText: (text: string) =>

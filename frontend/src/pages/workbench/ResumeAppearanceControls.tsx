@@ -87,17 +87,23 @@ export default function ResumeAppearanceControls({ markdown, appearance, onChang
     setNotice('')
     setError('')
     setSuggestion(null)
-    const image = /\.(png|jpe?g|webp)$/i.test(file.name)
-    const limit = image ? 10 * 1024 * 1024 : 16 * 1024
-    if (file.size > limit) {
-      setError(image ? '参考图片不能超过 10 MB。' : '模板文件不能超过 16 KB。')
+    const visual = /\.(pdf|png|jpe?g|webp)$/i.test(file.name)
+    const document = /\.(docx|md|markdown)$/i.test(file.name)
+    const reference = visual || document
+    if (!reference && !/\.json$/i.test(file.name)) {
+      setError('请选择 DOCX、PDF、Markdown、简历截图或职得模板文件。')
       return
     }
-    if (image && !window.confirm('参考图会发送给你配置的图片模型服务商识别版式。请先遮盖姓名、电话和邮箱等信息。继续识别？')) return
+    const limit = reference ? 10 * 1024 * 1024 : 16 * 1024
+    if (file.size > limit) {
+      setError(reference ? '参考文件不能超过 10 MB。' : '模板文件不能超过 16 KB。')
+      return
+    }
+    if (visual && !window.confirm('参考图片或 PDF 首页图像会发送给你配置的图片模型服务商识别版式。请先遮盖个人信息。继续识别？')) return
     setImporting(true)
     try {
-      if (image) {
-        setSuggestion(await api.recognizeResumeTemplate(file))
+      if (reference) {
+        setSuggestion(await api.recognizeResumeTemplate(file, visual))
         return
       }
       const imported = readResumeTemplate(await file.text())
@@ -108,7 +114,7 @@ export default function ResumeAppearanceControls({ markdown, appearance, onChang
       onChange({ ...imported, portrait: appearance.portrait })
       setNotice('模板已应用到当前预览。')
     } catch (reason) {
-      setError(image ? operationError(reason) : '读取模板失败，请重新选择文件。')
+      setError(reference ? operationError(reason) : '读取模板失败，请重新选择文件。')
     } finally {
       setImporting(false)
     }
@@ -127,14 +133,14 @@ export default function ResumeAppearanceControls({ markdown, appearance, onChang
       <div className="resume-template-file-actions">
         <button type="button" className="secondary-button" disabled={importing}
           onClick={() => fileInput.current?.click()}>{importing ? '正在读取…' : '导入模板'}</button>
-        <input hidden ref={fileInput} type="file" accept=".json,.png,.jpg,.jpeg,.webp" onChange={event => {
+        <input hidden ref={fileInput} type="file" accept=".json,.docx,.pdf,.md,.markdown,.png,.jpg,.jpeg,.webp" onChange={event => {
             const file = event.currentTarget.files?.[0]
             event.currentTarget.value = ''
             if (file) void importTemplate(file)
         }} />
         <button type="button" className="secondary-button" onClick={() => downloadTemplate(appearance)}>导出当前模板</button>
       </div>
-      <p className="field-hint">可选择职得模板文件，或用 PNG、JPG、WebP 简历截图识别相近版式。截图识别需要启用图片模型。</p>
+      <p className="field-hint">支持 Word（DOCX）、PDF、Markdown、简历截图和职得模板文件。PDF 识别首页，和截图一样需要启用图片模型。Markdown 按排版疏密推荐样式。</p>
       {suggestion && <section aria-label="识别版式预览">
         <p>识别结果 · {templates.find(option => option.value === suggestion.template)?.label}
           {suggestion.template === 'sidebar' && (suggestion.sidebarSide === 'right' ? ' · 右侧栏' : ' · 左侧栏')}

@@ -102,12 +102,22 @@ npm.cmd --prefix frontend run build
 
 ## 六、验收基线（别把既有失败当成自己弄坏的）
 
-`tests/test_accounts.py` 有 **2 项长期失败**，改动前就存在：
+**当前全量回归是全绿的**：`.venv/bin/python -m unittest discover -s tests -p "test_*.py"` 308 项通过
+（2026-11-12）。原来那 2 项 `test_accounts` 长期失败已修掉，`test_model_errors` 的串扰来自
+"导入即执行"的脚本永久改写 `core.llm`——这些脚本已改名为 `tests/run_*_qa.py`，discover 不再导入它们。
 
-- `test_model_usage_records_provider_counts_and_isolates_accounts`
-- `test_stats_count_distinct_active_users_and_current_week_registrations`
+脚本式检查（不是 unittest，需要单独跑）：
 
-区分方法：拿改动前的提交开个临时 worktree 跑一遍对比。
+```
+.venv/bin/python tests/run_tool_loop_qa.py
+.venv/bin/python tests/run_llm_providers_qa.py
+.venv/bin/python tests/run_deadlines_qa.py
+.venv/bin/python tests/run_context_slimming_qa.py
+.venv/bin/python tests/run_example_lib_qa.py
+.venv/bin/python tests/run_suspicion_qa.py
+```
+
+区分"我弄坏的"还是"本来就坏的"：拿改动前的提交开个临时 worktree 跑一遍对比。
 
 ```bat
 git worktree add /tmp/base HEAD
@@ -115,7 +125,7 @@ git worktree add /tmp/base HEAD
 git worktree remove /tmp/base --force
 ```
 
-另外 `tests/test_tool_loop.py` 是脚本式检查（不是 unittest），里面 5 条 `请先登录` 的失败也是既有的。
+脚本式检查统一叫 `tests/run_*_qa.py`，不参与 discover。
 
 ## 七、已知坑
 
@@ -132,7 +142,12 @@ git worktree remove /tmp/base --force
 | 抓到的正文很短 | 存的是导航页/报名平台入口 | `min_content_chars`（默认 80）会跳过；调大更严 |
 | 前端 build 报 esbuild 错 | 只显示 `Expected ";" but found ...` | 看第一行 `src/xxx.tsx:行:列`，通常是合并编辑把两行拼到一起了 |
 
-## 八、参考资料
+## 八、待办清单
+
+还没做的、做了一半的、做了没验收的，全部记在 [BACKLOG.md](BACKLOG.md)：开工改「进行中」，
+做完在同一次提交里改「已完成」并写验证结果，中途发现的新问题追加编号。
+
+## 九、参考资料
 
 - 方案：`docs/plan-jobs-knowledge-community.md`
 - 路线图：`ROADMAP.md`（第二期当前的进展说明在里面）

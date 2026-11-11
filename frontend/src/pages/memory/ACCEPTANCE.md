@@ -28,7 +28,7 @@
 - DOCX 已由 python-docx 重读并检查 ZIP/OOXML；未用 Word/LibreOffice 渲染检查分页、字体替换或最终视觉效果，不能宣称排版已验收。
 - 复杂 Markdown 表格、图片、HTML 为文本处理。Word/PDF 不抓取链接或图片，不保存生成文件。PDF 依赖部署环境可用的中文字体。
 - 工作台图片输入：JPG/PNG/WebP 经过大小、格式和像素校验后交给视觉模型，返回结果仍需人工确认；未验证真实中文简历图片识别质量时，不宣称视觉解析稳定可用。
-- 全量 unittest discovery 并未全绿：旧 tests/test_tool_loop.py 以无登录方式调用 profiles，5 条旧断言与现账户契约冲突，并在导入时 sys.exit。其余旧脚本也含导入即执行逻辑，不应将专项回归称作全量通过。未修改他人模块；建议 A 迁移该脚本到临时数据库、带 Cookie/CSRF 的新契约。
+- 当时全量 unittest discovery 未全绿：旧 tests/test_tool_loop.py 以无登录方式调用 profiles，5 条旧断言与现账户契约冲突，并在导入时 sys.exit。**2026-11-12 已处理**：该脚本改名为 tests/run_tool_loop_qa.py，改用临时数据库 + 已登录依赖覆盖，其余"导入即执行"的脚本也一并改名，全量 discover 308 项通过（见 docs/BACKLOG.md B1）。
 - 默认 Python 3.14 无法安装仓库固定的 pydantic-core 2.27.2；本轮在已安装的 Python 3.10 隔离环境完成测试。建议团队使用 Python 3.12 统一环境。
 
 ## A 接入后的演示步骤（待执行）

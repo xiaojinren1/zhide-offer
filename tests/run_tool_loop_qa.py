@@ -127,7 +127,19 @@ import api.profiles as profiles_mod  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from main import app  # noqa: E402
 
-client = TestClient(app)
+from core import accounts  # noqa: E402
+import tempfile  # noqa: E402
+
+# 经历库接口现在要求登录且按账号隔离：用临时数据库 + 临时用户，不碰真实账户库。
+_tmp_db = tempfile.TemporaryDirectory(prefix="qa-tool-loop-")
+accounts.DATABASE_PATH = Path(_tmp_db.name) / "qa.sqlite3"
+with accounts.connection() as _db:
+    _db.execute(
+        "INSERT INTO users(id,username,password_hash,created_at) VALUES(?,?,?,0)",
+        ("qa-tool-loop", "qa", "pbkdf2_sha256$1$00$00"),
+    )
+app.dependency_overrides[accounts.require_user] = lambda: {"id": "qa-tool-loop", "username": "qa"}
+client = TestClient(app, headers={"X-Requested-With": "XMLHttpRequest"})
 r = client.post("/api/profiles/save", json={"name": "测试用户", "profile": PROFILE.to_dict()})
 check("保存经历库成功", r.status_code == 200 and r.json().get("ok") is True, r.text[:120])
 pid = r.json().get("id") or ""
@@ -151,12 +163,19 @@ check("删除接口行为正确（成功，或被环境拦截时优雅报错，�
       r5.status_code == 200 and (dj.get("ok") is True or env_blocked),
       f"ok={dj.get('ok')} env_blocked={env_blocked}")
 
-# 清理测试产物（留在 data/profiles 里会污染用户的真实数据目录）
-for f in (BACKEND_ROOT.parent / "data" / "profiles").glob("*.json"):
+# 清理本次脚本自己的临时目录（不能去动 data/profiles 里的真实数据）
+app.dependency_overrides.clear()
+tmp_dir = Path(__file__).resolve().parent / "_tmp_profiles"
+for f in tmp_dir.glob("*.json"):
     try:
         f.unlink()
     except Exception:
         pass
+try:
+    tmp_dir.rmdir()
+except OSError:
+    pass
+_tmp_db.cleanup()
 
 # ---- RULES.md 规则机制 ----
 from core.config import agent_rules  # noqa: E402

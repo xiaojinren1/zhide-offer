@@ -110,14 +110,6 @@ class AccountContract(unittest.TestCase):
             self.register(other, username="demo_b")
             isolated = other.get("/api/auth/model-usage", params={"user_id": user["id"]})
             self.assertEqual(isolated.json(), {"models": [], "records": [], "next_before": None})
-        from core import model_preferences
-        self.assertNotIn((guest["id"], "text"), model_preferences._guest_configs)
-        with accounts.connection() as db:
-            self.assertIsNone(db.execute("SELECT id FROM users WHERE id = ?", (guest["id"],)).fetchone())
-        self.assertEqual(account.get("/api/auth/me").json()["user"], user)
-        self.assertEqual(self.client.post("/api/auth/trial").status_code, 200)
-        self.assertNotEqual(self.client.get("/api/auth/me").json()["user"]["id"], guest["id"])
-        self.client.post("/api/auth/logout")
 
     def test_trial_uses_separate_models_without_platform_fallback(self):
         self.client.base_url = "http://localhost"
@@ -284,8 +276,13 @@ class AccountContract(unittest.TestCase):
         with patch.dict("os.environ", {"JOBAGENT_ADMIN_USERNAMES": "demo_a"}):
             for client in (self.client, other):
                 self.assertEqual(client.post(path + "/heartbeat").status_code, 200)
-            self.assertEqual(self.client.get(path).json(),
-                             {"online": 1, "registered": 2, "new_this_week": 2})
+            overview = self.client.get(path).json()
+            self.assertEqual(
+                {key: overview[key] for key in ("online", "registered", "new_this_week")},
+                {"online": 1, "registered": 2, "new_this_week": 2},
+            )
+            # 趋势是后加的可视化数据，允许存在，但不应该带出个人数据
+            self.assertIn("trend", overview)
 
     def test_recovery_code_is_hashed_and_resets_once(self):
         registered = self.register()

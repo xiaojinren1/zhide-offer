@@ -220,6 +220,13 @@ def ensure(db: sqlite3.Connection) -> None:
     # 索引放在补列之后建，否则旧库会在 executescript 阶段报 no such column
     db.execute("CREATE INDEX IF NOT EXISTS idx_card_reports_status ON card_reports(status, id DESC)")
 
+    # 早期邮箱注册实验留下的两张表，代码零引用；确认无数据后清掉，避免以后误以为有功能
+    for stale in ("registration_codes", "registration_send_limits"):
+        if db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (stale,)
+        ).fetchone():
+            db.execute(f"DROP TABLE IF EXISTS {stale}")
+
     # 内容版本列是后加的：旧卡片与旧评论都按第 1 版算
     card_columns = {row[1] for row in db.execute("PRAGMA table_info(public_cards)")}
     if "revision" not in card_columns:

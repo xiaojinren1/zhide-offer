@@ -79,6 +79,7 @@ def _card_dict(row: Any, anon_name: str, *, viewer_helpful: bool = False,
         "tags": tags if isinstance(tags, list) else [],
         "status": row["status"],
         "author": anon_name,
+        "revision": row["revision"],
         "helpful_count": row["helpful_count"],
         "viewer_helpful": viewer_helpful,
         "comment_count": comment_count,
@@ -115,8 +116,10 @@ def _attach(db, rows: list[Any], *, viewer_id: str | None = None) -> list[dict[s
     comment_counts = {
         item["card_id"]: item["total"]
         for item in db.execute(
-            f"SELECT card_id, COUNT(*) AS total FROM card_comments"
-            f" WHERE status = 'public' AND card_id IN ({id_marks}) GROUP BY card_id",
+            f"SELECT c.card_id AS card_id, COUNT(*) AS total FROM card_comments c"
+            f" JOIN public_cards p ON p.id = c.card_id"
+            f" WHERE c.status = 'public' AND c.card_id IN ({id_marks})"
+            f" AND c.revision = p.revision GROUP BY c.card_id",
             tuple(card_ids),
         ).fetchall()
     }
@@ -230,12 +233,17 @@ def review(db, card_id: str, *, reviewer_id: str, action: str, note: object = ""
 def revise(db, card_id: str, user_id: str, *, title: object = None, body_md: object = None,
            company: object = None, role: object = None, round: object = None,
            tags: list[Any] | None = None) -> dict[str, Any]:
-    """作者修改自己的投稿，并重新进入待审。
+    """作者修改自己的投稿：内容算新版本，重新进入待审。
 
     为什么改完要重新审：内容一旦公开过，任何修改都等于新内容，不能再沿用上一次的
     审核结论；已发布内容被改后会自动从列表撤下（`status = 'pending'`），等管理员复核。
+
+    **版本语义**：内容变了就是新一版，所以
+    - `revision` +1，旧版的「有帮助」票全部作废（票是针对上一版内容的认可）；
+    - 旧版评论保留但归属上一版，不再计入这一版的评论数（前端标注“上一版内容下的评论”）；
+    - 旧举报按“内容已更新”结案，`report_count` 归零，避免旧举报拖着新内容。
     """
-    row = db.execute("SELECT user_id FROM public_cards WHERE id = ?", (card_id,)).fetchone()
+    row = db.execute("SELECT user_id, revision FROM public_cards WHERE id = ?", (card_id,)).fetchone()
     if row is None or row["user_id"] != user_id:
         raise LookupError("投稿不存在或无权修改")
     updates: dict[str, Any] = {}
@@ -261,12 +269,21 @@ def revise(db, card_id: str, user_id: str, *, title: object = None, body_md: obj
     if not updates:
         raise ValueError("没有需要保存的修改")
     assignments = ", ".join(f"{key} = ?" for key in updates)
+    revision = int(row["revision"]) + 1
     db.execute(
         f"UPDATE public_cards SET {assignments}, status = 'pending', review_note = '',"
-        " published_at = NULL, reviewed_by = NULL, reviewed_at = NULL WHERE id = ?",
-        (*updates.values(), card_id),
+        " published_at = NULL, reviewed_by = NULL, reviewed_at = NULL,"
+        " revision = ?, helpful_count = 0, report_count = 0 WHERE id = ?",
+        (*updates.values(), revision, card_id),
     )
-    return {"id": card_id, "status": "pending"}
+    # 上一版的帮助票作废；旧举报按“内容已更新”结案
+    db.execute("DELETE FROM card_votes WHERE card_id = ?", (card_id,))
+    db.execute(
+        "UPDATE card_reports SET status = 'resolved', handled_by = NULL, handled_at = ?"
+        " WHERE card_id = ? AND status = 'open'",
+        (_now(), card_id),
+    )
+    return {"id": card_id, "status": "pending", "revision": revision}
 
 
 def resubmit(db, card_id: str, user_id: str) -> dict[str, Any]:

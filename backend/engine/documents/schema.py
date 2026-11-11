@@ -107,6 +107,8 @@ CREATE TABLE IF NOT EXISTS public_cards (
     reviewed_at     REAL,
     helpful_count   INTEGER NOT NULL DEFAULT 0,
     report_count    INTEGER NOT NULL DEFAULT 0,
+    -- 内容版本：作者每次改内容都 +1，帮助票与评论按版本归属
+    revision        INTEGER NOT NULL DEFAULT 1,
     created_at      REAL NOT NULL,
     published_at    REAL
 );
@@ -148,6 +150,7 @@ CREATE TABLE IF NOT EXISTS card_comments (
     body         TEXT NOT NULL,
     status       TEXT NOT NULL DEFAULT 'public',
     report_count INTEGER NOT NULL DEFAULT 0,
+    revision     INTEGER NOT NULL DEFAULT 1,
     created_at   REAL NOT NULL
 );
 
@@ -200,3 +203,11 @@ def ensure(db: sqlite3.Connection) -> None:
         db.execute("ALTER TABLE card_reports ADD COLUMN handled_at REAL")
     # 索引放在补列之后建，否则旧库会在 executescript 阶段报 no such column
     db.execute("CREATE INDEX IF NOT EXISTS idx_card_reports_status ON card_reports(status, id DESC)")
+
+    # 内容版本列是后加的：旧卡片与旧评论都按第 1 版算
+    card_columns = {row[1] for row in db.execute("PRAGMA table_info(public_cards)")}
+    if "revision" not in card_columns:
+        db.execute("ALTER TABLE public_cards ADD COLUMN revision INTEGER NOT NULL DEFAULT 1")
+    comment_columns = {row[1] for row in db.execute("PRAGMA table_info(card_comments)")}
+    if "revision" not in comment_columns:
+        db.execute("ALTER TABLE card_comments ADD COLUMN revision INTEGER NOT NULL DEFAULT 1")

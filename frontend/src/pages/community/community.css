@@ -359,3 +359,10 @@
   font: inherit;
   box-sizing: border-box;
 }
+
+/* 上一版内容下的评论：保留可读，但明显区别于当前版本的讨论 */
+.community-comments li.outdated {
+  background: rgba(0, 0, 0, 0.03);
+  border-style: dashed;
+  opacity: 0.85;
+}

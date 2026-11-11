@@ -421,6 +421,7 @@ export type CommunityCard = {
   comment_count: number
   report_count: number
   review_note: string
+  revision: number
   created_at: number
   published_at: number | null
 }
@@ -432,6 +433,9 @@ export type CommunityComment = {
   author: string
   status: 'public' | 'rejected'
   report_count: number
+  revision: number
+  /** 卡片内容改版后，旧版本的评论 */
+  outdated: boolean
   created_at: number
   mine: boolean
   can_manage: boolean

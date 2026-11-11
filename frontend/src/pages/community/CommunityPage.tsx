@@ -678,7 +678,10 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
         <div className="panel-heading">
           <h2 id="community-detail-title">{selected.title}</h2>
         </div>
-        <p className="community-hint">{selected.author} · 发布于 {stamp(selected.published_at)}</p>
+        <p className="community-hint">
+          {selected.author} · 发布于 {stamp(selected.published_at)}
+          {selected.revision > 1 ? ` · 第 ${selected.revision} 版` : ''}
+        </p>
         <CardFacts card={selected} />
         <pre className="community-body">{selected.body_md}</pre>
         {selected.tags.length > 0 && <p className="community-hint">标签：{selected.tags.join(' · ')}</p>}
@@ -692,13 +695,23 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
             onClick={() => void report(selected.id)}>举报</button>
         </div>
 
-        <h3 className="community-subtitle">评论（{comments.length}）</h3>
+        <h3 className="community-subtitle">
+          评论（{comments.filter(item => !item.outdated).length}）
+          {comments.some(item => item.outdated) ? ` · 另有上一版内容的 ${comments.filter(item => item.outdated).length} 条` : ''}
+        </h3>
+        {selected.revision > 1 && <p className="community-hint">
+          这篇内容已修订过 {selected.revision - 1} 次。旧版本的「有帮助」已作废，
+          下面的旧评论仍保留，但那是针对上一版内容的反馈。
+        </p>}
         {comments.length === 0 ? <p className="community-hint">还没有评论，说两句你关心的问题。</p>
           : <ul className="community-comments">
-            {comments.map(comment => <li key={comment.id}>
+            {comments.map(comment => <li key={comment.id} className={comment.outdated ? 'outdated' : ''}>
               <div className="community-comment-head">
                 <strong>{comment.author}</strong>
                 <span>{stamp(comment.created_at)}</span>
+                {comment.outdated && <span className="community-badge">
+                  第 {comment.revision} 版内容下的评论
+                </span>}
                 {comment.status !== 'public' && <span className="community-badge" data-status="rejected">已撤下待审</span>}
               </div>
               <p className="community-comment-body">{comment.body}</p>
@@ -707,7 +720,7 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
                   onClick={() => void removeComment(comment.id)}>删除</button>}
                 {comment.can_manage && !comment.mine && <button type="button" className="link-button" disabled={disabled}
                   onClick={() => void removeComment(comment.id)}>管理员删除</button>}
-                {!comment.mine && <button type="button" className="link-button" disabled={disabled}
+                {!comment.mine && !comment.outdated && <button type="button" className="link-button" disabled={disabled}
                   onClick={() => void reportComment(comment.id)}>举报</button>}
               </div>
             </li>)}

@@ -21,8 +21,9 @@ from .redact import redact
 COMMENT_HIDE_THRESHOLD = 2
 
 
-def _comment_dict(row: Any, anon_name: str, *, viewer_id: str | None, admin: bool) -> dict[str, Any]:
-    """对外形态：不含 user_id / anon_id，只给马甲名与是否为本人。"""
+def _comment_dict(row: Any, anon_name: str, *, viewer_id: str | None, admin: bool,
+                  current_revision: int | None = None) -> dict[str, Any]:
+    """对外形态：不含 user_id / anon_id，只给马甲名、是否为本人、属于哪一版内容。"""
     return {
         "id": row["id"],
         "card_id": row["card_id"],
@@ -30,6 +31,8 @@ def _comment_dict(row: Any, anon_name: str, *, viewer_id: str | None, admin: boo
         "author": anon_name,
         "status": row["status"],
         "report_count": row["report_count"],
+        "revision": row["revision"],
+        "outdated": current_revision is not None and row["revision"] != current_revision,
         "created_at": row["created_at"],
         "mine": bool(viewer_id) and row["user_id"] == viewer_id,
         "can_manage": admin,
@@ -49,7 +52,13 @@ def _names(db, rows: list[Any]) -> dict[str, str]:
 
 def list_comments(db, card_id: str, *, viewer_id: str | None = None,
                   admin: bool = False) -> list[dict[str, Any]]:
-    """公开的评论都给；被撤下的只给本人和管理员。"""
+    """公开的评论都给；被撤下的只给本人和管理员。
+
+    卡片被作者改过内容时，旧版本的评论仍返回，但标 `outdated=True`，
+    由前端折叠成“上一版内容下的评论”，不能当成对新内容的反馈。
+    """
+    card = db.execute("SELECT revision FROM public_cards WHERE id = ?", (card_id,)).fetchone()
+    revision = int(card["revision"]) if card is not None else None
     rows = db.execute(
         "SELECT * FROM card_comments WHERE card_id = ?"
         " AND (status = 'public' OR user_id = ? OR ?)"
@@ -60,14 +69,15 @@ def list_comments(db, card_id: str, *, viewer_id: str | None = None,
         return []
     names = _names(db, rows)
     return [
-        _comment_dict(row, names.get(row["anon_id"], "匿名"), viewer_id=viewer_id, admin=admin)
+        _comment_dict(row, names.get(row["anon_id"], "匿名"), viewer_id=viewer_id, admin=admin,
+                      current_revision=revision)
         for row in rows
     ]
 
 
 def add_comment(db, card_id: str, user_id: str, body: object) -> dict[str, Any]:
     """评论入库：卡片必须是已公开的，正文脱敏后即时公开。"""
-    card = db.execute("SELECT status FROM public_cards WHERE id = ?", (card_id,)).fetchone()
+    card = db.execute("SELECT status, revision FROM public_cards WHERE id = ?", (card_id,)).fetchone()
     if card is None or card["status"] != "public":
         raise LookupError("卡片不存在或尚未通过审核")
     clean = _clip(redact(body), MAX_COMMENT)
@@ -77,9 +87,9 @@ def add_comment(db, card_id: str, user_id: str, body: object) -> dict[str, Any]:
     comment_id = uuid4().hex
     now = _now()
     db.execute(
-        "INSERT INTO card_comments(id, card_id, user_id, anon_id, body, status, created_at)"
-        " VALUES (?,?,?,?,?,'public',?)",
-        (comment_id, card_id, user_id, anon_id, clean, now),
+        "INSERT INTO card_comments(id, card_id, user_id, anon_id, body, status, revision, created_at)"
+        " VALUES (?,?,?,?,?,'public',?,?)",
+        (comment_id, card_id, user_id, anon_id, clean, int(card["revision"]), now),
     )
     return {"id": comment_id, "status": "public", "body": clean, "created_at": now}
 
@@ -140,7 +150,12 @@ def comment_queue(db, *, limit: int = 30) -> list[dict[str, Any]]:
     if not rows:
         return []
     names = _names(db, rows)
+    revisions = {
+        item["id"]: int(item["revision"])
+        for item in db.execute("SELECT id, revision FROM public_cards").fetchall()
+    }
     return [
-        _comment_dict(row, names.get(row["anon_id"], "匿名"), viewer_id=None, admin=True)
+        _comment_dict(row, names.get(row["anon_id"], "匿名"), viewer_id=None, admin=True,
+                      current_revision=revisions.get(row["card_id"]))
         for row in rows
     ]

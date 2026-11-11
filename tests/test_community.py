@@ -541,3 +541,88 @@ class CommunityRevision(unittest.TestCase):
         self.as_user("u-alice")
         self.assertEqual(self.client.put(f"/api/community/cards/{card_id}",
                                          json={"body_md": "太短"}, headers=HEADER).status_code, 422)
+
+
+class CommunityRevisionSemantics(unittest.TestCase):
+    """内容改了就是新一版：旧帮助票作废、旧评论归到上一版、旧举报结案。"""
+
+    setUp = CommunityContract.setUp
+    submit = CommunityContract.submit
+    as_user = CommunityContract.as_user
+    approve = CommunityContract.approve
+
+    def test_revision_resets_votes_and_tags_old_comments(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+
+        # 一位读者点赞 + 留言
+        self.as_user("u-bob")
+        self.client.post(f"/api/community/cards/{card_id}/helpful", headers=HEADER)
+        self.client.post(f"/api/community/cards/{card_id}/comments",
+                         json={"body": "这一面的数仓分层问题很典型"}, headers=HEADER)
+        old = self.client.get(f"/api/community/cards/{card_id}").json()["card"]
+        self.assertEqual((old["helpful_count"], old["comment_count"], old["revision"]), (1, 1, 1))
+
+        # 作者换内容重新提交并再次通过
+        self.as_user("u-alice")
+        revised = self.client.put(f"/api/community/cards/{card_id}", json={
+            "body_md": "改版后换成二面内容：手写窗口函数、解释调度失败补偿，附录 SQL 思路。",
+        }, headers=HEADER)
+        self.assertEqual(revised.json()["revision"], 2)
+        self.approve(card_id)
+
+        self.as_user("u-bob")
+        card = self.client.get(f"/api/community/cards/{card_id}").json()["card"]
+        self.assertEqual(card["revision"], 2)
+        self.assertEqual(card["helpful_count"], 0, "上一版的帮助票不能算到新内容头上")
+        self.assertFalse(card["viewer_helpful"])
+        self.assertEqual(card["comment_count"], 0, "旧评论不计入当前版本的评论数")
+
+        comments = self.client.get(f"/api/community/cards/{card_id}/comments").json()["items"]
+        self.assertEqual(len(comments), 1, "旧评论仍保留，供读者回看")
+        self.assertTrue(comments[0]["outdated"], "旧评论必须标成上一版")
+        self.assertEqual(comments[0]["revision"], 1)
+
+    def test_revision_resolves_old_reports(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-bob")
+        self.client.post(f"/api/community/cards/{card_id}/report",
+                         json={"reason": "内容与标题不符"}, headers=HEADER)
+        self.as_user("u-admin")
+        self.assertEqual(len(self.client.get("/api/community/reports").json()["items"]), 1)
+
+        self.as_user("u-alice")
+        self.client.put(f"/api/community/cards/{card_id}", json={
+            "title": "数据岗二面：窗口函数与调度补偿",
+        }, headers=HEADER)
+        self.approve(card_id)
+
+        self.as_user("u-admin")
+        self.assertEqual(self.client.get("/api/community/reports").json()["items"], [],
+                         "内容已更新，旧举报应结案")
+        self.as_user("u-bob")
+        card = self.client.get(f"/api/community/cards/{card_id}").json()["card"]
+        self.assertEqual(card["report_count"], 0)
+
+    def test_resubmit_without_edit_keeps_votes_and_comments(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-bob")
+        self.client.post(f"/api/community/cards/{card_id}/helpful", headers=HEADER)
+        self.client.post(f"/api/community/cards/{card_id}/comments",
+                         json={"body": "同一版内容下的讨论"}, headers=HEADER)
+
+        self.as_user("u-admin")
+        self.client.patch(f"/api/community/cards/{card_id}",
+                          json={"action": "reject", "note": "补充轮次信息"}, headers=HEADER)
+        self.as_user("u-alice")
+        result = self.client.post(f"/api/community/cards/{card_id}/resubmit", headers=HEADER)
+        self.assertEqual(result.json()["status"], "pending")
+        self.approve(card_id)
+
+        self.as_user("u-bob")
+        card = self.client.get(f"/api/community/cards/{card_id}").json()["card"]
+        self.assertEqual(card["revision"], 1, "内容没改，版本不变")
+        self.assertEqual(card["helpful_count"], 1)
+        self.assertEqual(card["comment_count"], 1)

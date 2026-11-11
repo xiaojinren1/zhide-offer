@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiErrorMessage, communityApi, jobsApi } from '../../lib/api'
-import type { CommunityCard, CommunitySubmitPayload, JobDocument } from '../../lib/api'
+import type { CommunityCard, CommunityComment, CommunityReportGroup, CommunitySubmitPayload, JobDocument } from '../../lib/api'
 import './community.css'
 
 interface Props {
@@ -9,7 +9,7 @@ interface Props {
   canManage: boolean
 }
 
-type Tab = 'library' | 'submit' | 'review'
+type Tab = 'library' | 'submit' | 'review' | 'reports' | 'published'
 
 const KIND_LABEL: Record<CommunityCard['kind'], string> = {
   interview: '面经',
@@ -39,17 +39,20 @@ function stamp(value: number | null): string {
   return new Date(value * 1000).toLocaleDateString('zh-CN')
 }
 
-function CardBody({ card }: { card: CommunityCard }) {
-  return <>
-    <div className="community-facts">
-      {card.company && <span>{card.company}</span>}
-      {card.role && <span>{card.role}</span>}
-      {card.round && <span>{card.round}</span>}
-      <span>{KIND_LABEL[card.kind] || card.kind}</span>
-    </div>
-    <pre className="community-body">{card.body_md}</pre>
-    {card.tags.length > 0 && <p className="community-hint">标签：{card.tags.join(' · ')}</p>}
-  </>
+/** 标注清楚每个字段是什么：类型、公司、岗位、轮次各占一格，不混成一行标签。 */
+function CardFacts({ card }: { card: CommunityCard }) {
+  const facts: Array<[string, string]> = [
+    ['类型', KIND_LABEL[card.kind] || card.kind],
+    ['公司', card.company || '未填写'],
+    ['岗位', card.role || '未填写'],
+    ['轮次', card.round || '未填写'],
+  ]
+  return <dl className="community-facts">
+    {facts.map(([label, value]) => <div key={label}>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>)}
+  </dl>
 }
 
 export default function CommunityPage({ userId, disabled, canManage }: Props) {
@@ -57,6 +60,11 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
   const [items, setItems] = useState<CommunityCard[]>([])
   const [mine, setMine] = useState<CommunityCard[]>([])
   const [queue, setQueue] = useState<CommunityCard[]>([])
+  const [published, setPublished] = useState<CommunityCard[]>([])
+  const [reports, setReports] = useState<CommunityReportGroup[]>([])
+  const [commentQueue, setCommentQueue] = useState<CommunityComment[]>([])
+  const [comments, setComments] = useState<CommunityComment[]>([])
+  const [commentDraft, setCommentDraft] = useState('')
   const [counts, setCounts] = useState<Record<string, number>>({})
   const [selected, setSelected] = useState<CommunityCard | null>(null)
   const [kindFilter, setKindFilter] = useState('')
@@ -67,7 +75,6 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
   const [notice, setNotice] = useState('')
   const [form, setForm] = useState(emptyForm)
   const [rejectNote, setRejectNote] = useState<Record<string, string>>({})
-  const [reportReason, setReportReason] = useState('')
   const [docs, setDocs] = useState<JobDocument[]>([])
 
   const loadLibrary = useCallback(async () => {
@@ -116,10 +123,40 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
     }
   }, [canManage])
 
+  const loadGovernance = useCallback(async () => {
+    if (!canManage) return
+    try {
+      const [reportResult, commentResult, publicResult] = await Promise.all([
+        communityApi.reports(),
+        communityApi.commentQueue(),
+        communityApi.list({ limit: 50 }),
+      ])
+      setReports(reportResult.items)
+      setCommentQueue(commentResult.items)
+      setPublished(publicResult.items)
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    }
+  }, [canManage])
+
   useEffect(() => { void loadLibrary() }, [loadLibrary, userId])
   useEffect(() => { void loadMine() }, [loadMine, userId])
-  useEffect(() => { void loadQueue() }, [loadQueue, userId])
   useEffect(() => { void loadDocs() }, [loadDocs, userId])
+  useEffect(() => { void loadQueue() }, [loadQueue, userId])
+  useEffect(() => { void loadGovernance() }, [loadGovernance, userId])
+
+  const loadComments = useCallback(async (cardId: string) => {
+    try {
+      setComments((await communityApi.comments(cardId)).items)
+    } catch {
+      setComments([])
+    }
+  }, [])
+
+  useEffect(() => {
+    if (selected) void loadComments(selected.id)
+    else setComments([])
+  }, [selected, loadComments])
 
   async function submit() {
     if (disabled || busy) return
@@ -150,12 +187,19 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
     }
   }
 
-  async function helpful(id: string) {
+  async function toggleHelpful(id: string) {
     if (disabled || busy) return
     try {
       const result = await communityApi.helpful(id)
-      setNotice(result.already ? `你已经点过有帮助（${result.helpful_count} 人）` : `已标记有帮助（${result.helpful_count} 人）`)
-      await loadLibrary()
+      setNotice(result.helpful
+        ? `已标记有帮助（${result.helpful_count} 人）`
+        : `已撤回有帮助（${result.helpful_count} 人）`)
+      setItems(previous => previous.map(item => item.id === id
+        ? { ...item, viewer_helpful: result.helpful, helpful_count: result.helpful_count }
+        : item))
+      setSelected(current => current && current.id === id
+        ? { ...current, viewer_helpful: result.helpful, helpful_count: result.helpful_count }
+        : current)
     } catch (reason) {
       setError(apiErrorMessage(reason))
     }
@@ -163,13 +207,13 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
 
   async function report(id: string) {
     if (disabled || busy) return
-    const reason = window.prompt('举报原因（会同时提交给管理员）', reportReason || '内容包含联系方式或广告')
+    const reason = window.prompt('举报原因（会同时提交给管理员）', '内容包含联系方式或广告')
     if (!reason || !reason.trim()) return
-    setReportReason(reason)
     try {
       const result = await communityApi.report(id, reason.trim())
       setNotice(result.message)
       await loadLibrary()
+      await loadGovernance()
     } catch (reason) {
       setError(apiErrorMessage(reason))
     }
@@ -181,34 +225,102 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
     try {
       await communityApi.remove(id)
       setNotice('已撤回')
-      await loadMine()
-      await loadLibrary()
-      await loadQueue()
+      if (selected?.id === id) setSelected(null)
+      await Promise.all([loadMine(), loadLibrary(), loadQueue(), loadGovernance()])
     } catch (reason) {
       setError(apiErrorMessage(reason))
     }
   }
 
-  async function review(id: string, action: 'approve' | 'reject') {
+  async function review(id: string, action: 'approve' | 'reject' | 'unpublish') {
     if (disabled || busy || !canManage) return
     const note = (rejectNote[id] || '').trim()
     if (action === 'reject' && !note) {
       setError('退回必须写明原因，作者才知道哪里要改')
       return
     }
+    if (action === 'unpublish' && !window.confirm('下架后从公开列表撤下，作者会看到下架原因。继续？')) return
     setBusy(id)
     setError('')
     try {
       await communityApi.reviewCard(id, action, note)
-      setNotice(action === 'approve' ? '已通过并匿名发布' : '已退回，作者能看到原因')
+      setNotice(action === 'approve' ? '已通过并匿名发布'
+        : action === 'reject' ? '已退回，作者能看到原因' : '已下架，作者能看到原因')
       setRejectNote(previous => ({ ...previous, [id]: '' }))
-      await loadQueue()
-      await loadMine()
-      await loadLibrary()
+      await Promise.all([loadQueue(), loadMine(), loadLibrary(), loadGovernance()])
     } catch (reason) {
       setError(apiErrorMessage(reason))
     } finally {
       setBusy('')
+    }
+  }
+
+  async function resolveReports(cardId: string) {
+    if (disabled || busy) return
+    if (!window.confirm('标记为已处理（内容保留）？')) return
+    setBusy(`report-${cardId}`)
+    try {
+      await communityApi.resolveReports(cardId, '人工核对后保留')
+      setNotice('已标记为处理完成，内容保留')
+      await Promise.all([loadGovernance(), loadLibrary()])
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function addComment() {
+    if (!selected || disabled || busy || !commentDraft.trim()) return
+    setBusy('comment')
+    setError('')
+    try {
+      await communityApi.addComment(selected.id, commentDraft.trim())
+      setCommentDraft('')
+      await loadComments(selected.id)
+      setItems(previous => previous.map(item => item.id === selected.id
+        ? { ...item, comment_count: item.comment_count + 1 }
+        : item))
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function removeComment(id: string) {
+    if (disabled || busy) return
+    if (!window.confirm('删除这条评论？')) return
+    try {
+      await communityApi.removeComment(id)
+      if (selected) await loadComments(selected.id)
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    }
+  }
+
+  async function reportComment(id: string) {
+    if (disabled || busy) return
+    const reason = window.prompt('举报这条评论的原因', '包含广告或联系方式')
+    if (!reason || !reason.trim()) return
+    try {
+      const result = await communityApi.reportComment(id, reason.trim())
+      setNotice(result.message)
+      if (selected) await loadComments(selected.id)
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    }
+  }
+
+  async function restoreComment(id: string) {
+    if (disabled || busy) return
+    try {
+      await communityApi.restoreComment(id)
+      setNotice('已恢复该评论')
+      await loadGovernance()
+      if (selected) await loadComments(selected.id)
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
     }
   }
 
@@ -221,17 +333,27 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
             className={tab === 'library' ? 'active' : ''} onClick={() => setTab('library')}>面经库</button>
           <button type="button" role="tab" aria-selected={tab === 'submit'}
             className={tab === 'submit' ? 'active' : ''} onClick={() => setTab('submit')}>投稿 / 我的</button>
-          {canManage && <button type="button" role="tab" aria-selected={tab === 'review'}
-            className={tab === 'review' ? 'active' : ''} onClick={() => setTab('review')}>
-            审核{counts.pending ? `（${counts.pending}）` : ''}
-          </button>}
+          {canManage && <>
+            <button type="button" role="tab" aria-selected={tab === 'review'}
+              className={tab === 'review' ? 'active' : ''} onClick={() => setTab('review')}>
+              待审核{counts.pending ? `（${counts.pending}）` : ''}
+            </button>
+            <button type="button" role="tab" aria-selected={tab === 'reports'}
+              className={tab === 'reports' ? 'active' : ''} onClick={() => setTab('reports')}>
+              举报{reports.length ? `（${reports.length}）` : ''}
+            </button>
+            <button type="button" role="tab" aria-selected={tab === 'published'}
+              className={tab === 'published' ? 'active' : ''} onClick={() => setTab('published')}>
+              已发布管理
+            </button>
+          </>}
         </div>
       </div>
 
       {error && <p className="community-message community-error">{error}</p>}
       {notice && !error && <p className="community-message">{notice}</p>}
       <p className="community-hint">
-        所有内容都匿名展示，作者看得到自己的投稿状态；联系方式在入库前会被隐藏。
+        所有内容都匿名展示，作者看得到自己的投稿与评论状态；联系方式在入库前会被隐藏。
         内容仅供求职准备参考，不能替代对公司的实际判断。
       </p>
 
@@ -258,12 +380,15 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
             {items.map(item => <li key={item.id}>
               <button type="button" className={`community-card ${selected?.id === item.id ? 'active' : ''}`}
                 onClick={() => setSelected(item)}>
-                <span className="community-card-title">{item.title}</span>
+                <span className="community-card-title">
+                  <span className="community-kind">{KIND_LABEL[item.kind]}</span>
+                  {item.title}
+                </span>
                 <span className="community-card-meta">
-                  {[item.company, item.role, item.round].filter(Boolean).join(' · ') || KIND_LABEL[item.kind]}
+                  {[item.company, item.role, item.round].filter(Boolean).join(' · ') || '公司 / 岗位未填写'}
                 </span>
                 <span className="community-card-foot">
-                  {item.author} · {stamp(item.published_at)} · 有帮助 {item.helpful_count}
+                  {item.author} · {stamp(item.published_at)} · 有帮助 {item.helpful_count} · 评论 {item.comment_count}
                 </span>
               </button>
             </li>)}
@@ -273,12 +398,12 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
       {tab === 'submit' && <>
         <div className="community-form">
           <div className="community-form-grid">
-            <label>类型
+            <label>卡片类型
               <select value={form.kind} disabled={disabled}
                 onChange={event => setForm(previous => ({ ...previous, kind: event.target.value as CommunityCard['kind'] }))}>
-                <option value="interview">面经</option>
-                <option value="referral">内推</option>
-                <option value="jd_review">JD 评价</option>
+                <option value="interview">面经（面试问了什么）</option>
+                <option value="referral">内推（渠道与要求）</option>
+                <option value="jd_review">JD 评价（要求是否合理）</option>
               </select>
             </label>
             <label>公司
@@ -305,7 +430,7 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
           </label>
           <div className="community-form-grid">
             <label>标签
-              <input value={form.tags} disabled={disabled} placeholder="选填，如 SQL 数仓 一面"
+              <input value={form.tags} disabled={disabled} placeholder="选填，用空格分隔，如 SQL 数仓 一面"
                 onChange={event => setForm(previous => ({ ...previous, tags: event.target.value }))} />
             </label>
             <label>引用收件箱资料（可选）
@@ -344,12 +469,18 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
                 <strong>{item.title}</strong>
                 <span className="community-badge" data-status={item.status}>{STATUS_LABEL[item.status]}</span>
                 <p className="community-hint">
-                  {KIND_LABEL[item.kind]}{item.company ? ` · ${item.company}` : ''} · 提交于 {stamp(item.created_at)}
+                  {KIND_LABEL[item.kind]}
+                  {item.company ? ` · 公司 ${item.company}` : ''}
+                  {item.role ? ` · 岗位 ${item.role}` : ''}
+                  {item.round ? ` · ${item.round}` : ''}
+                  {' · '}提交于 {stamp(item.created_at)}
                 </p>
                 {item.review_note && <p className="community-note">审核说明：{item.review_note}</p>}
               </div>
               <button type="button" className="secondary-button danger" disabled={disabled}
-                onClick={() => void withdraw(item.id)}>撤回</button>
+                onClick={() => void withdraw(item.id)}>
+                {item.status === 'public' ? '撤回已发布内容' : '撤回'}
+              </button>
             </li>)}
           </ul>}
       </>}
@@ -365,8 +496,10 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
               <div>
                 <strong>{item.title}</strong>
                 <p className="community-hint">
-                  {KIND_LABEL[item.kind]}{item.company ? ` · ${item.company}` : ''}
-                  {item.role ? ` · ${item.role}` : ''}{item.round ? ` · ${item.round}` : ''}
+                  {KIND_LABEL[item.kind]}
+                  {item.company ? ` · 公司 ${item.company}` : ''}
+                  {item.role ? ` · 岗位 ${item.role}` : ''}
+                  {item.round ? ` · ${item.round}` : ''}
                   {item.report_count ? ` · 被举报 ${item.report_count} 次` : ''}
                 </p>
                 {item.review_note && <p className="community-note">{item.review_note}</p>}
@@ -384,6 +517,82 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
             </li>)}
           </ul>}
       </>}
+
+      {tab === 'reports' && canManage && <>
+        <p className="community-hint">
+          用户举报会出现在这里（不止是计数）。核对后可以「标记已处理」保留内容，或直接删除。
+          累计 3 条举报的内容会自动从列表撤下，等这里处理。
+        </p>
+        {reports.length === 0 ? <p className="community-hint">没有待处理的举报。</p>
+          : <ul className="community-list">
+            {reports.map(group => <li key={group.card_id} className="community-review">
+              <div>
+                <strong>{group.title}</strong>
+                <p className="community-hint">
+                  {KIND_LABEL[group.kind]}
+                  {group.company ? ` · 公司 ${group.company}` : ''}
+                  {group.role ? ` · 岗位 ${group.role}` : ''}
+                  {group.round ? ` · ${group.round}` : ''}
+                  {' · '}当前状态 {STATUS_LABEL[group.card_status]} · 举报 {group.report_count} 条
+                </p>
+                <ul className="community-reasons">
+                  {group.reasons.map((item, index) => <li key={`${group.card_id}-${index}`}>
+                    {item.reason} · {stamp(item.created_at)}
+                  </li>)}
+                </ul>
+              </div>
+              <div className="community-actions">
+                <button type="button" className="primary-button" disabled={disabled || busy === `report-${group.card_id}`}
+                  onClick={() => void resolveReports(group.card_id)}>标记已处理</button>
+                <button type="button" className="secondary-button danger" disabled={disabled}
+                  onClick={() => void withdraw(group.card_id)}>删除内容</button>
+              </div>
+            </li>)}
+          </ul>}
+        <h3 className="community-subtitle">被举报的评论</h3>
+        {commentQueue.length === 0 ? <p className="community-hint">没有被撤下的评论。</p>
+          : <ul className="community-list">
+            {commentQueue.map(comment => <li key={comment.id} className="community-review">
+              <div>
+                <p className="community-hint">{comment.author} · 举报 {comment.report_count} 次</p>
+                <pre className="community-body">{comment.body}</pre>
+              </div>
+              <div className="community-actions">
+                <button type="button" className="primary-button" disabled={disabled}
+                  onClick={() => void restoreComment(comment.id)}>恢复评论</button>
+                <button type="button" className="secondary-button danger" disabled={disabled}
+                  onClick={() => void removeComment(comment.id)}>删除评论</button>
+              </div>
+            </li>)}
+          </ul>}
+      </>}
+
+      {tab === 'published' && canManage && <>
+        <p className="community-hint">
+          已公开内容可以下架（从列表撤下、作者收到原因）或直接删除。
+        </p>
+        {published.length === 0 ? <p className="community-hint">还没有已发布内容。</p>
+          : <ul className="community-list">
+            {published.map(item => <li key={item.id} className="community-review">
+              <div>
+                <strong>{item.title}</strong>
+                <p className="community-hint">
+                  {KIND_LABEL[item.kind]}
+                  {item.company ? ` · 公司 ${item.company}` : ''}
+                  {item.role ? ` · 岗位 ${item.role}` : ''}
+                  {item.round ? ` · ${item.round}` : ''}
+                  {' · '}{item.author} · 有帮助 {item.helpful_count} · 评论 {item.comment_count}
+                </p>
+              </div>
+              <div className="community-actions">
+                <button type="button" className="secondary-button" disabled={disabled || busy === item.id}
+                  onClick={() => void review(item.id, 'unpublish')}>下架</button>
+                <button type="button" className="secondary-button danger" disabled={disabled}
+                  onClick={() => void withdraw(item.id)}>删除</button>
+              </div>
+            </li>)}
+          </ul>}
+      </>}
     </section>
 
     <section className="panel community-detail" aria-labelledby="community-detail-title">
@@ -391,15 +600,48 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
         <div className="panel-heading">
           <h2 id="community-detail-title">{selected.title}</h2>
         </div>
-        <p className="community-hint">{selected.author} · {stamp(selected.published_at)}</p>
-        <CardBody card={selected} />
+        <p className="community-hint">{selected.author} · 发布于 {stamp(selected.published_at)}</p>
+        <CardFacts card={selected} />
+        <pre className="community-body">{selected.body_md}</pre>
+        {selected.tags.length > 0 && <p className="community-hint">标签：{selected.tags.join(' · ')}</p>}
         <div className="community-actions">
-          <button type="button" className="secondary-button" disabled={disabled}
-            onClick={() => void helpful(selected.id)}>
-            有帮助（{selected.helpful_count}）
+          <button type="button" className={`secondary-button ${selected.viewer_helpful ? 'active' : ''}`}
+            disabled={disabled} aria-pressed={selected.viewer_helpful}
+            onClick={() => void toggleHelpful(selected.id)}>
+            {selected.viewer_helpful ? `已标记有帮助（${selected.helpful_count}）· 点此撤回` : `有帮助（${selected.helpful_count}）`}
           </button>
           <button type="button" className="secondary-button danger" disabled={disabled}
             onClick={() => void report(selected.id)}>举报</button>
+        </div>
+
+        <h3 className="community-subtitle">评论（{comments.length}）</h3>
+        {comments.length === 0 ? <p className="community-hint">还没有评论，说两句你关心的问题。</p>
+          : <ul className="community-comments">
+            {comments.map(comment => <li key={comment.id}>
+              <div className="community-comment-head">
+                <strong>{comment.author}</strong>
+                <span>{stamp(comment.created_at)}</span>
+                {comment.status !== 'public' && <span className="community-badge" data-status="rejected">已撤下待审</span>}
+              </div>
+              <p className="community-comment-body">{comment.body}</p>
+              <div className="community-comment-actions">
+                {comment.mine && <button type="button" className="link-button" disabled={disabled}
+                  onClick={() => void removeComment(comment.id)}>删除</button>}
+                {comment.can_manage && !comment.mine && <button type="button" className="link-button" disabled={disabled}
+                  onClick={() => void removeComment(comment.id)}>管理员删除</button>}
+                {!comment.mine && <button type="button" className="link-button" disabled={disabled}
+                  onClick={() => void reportComment(comment.id)}>举报</button>}
+              </div>
+            </li>)}
+          </ul>}
+        <div className="community-comment-form">
+          <textarea value={commentDraft} rows={3} disabled={disabled || busy === 'comment'}
+            placeholder="补充你了解的情况（手机号/微信会被隐藏）"
+            onChange={event => setCommentDraft(event.target.value)} />
+          <button type="button" className="secondary-button" disabled={disabled || busy === 'comment' || !commentDraft.trim()}
+            onClick={() => void addComment()}>
+            {busy === 'comment' ? '发表中…' : '发表评论'}
+          </button>
         </div>
       </>}
     </section>

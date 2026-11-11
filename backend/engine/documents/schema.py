@@ -124,16 +124,44 @@ CREATE TABLE IF NOT EXISTS card_votes (
 );
 
 -- 举报：同一人同一卡一次；累计达标后卡片自动回到待审（先从列表隐藏）
+-- status 是处理状态：open 待管理员处理，resolved 已处理（保留记录便于复盘）
 CREATE TABLE IF NOT EXISTS card_reports (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     card_id    TEXT NOT NULL REFERENCES public_cards(id) ON DELETE CASCADE,
     user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     reason     TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'open',
+    handled_by TEXT,
+    handled_at REAL,
     created_at REAL NOT NULL
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_card_report_owner ON card_reports(card_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_card_reports_card ON card_reports(card_id, id DESC);
+
+-- 评论：挂在已公开的卡片下，同样匿名；被举报达阈值先撤下，等管理员处理
+CREATE TABLE IF NOT EXISTS card_comments (
+    id           TEXT PRIMARY KEY,
+    card_id      TEXT NOT NULL REFERENCES public_cards(id) ON DELETE CASCADE,
+    user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    anon_id      TEXT NOT NULL REFERENCES anon_identities(id),
+    body         TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'public',
+    report_count INTEGER NOT NULL DEFAULT 0,
+    created_at   REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_comments_card ON card_comments(card_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_comments_status ON card_comments(status, id DESC);
+
+-- 评论举报：一人一条评论一次，避免一个人刷举报把评论顶掉
+CREATE TABLE IF NOT EXISTS comment_reports (
+    comment_id TEXT NOT NULL REFERENCES card_comments(id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reason     TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY(comment_id, user_id)
+);
 
 CREATE TABLE IF NOT EXISTS feed_sources (
     id          TEXT PRIMARY KEY,
@@ -161,3 +189,14 @@ def ensure(db: sqlite3.Connection) -> None:
     columns = {row[1] for row in db.execute("PRAGMA table_info(feed_sources)")}
     if "config_json" not in columns:
         db.execute("ALTER TABLE feed_sources ADD COLUMN config_json TEXT NOT NULL DEFAULT '{}'")
+
+    # 举报处理状态是后加的：旧库补列，已有举报按待处理算
+    report_columns = {row[1] for row in db.execute("PRAGMA table_info(card_reports)")}
+    if "status" not in report_columns:
+        db.execute("ALTER TABLE card_reports ADD COLUMN status TEXT NOT NULL DEFAULT 'open'")
+    if "handled_by" not in report_columns:
+        db.execute("ALTER TABLE card_reports ADD COLUMN handled_by TEXT")
+    if "handled_at" not in report_columns:
+        db.execute("ALTER TABLE card_reports ADD COLUMN handled_at REAL")
+    # 索引放在补列之后建，否则旧库会在 executescript 阶段报 no such column
+    db.execute("CREATE INDEX IF NOT EXISTS idx_card_reports_status ON card_reports(status, id DESC)")

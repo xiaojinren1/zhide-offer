@@ -25,6 +25,7 @@ MAX_COMPANY = 60
 MAX_ROLE = 60
 MAX_TAG = 20
 MAX_TAGS = 8
+MAX_COMMENT = 600
 # 累计这么多条举报就先从公开列表撤下、回到待审
 REPORT_HIDE_THRESHOLD = 3
 
@@ -60,7 +61,8 @@ def ensure_anon_id(db, user_id: str) -> str:
     return anon_id
 
 
-def _card_dict(row: Any, anon_name: str) -> dict[str, Any]:
+def _card_dict(row: Any, anon_name: str, *, viewer_helpful: bool = False,
+               comment_count: int = 0) -> dict[str, Any]:
     """对外形态：不含 user_id / anon_id / 审核人。"""
     try:
         tags = json.loads(row["tags_json"] or "[]")
@@ -78,6 +80,8 @@ def _card_dict(row: Any, anon_name: str) -> dict[str, Any]:
         "status": row["status"],
         "author": anon_name,
         "helpful_count": row["helpful_count"],
+        "viewer_helpful": viewer_helpful,
+        "comment_count": comment_count,
         "report_count": row["report_count"],
         "review_note": row["review_note"],
         "created_at": row["created_at"],
@@ -85,7 +89,8 @@ def _card_dict(row: Any, anon_name: str) -> dict[str, Any]:
     }
 
 
-def _attach(db, rows: list[Any]) -> list[dict[str, Any]]:
+def _attach(db, rows: list[Any], *, viewer_id: str | None = None) -> list[dict[str, Any]]:
+    """批量补匿名马甲名、当前用户是否点过有帮助、评论数。"""
     if not rows:
         return []
     anon_ids = {row["anon_id"] for row in rows}
@@ -96,7 +101,33 @@ def _attach(db, rows: list[Any]) -> list[dict[str, Any]]:
             f"SELECT id, display_name FROM anon_identities WHERE id IN ({marks})", tuple(anon_ids)
         ).fetchall()
     }
-    return [_card_dict(row, names.get(row["anon_id"], "匿名")) for row in rows]
+    card_ids = [row["id"] for row in rows]
+    id_marks = ",".join("?" for _ in card_ids)
+    voted: set[str] = set()
+    if viewer_id:
+        voted = {
+            item["card_id"]
+            for item in db.execute(
+                f"SELECT card_id FROM card_votes WHERE user_id = ? AND card_id IN ({id_marks})",
+                (viewer_id, *card_ids),
+            ).fetchall()
+        }
+    comment_counts = {
+        item["card_id"]: item["total"]
+        for item in db.execute(
+            f"SELECT card_id, COUNT(*) AS total FROM card_comments"
+            f" WHERE status = 'public' AND card_id IN ({id_marks}) GROUP BY card_id",
+            tuple(card_ids),
+        ).fetchall()
+    }
+    return [
+        _card_dict(
+            row, names.get(row["anon_id"], "匿名"),
+            viewer_helpful=row["id"] in voted,
+            comment_count=comment_counts.get(row["id"], 0),
+        )
+        for row in rows
+    ]
 
 
 def submit(db, user_id: str, *, kind: str, title: object, body_md: object,
@@ -125,7 +156,8 @@ def submit(db, user_id: str, *, kind: str, title: object, body_md: object,
 
 
 def list_public(db, *, kind: str | None = None, company: str = "", q: str = "",
-                limit: int = 20, before: float | None = None) -> list[dict[str, Any]]:
+                limit: int = 20, before: float | None = None,
+                viewer_id: str | None = None) -> list[dict[str, Any]]:
     """公开列表：SQL 里写死 status = 'public'。"""
     conditions = ["status = 'public'"]
     params: list[Any] = []
@@ -146,7 +178,7 @@ def list_public(db, *, kind: str | None = None, company: str = "", q: str = "",
         + " ORDER BY published_at DESC, id DESC LIMIT ?",
         (*params, max(1, min(limit, 50))),
     ).fetchall()
-    return _attach(db, rows)
+    return _attach(db, rows, viewer_id=viewer_id)
 
 
 def list_mine(db, user_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
@@ -154,7 +186,7 @@ def list_mine(db, user_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
         "SELECT * FROM public_cards WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
         (user_id, max(1, min(limit, 100))),
     ).fetchall()
-    return _attach(db, rows)
+    return _attach(db, rows, viewer_id=user_id)
 
 
 def get_card(db, card_id: str, *, viewer_id: str, admin: bool) -> dict[str, Any] | None:
@@ -164,7 +196,7 @@ def get_card(db, card_id: str, *, viewer_id: str, admin: bool) -> dict[str, Any]
         return None
     if row["status"] != "public" and not admin and row["user_id"] != viewer_id:
         return None
-    return _attach(db, [row])[0]
+    return _attach(db, [row], viewer_id=viewer_id)[0]
 
 
 def review(db, card_id: str, *, reviewer_id: str, action: str, note: object = "") -> dict[str, Any]:
@@ -223,21 +255,27 @@ def withdraw(db, card_id: str, *, user_id: str, admin: bool = False) -> bool:
     return True
 
 
-def mark_helpful(db, card_id: str, user_id: str) -> dict[str, Any]:
-    """有帮助：一人一票，重复点击不重复计数。"""
+def toggle_helpful(db, card_id: str, user_id: str) -> dict[str, Any]:
+    """有帮助：一人一票，可再点取消。返回当前用户的状态与最新计数。"""
     row = db.execute("SELECT status FROM public_cards WHERE id = ?", (card_id,)).fetchone()
-    if row is None:
+    if row is None or row["status"] != "public":
         raise LookupError("卡片不存在")
-    if row["status"] != "public":
-        raise LookupError("卡片不存在")
-    inserted = db.execute(
-        "INSERT OR IGNORE INTO card_votes(card_id, user_id, created_at) VALUES (?,?,?)",
-        (card_id, user_id, _now()),
+    removed = db.execute(
+        "DELETE FROM card_votes WHERE card_id = ? AND user_id = ?", (card_id, user_id)
     ).rowcount
-    if inserted:
+    if removed:
+        db.execute("UPDATE public_cards SET helpful_count = MAX(helpful_count - 1, 0) WHERE id = ?",
+                   (card_id,))
+        helpful = False
+    else:
+        db.execute(
+            "INSERT INTO card_votes(card_id, user_id, created_at) VALUES (?,?,?)",
+            (card_id, user_id, _now()),
+        )
         db.execute("UPDATE public_cards SET helpful_count = helpful_count + 1 WHERE id = ?", (card_id,))
+        helpful = True
     count = db.execute("SELECT helpful_count FROM public_cards WHERE id = ?", (card_id,)).fetchone()[0]
-    return {"helpful_count": count, "already": not bool(inserted)}
+    return {"helpful": helpful, "helpful_count": count}
 
 
 def report(db, card_id: str, user_id: str, reason: object) -> dict[str, Any]:
@@ -276,3 +314,63 @@ def pending_counts(db) -> dict[str, int]:
     for row in rows:
         counts[row[0]] = row[1]
     return counts
+
+
+def list_reports(db, *, only_open: bool = True, limit: int = 30) -> list[dict[str, Any]]:
+    """管理员举报队列：按卡片聚合，带每条举报原因与卡片当前状态。"""
+    condition = "WHERE r.status = 'open'" if only_open else ""
+    rows = db.execute(
+        f"""SELECT r.card_id, r.reason, r.created_at, c.title, c.kind, c.company, c.role,
+                   c.round, c.status AS card_status, c.report_count
+            FROM card_reports r JOIN public_cards c ON c.id = r.card_id
+            {condition}
+            ORDER BY r.id DESC LIMIT ?""",
+        (max(1, min(limit, 100)),),
+    ).fetchall()
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        item = grouped.setdefault(row["card_id"], {
+            "card_id": row["card_id"],
+            "title": row["title"],
+            "kind": row["kind"],
+            "company": row["company"],
+            "role": row["role"],
+            "round": row["round"],
+            "card_status": row["card_status"],
+            "reasons": [],
+        })
+        item["reasons"].append({"reason": row["reason"], "created_at": row["created_at"]})
+    for item in grouped.values():
+        item["report_count"] = len(item["reasons"])
+    return list(grouped.values())
+
+
+def resolve_reports(db, card_id: str, *, admin_id: str) -> int:
+    """把一张卡片的待处理举报标为已处理；记录保留，便于复盘。"""
+    reason_rows = db.execute(
+        "SELECT reason FROM card_reports WHERE card_id = ? AND status = 'open'", (card_id,)
+    ).fetchall()
+    if not reason_rows:
+        return 0
+    db.execute(
+        "UPDATE card_reports SET status = 'resolved', handled_by = ?, handled_at = ?"
+        " WHERE card_id = ? AND status = 'open'",
+        (admin_id, _now(), card_id),
+    )
+    return len(reason_rows)
+
+
+def unpublish(db, card_id: str, *, admin_id: str, note: object = "") -> dict[str, Any]:
+    """下架已公开内容：从列表撤下但保留记录，作者能看到原因。"""
+    row = db.execute("SELECT status FROM public_cards WHERE id = ?", (card_id,)).fetchone()
+    if row is None:
+        raise LookupError("卡片不存在")
+    if row["status"] != "public":
+        raise ValueError("只有已发布的内容需要下架")
+    clean_note = _clip(redact(note), 200) or "管理员下架：内容不符合社群规范"
+    db.execute(
+        "UPDATE public_cards SET status = 'rejected', reviewed_by = ?, reviewed_at = ?,"
+        " review_note = ? WHERE id = ?",
+        (admin_id, _now(), clean_note, card_id),
+    )
+    return {"id": card_id, "status": "rejected", "review_note": clean_note}

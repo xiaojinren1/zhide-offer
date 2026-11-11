@@ -240,3 +240,122 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* 字段标注清楚：类型/公司/岗位/轮次各占一格，不再混成一行标签 */
+.community-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.community-facts div {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.community-facts dt {
+  font-size: 11px;
+  color: var(--text-muted, #6b7280);
+}
+
+.community-facts dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+}
+
+.community-kind {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(47, 111, 79, 0.12);
+  color: #2f6f4f;
+}
+
+.community-card-title .community-kind {
+  vertical-align: 1px;
+}
+
+.community-actions .secondary-button.active {
+  background: rgba(47, 111, 79, 0.12);
+  border-color: rgba(47, 111, 79, 0.45);
+  color: #2f6f4f;
+}
+
+.community-reasons {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: #a13c2f;
+  line-height: 1.7;
+}
+
+/* 评论 */
+.community-comments {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.community-comments li {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: #fff;
+}
+
+.community-comment-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-muted, #6b7280);
+}
+
+.community-comment-body {
+  margin: 4px 0;
+  font-size: 13px;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.community-comment-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.link-button {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--text-muted, #6b7280);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  color: #2f6f4f;
+}
+
+.community-comment-form {
+  display: grid;
+  gap: 8px;
+}
+
+.community-comment-form textarea {
+  width: 100%;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  box-sizing: border-box;
+}

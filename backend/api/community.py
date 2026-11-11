@@ -38,8 +38,22 @@ class SubmitRequest(BaseModel):
 class ReviewRequest(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
-    action: Literal["approve", "reject"]
+    action: Literal["approve", "reject", "unpublish"]
     note: str = Field(default="", max_length=500)
+
+
+class CommentRequest(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    body: str = Field(min_length=1, max_length=1000)
+
+
+class ResolveRequest(BaseModel):
+    """举报处理：保留内容（已人工核对）时不需要备注，删除内容直接用 DELETE。"""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    note: str = Field(default="", max_length=300)
 
 
 class ReportRequest(BaseModel):
@@ -112,7 +126,8 @@ def list_cards(response: Response, kind: str | None = None, company: str = "", q
         raise HTTPException(status_code=422, detail="卡片类型不合法")
     with accounts.connection() as db:
         items = community.cards.list_public(
-            db, kind=kind, company=company[:60], q=q[:100], limit=limit, before=before)
+            db, kind=kind, company=company[:60], q=q[:100], limit=limit, before=before,
+            viewer_id=user["id"])
     response.headers["Cache-Control"] = "no-store"
     return {"ok": True, "items": items,
             "next_before": items[-1]["published_at"] if len(items) == limit else None}
@@ -135,10 +150,11 @@ def my_cards(user: dict = Depends(_require_account)):
 
 
 @router.post("/cards/{card_id}/helpful")
-def mark_helpful(card_id: str, user: dict = Depends(_require_account)):
+def toggle_helpful(card_id: str, user: dict = Depends(_require_account)):
+    """点一次标记有帮助，再点一次取消（不是单向累积）。"""
     try:
         with accounts.connection() as db:
-            return {"ok": True, **community.cards.mark_helpful(db, card_id, user["id"])}
+            return {"ok": True, **community.cards.toggle_helpful(db, card_id, user["id"])}
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -181,11 +197,98 @@ def review_queue(status: str = "pending", before: float | None = None,
 
 @router.patch("/cards/{card_id}")
 def review_card(card_id: str, req: ReviewRequest, user: dict = Depends(_require_admin)):
+    """审阅：通过 / 退回（必写理由）/ 下架已发布内容。"""
     try:
         with accounts.connection() as db:
+            if req.action == "unpublish":
+                return {"ok": True, **community.cards.unpublish(
+                    db, card_id, admin_id=user["id"], note=req.note)}
             return {"ok": True, **community.cards.review(
                 db, card_id, reviewer_id=user["id"], action=req.action, note=req.note)}
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+# ---- 举报处理（管理员）----
+
+
+@router.get("/reports")
+def list_reports(only_open: bool = True, limit: int = Query(30, ge=1, le=100),
+                 user: dict = Depends(_require_admin)):
+    """举报队列：按卡片聚合，带每条举报原因，管理员据此判断保留还是删除。"""
+    with accounts.connection() as db:
+        return {"ok": True, "items": community.cards.list_reports(db, only_open=only_open, limit=limit)}
+
+
+@router.post("/reports/{card_id}/resolve")
+def resolve_reports(card_id: str, req: ResolveRequest | None = None,
+                    user: dict = Depends(_require_admin)):
+    """把这张卡片的待处理举报标为已处理（内容保持不变，通常是人工核对为正常）。"""
+    with accounts.connection() as db:
+        changed = community.cards.resolve_reports(db, card_id, admin_id=user["id"])
+    if not changed:
+        raise HTTPException(status_code=404, detail="没有待处理的举报")
+    return {"ok": True, "resolved": changed}
+
+
+# ---- 评论 ----
+
+
+@router.get("/cards/{card_id}/comments")
+def list_comments(card_id: str, user: dict = Depends(accounts.require_user)):
+    with accounts.connection() as db:
+        items = community.comments.list_comments(
+            db, card_id, viewer_id=user["id"], admin=is_admin(user))
+    return {"ok": True, "items": items}
+
+
+@router.post("/cards/{card_id}/comments", status_code=201)
+def add_comment(card_id: str, req: CommentRequest, user: dict = Depends(_require_account)):
+    """评论即时公开（脱敏后）；被举报达阈值会先撤下进管理员队列。"""
+    try:
+        with accounts.connection() as db:
+            return {"ok": True, **community.comments.add_comment(db, card_id, user["id"], req.body)}
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.delete("/comments/{comment_id}")
+def delete_comment(comment_id: str, user: dict = Depends(accounts.require_user)):
+    with accounts.connection() as db:
+        removed = community.comments.delete_comment(
+            db, comment_id, user_id=user["id"], admin=is_admin(user))
+    if not removed:
+        raise HTTPException(status_code=404, detail="评论不存在或无权删除")
+    return {"ok": True}
+
+
+@router.post("/comments/{comment_id}/report")
+def report_comment(comment_id: str, req: ReportRequest, user: dict = Depends(_require_account)):
+    try:
+        with accounts.connection() as db:
+            result = community.comments.report_comment(db, comment_id, user["id"], req.reason)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    message = "已记录举报，管理员会尽快处理。" + ("该评论已暂时撤下待审。" if result["hidden"] else "")
+    return {"ok": True, **result, "message": message}
+
+
+@router.get("/comments/queue")
+def comment_queue(limit: int = Query(30, ge=1, le=100), user: dict = Depends(_require_admin)):
+    """被举报撤下的评论，管理员可恢复或删除。"""
+    with accounts.connection() as db:
+        return {"ok": True, "items": community.comments.comment_queue(db, limit=limit)}
+
+
+@router.post("/comments/{comment_id}/restore")
+def restore_comment(comment_id: str, user: dict = Depends(_require_admin)):
+    with accounts.connection() as db:
+        if not community.comments.restore_comment(db, comment_id):
+            raise HTTPException(status_code=404, detail="评论不存在")
+    return {"ok": True}

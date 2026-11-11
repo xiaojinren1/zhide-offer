@@ -204,16 +204,30 @@ class CommunityContract(unittest.TestCase):
 
     # ---- 互动 ----
 
-    def test_helpful_is_idempotent(self) -> None:
+    def test_helpful_can_be_toggled_off(self) -> None:
+        """点一次标记有帮助，再点一次撤回，计数跟着变回去。"""
         card_id = self.submit().json()["id"]
         self.approve(card_id)
         self.as_user("u-bob")
         first = self.client.post(f"/api/community/cards/{card_id}/helpful", headers=HEADER).json()
-        second = self.client.post(f"/api/community/cards/{card_id}/helpful", headers=HEADER).json()
+        self.assertTrue(first["helpful"])
         self.assertEqual(first["helpful_count"], 1)
-        self.assertFalse(first["already"])
-        self.assertEqual(second["helpful_count"], 1, "同一人重复点击不能刷高计数")
-        self.assertTrue(second["already"])
+        second = self.client.post(f"/api/community/cards/{card_id}/helpful", headers=HEADER).json()
+        self.assertFalse(second["helpful"])
+        self.assertEqual(second["helpful_count"], 0, "撤回后计数要减回去")
+        third = self.client.post(f"/api/community/cards/{card_id}/helpful", headers=HEADER).json()
+        self.assertEqual(third["helpful_count"], 1)
+
+    def test_viewer_helpful_state_survives_reload(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-bob")
+        self.client.post(f"/api/community/cards/{card_id}/helpful", headers=HEADER)
+        card = self.client.get(f"/api/community/cards/{card_id}").json()["card"]
+        self.assertTrue(card["viewer_helpful"], "刷新后按钮要显示已标记")
+        self.as_user("u-admin")
+        other = self.client.get(f"/api/community/cards/{card_id}").json()["card"]
+        self.assertFalse(other["viewer_helpful"], "别人的标记不算我的")
 
     def test_reports_hide_card_after_threshold(self) -> None:
         card_id = self.submit().json()["id"]
@@ -269,5 +283,174 @@ class CommunityContract(unittest.TestCase):
         self.assertEqual(card["company"], "某科技", "公司名是内容，不该被遮")
 
 
+class CommunityGovernance(unittest.TestCase):
+    """举报处理、已发布下架、评论：管理员要真的能看到并处置。"""
+
+    setUp = CommunityContract.setUp
+    submit = CommunityContract.submit
+    as_user = CommunityContract.as_user
+    approve = CommunityContract.approve
+
+    def test_report_reaches_admin_queue_with_reason(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-bob")
+        self.client.post(f"/api/community/cards/{card_id}/report",
+                         json={"reason": "内容包含联系方式"}, headers=HEADER)
+
+        self.as_user("u-alice")
+        self.assertEqual(self.client.get("/api/community/reports").status_code, 403)
+
+        self.as_user("u-admin")
+        queue = self.client.get("/api/community/reports").json()["items"]
+        self.assertEqual(len(queue), 1)
+        self.assertEqual(queue[0]["card_id"], card_id)
+        self.assertEqual(queue[0]["reasons"][0]["reason"], "内容包含联系方式")
+        self.assertEqual(queue[0]["report_count"], 1)
+
+    def test_admin_resolves_reports_without_deleting_content(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-bob")
+        self.client.post(f"/api/community/cards/{card_id}/report",
+                         json={"reason": "疑似广告"}, headers=HEADER)
+        self.as_user("u-admin")
+        resolved = self.client.post(f"/api/community/reports/{card_id}/resolve",
+                                    json={"note": "人工核对为正常"}, headers=HEADER)
+        self.assertEqual(resolved.status_code, 200, resolved.text)
+        self.assertEqual(resolved.json()["resolved"], 1)
+        self.assertEqual(self.client.get("/api/community/reports").json()["items"], [])
+        # 内容仍在
+        self.as_user("u-bob")
+        self.assertEqual(len(self.client.get("/api/community/cards").json()["items"]), 1)
+
+    def test_admin_can_unpublish_published_card(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-admin")
+        result = self.client.patch(f"/api/community/cards/{card_id}",
+                                   json={"action": "unpublish", "note": "内容与主题不符"},
+                                   headers=HEADER)
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(result.json()["status"], "rejected")
+        self.assertEqual(result.json()["review_note"], "内容与主题不符")
+
+        self.as_user("u-bob")
+        self.assertEqual(self.client.get("/api/community/cards").json()["items"], [])
+        self.as_user("u-alice")
+        mine = self.client.get("/api/community/mine").json()["items"]
+        self.assertEqual(mine[0]["status"], "rejected")
+        self.assertEqual(mine[0]["review_note"], "内容与主题不符")
+
+    def test_author_can_withdraw_published_card(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-alice")
+        self.assertEqual(self.client.delete(f"/api/community/cards/{card_id}", headers=HEADER).status_code, 200)
+        self.as_user("u-bob")
+        self.assertEqual(self.client.get("/api/community/cards").json()["items"], [])
+
+    # ---- 评论 ----
+
+    def test_comment_on_public_card_and_visible_to_others(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-bob")
+        created = self.client.post(f"/api/community/cards/{card_id}/comments",
+                                   json={"body": "补充一个细节：二面才问算法。"}, headers=HEADER)
+        self.assertEqual(created.status_code, 201, created.text)
+
+        self.as_user("u-alice")
+        items = self.client.get(f"/api/community/cards/{card_id}/comments").json()["items"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["body"], "补充一个细节：二面才问算法。")
+        self.assertNotIn("user_id", items[0])
+        card = self.client.get(f"/api/community/cards/{card_id}").json()["card"]
+        self.assertEqual(card["comment_count"], 1)
+
+    def test_comment_requires_public_card_and_redaction(self) -> None:
+        card_id = self.submit().json()["id"]          # 仍是 pending
+        self.as_user("u-bob")
+        denied = self.client.post(f"/api/community/cards/{card_id}/comments",
+                                  json={"body": "还没审核也能评论吗"}, headers=HEADER)
+        self.assertEqual(denied.status_code, 404)
+
+        self.approve(card_id)
+        self.as_user("u-bob")
+        created = self.client.post(f"/api/community/cards/{card_id}/comments",
+                                   json={"body": "想交流加微信 bob_2026 或手机 13900001111"},
+                                   headers=HEADER).json()
+        self.assertNotIn("bob_2026", created["body"])
+        self.assertNotIn("13900001111", created["body"])
+
+    def test_guest_cannot_comment(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-guest")
+        self.assertEqual(self.client.post(f"/api/community/cards/{card_id}/comments",
+                                          json={"body": "试用账号的评论"}, headers=HEADER).status_code, 403)
+
+    def test_comment_author_and_admin_can_delete(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-bob")
+        comment_id = self.client.post(f"/api/community/cards/{card_id}/comments",
+                                      json={"body": "先占个位置"}, headers=HEADER).json()["id"]
+        self.as_user("u-alice")
+        self.assertEqual(self.client.delete(f"/api/community/comments/{comment_id}",
+                                            headers=HEADER).status_code, 404)
+        self.as_user("u-bob")
+        self.assertEqual(self.client.delete(f"/api/community/comments/{comment_id}",
+                                            headers=HEADER).status_code, 200)
+
+    def test_reported_comment_is_hidden_and_queue_shows_it(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-bob")
+        comment_id = self.client.post(f"/api/community/cards/{card_id}/comments",
+                                      json={"body": "这是广告：加我私聊"}, headers=HEADER).json()["id"]
+        for user_id in ("u-alice", "u-admin"):
+            self.as_user(user_id)
+            result = self.client.post(f"/api/community/comments/{comment_id}/report",
+                                      json={"reason": "广告"}, headers=HEADER).json()
+        self.assertTrue(result["hidden"], "累计举报达到阈值要撤下")
+        self.as_user("u-alice")
+        self.assertEqual(self.client.get(f"/api/community/cards/{card_id}/comments").json()["items"], [])
+
+        self.as_user("u-admin")
+        queue = self.client.get("/api/community/comments/queue").json()["items"]
+        self.assertEqual([item["id"] for item in queue], [comment_id])
+        restored = self.client.post(f"/api/community/comments/{comment_id}/restore", headers=HEADER)
+        self.assertEqual(restored.status_code, 200)
+        self.as_user("u-alice")
+        self.assertEqual(len(self.client.get(f"/api/community/cards/{card_id}/comments").json()["items"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class CommunityCommentReportDedupe(unittest.TestCase):
+    """同一个人反复举报不能把评论顶掉。"""
+
+    setUp = CommunityContract.setUp
+    submit = CommunityContract.submit
+    as_user = CommunityContract.as_user
+    approve = CommunityContract.approve
+
+    def test_same_user_reports_comment_once(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-bob")
+        comment_id = self.client.post(f"/api/community/cards/{card_id}/comments",
+                                      json={"body": "一段普通评论"}, headers=HEADER).json()["id"]
+        self.as_user("u-alice")
+        first = self.client.post(f"/api/community/comments/{comment_id}/report",
+                                 json={"reason": "广告"}, headers=HEADER).json()
+        second = self.client.post(f"/api/community/comments/{comment_id}/report",
+                                  json={"reason": "广告"}, headers=HEADER).json()
+        self.assertEqual(first["report_count"], 1)
+        self.assertTrue(second["already"])
+        self.assertEqual(second["report_count"], 1)
+        self.assertFalse(second["hidden"], "一个人刷两次不能把评论撤下")
+        self.assertEqual(len(self.client.get(f"/api/community/cards/{card_id}/comments").json()["items"]), 1)

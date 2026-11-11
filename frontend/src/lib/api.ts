@@ -417,10 +417,36 @@ export type CommunityCard = {
   status: 'pending' | 'public' | 'rejected'
   author: string
   helpful_count: number
+  viewer_helpful: boolean
+  comment_count: number
   report_count: number
   review_note: string
   created_at: number
   published_at: number | null
+}
+
+export type CommunityComment = {
+  id: string
+  card_id: string
+  body: string
+  author: string
+  status: 'public' | 'rejected'
+  report_count: number
+  created_at: number
+  mine: boolean
+  can_manage: boolean
+}
+
+export type CommunityReportGroup = {
+  card_id: string
+  title: string
+  kind: CommunityCard['kind']
+  company: string
+  role: string
+  round: string
+  card_status: CommunityCard['status']
+  report_count: number
+  reasons: Array<{ reason: string; created_at: number }>
 }
 
 export type CommunitySubmitPayload = {
@@ -435,7 +461,7 @@ export type CommunitySubmitPayload = {
 }
 
 export const communityApi = {
-  list: (params: { kind?: string; company?: string; q?: string; before?: number } = {}) =>
+  list: (params: { kind?: string; company?: string; q?: string; before?: number; limit?: number } = {}) =>
     http.get('/community/cards', { params }).then(r => r.data) as Promise<{
       ok: boolean
       items: CommunityCard[]
@@ -458,8 +484,8 @@ export const communityApi = {
   helpful: (id: string) =>
     http.post(`/community/cards/${encodeURIComponent(id)}/helpful`).then(r => r.data) as Promise<{
       ok: boolean
+      helpful: boolean
       helpful_count: number
-      already: boolean
     }>,
   report: (id: string, reason: string) =>
     http.post(`/community/cards/${encodeURIComponent(id)}/report`, { reason }).then(r => r.data) as Promise<{
@@ -477,10 +503,48 @@ export const communityApi = {
       items: CommunityCard[]
       counts: Record<string, number>
     }>,
-  reviewCard: (id: string, action: 'approve' | 'reject', note: string) =>
+  reviewCard: (id: string, action: 'approve' | 'reject' | 'unpublish', note: string) =>
     http.patch(`/community/cards/${encodeURIComponent(id)}`, { action, note }).then(r => r.data) as Promise<{
       ok: boolean
       status: string
       review_note: string
     }>,
+  reports: (onlyOpen = true) =>
+    http.get('/community/reports', { params: { only_open: onlyOpen } }).then(r => r.data) as Promise<{
+      ok: boolean
+      items: CommunityReportGroup[]
+    }>,
+  resolveReports: (cardId: string, note = '') =>
+    http.post(`/community/reports/${encodeURIComponent(cardId)}/resolve`, { note }).then(r => r.data) as Promise<{
+      ok: boolean
+      resolved: number
+    }>,
+  comments: (cardId: string) =>
+    http.get(`/community/cards/${encodeURIComponent(cardId)}/comments`).then(r => r.data) as Promise<{
+      ok: boolean
+      items: CommunityComment[]
+    }>,
+  addComment: (cardId: string, body: string) =>
+    http.post(`/community/cards/${encodeURIComponent(cardId)}/comments`, { body }).then(r => r.data) as Promise<{
+      ok: boolean
+      id: string
+      status: string
+      body: string
+    }>,
+  removeComment: (commentId: string) =>
+    http.delete(`/community/comments/${encodeURIComponent(commentId)}`).then(r => r.data) as Promise<{ ok: boolean }>,
+  reportComment: (commentId: string, reason: string) =>
+    http.post(`/community/comments/${encodeURIComponent(commentId)}/report`, { reason }).then(r => r.data) as Promise<{
+      ok: boolean
+      report_count: number
+      hidden: boolean
+      message: string
+    }>,
+  commentQueue: () =>
+    http.get('/community/comments/queue').then(r => r.data) as Promise<{
+      ok: boolean
+      items: CommunityComment[]
+    }>,
+  restoreComment: (commentId: string) =>
+    http.post(`/community/comments/${encodeURIComponent(commentId)}/restore`).then(r => r.data) as Promise<{ ok: boolean }>,
 }

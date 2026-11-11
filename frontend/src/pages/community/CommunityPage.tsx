@@ -76,6 +76,8 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
   const [form, setForm] = useState(emptyForm)
   const [rejectNote, setRejectNote] = useState<Record<string, string>>({})
   const [docs, setDocs] = useState<JobDocument[]>([])
+  // 非空表示正在改这篇投稿；保存后回到待审
+  const [editingId, setEditingId] = useState('')
 
   const loadLibrary = useCallback(async () => {
     setLoading(true)
@@ -165,21 +167,78 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
     setError('')
     setNotice('')
     try {
-      const payload: CommunitySubmitPayload = {
-        kind: form.kind,
-        title: form.title,
-        body_md: form.body,
-        company: form.company,
-        role: form.role,
-        round: form.round,
-        tags: form.tags.split(/[,，\s]+/).filter(Boolean),
-        ...(form.docId.trim() ? { doc_id: form.docId.trim() } : {}),
+      const tags = form.tags.split(/[,，\s]+/).filter(Boolean)
+      if (editingId) {
+        const result = await communityApi.revise(editingId, {
+          title: form.title,
+          body_md: form.body,
+          company: form.company,
+          role: form.role,
+          round: form.round,
+          tags,
+        })
+        setNotice(result.message || '已保存并重新提交审核')
+      } else {
+        const payload: CommunitySubmitPayload = {
+          kind: form.kind,
+          title: form.title,
+          body_md: form.body,
+          company: form.company,
+          role: form.role,
+          round: form.round,
+          tags,
+          ...(form.docId.trim() ? { doc_id: form.docId.trim() } : {}),
+        }
+        const result = await communityApi.submit(payload)
+        setNotice(result.message || '已提交，等待审核')
       }
-      const result = await communityApi.submit(payload)
-      setNotice(result.message || '已提交，等待审核')
       setForm(emptyForm)
+      setEditingId('')
       await loadMine()
       await loadQueue()
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  /** 把这篇投稿装回表单，改完保存会重新进待审。 */
+  function startEdit(card: CommunityCard) {
+    if (card.status === 'public' && !window.confirm(
+      '这是已发布内容，修改后会先从列表撤下并重新进入审核，通过后再公开。继续？')) {
+      return
+    }
+    setEditingId(card.id)
+    setForm({
+      kind: card.kind,
+      title: card.title,
+      body: card.body_md,
+      company: card.company,
+      role: card.role,
+      round: card.round,
+      tags: card.tags.join(' '),
+      docId: '',
+    })
+    setTab('submit')
+    setError('')
+    setNotice('已载入这篇投稿，修改后点「保存修改并重新提交」')
+  }
+
+  function cancelEdit() {
+    setEditingId('')
+    setForm(emptyForm)
+    setNotice('已取消修改')
+  }
+
+  async function resubmit(id: string) {
+    if (disabled || busy) return
+    if (!window.confirm('内容没改，直接重新提交审核？')) return
+    setBusy(`resubmit-${id}`)
+    try {
+      const result = await communityApi.resubmit(id)
+      setNotice(result.message || '已重新提交审核')
+      await Promise.all([loadMine(), loadQueue()])
     } catch (reason) {
       setError(apiErrorMessage(reason))
     } finally {
@@ -397,6 +456,9 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
 
       {tab === 'submit' && <>
         <div className="community-form">
+          {editingId && <p className="community-note">
+            正在修改一篇投稿：保存后会重新进入待审；如果它之前已发布，会先从列表撤下。
+          </p>}
           <div className="community-form-grid">
             <label>卡片类型
               <select value={form.kind} disabled={disabled}
@@ -456,8 +518,10 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
           <div className="community-actions">
             <button type="button" className="primary-button" disabled={disabled || busy === 'submit'}
               onClick={() => void submit()}>
-              {busy === 'submit' ? '提交中…' : '提交审核'}
+              {busy === 'submit' ? '保存中…' : editingId ? '保存修改并重新提交' : '提交审核'}
             </button>
+            {editingId && <button type="button" className="secondary-button" disabled={disabled || busy === 'submit'}
+              onClick={cancelEdit}>取消修改</button>}
           </div>
         </div>
 
@@ -475,12 +539,26 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
                   {item.round ? ` · ${item.round}` : ''}
                   {' · '}提交于 {stamp(item.created_at)}
                 </p>
-                {item.review_note && <p className="community-note">审核说明：{item.review_note}</p>}
+                {item.review_note && <p className="community-note">
+                  审核说明：{item.review_note}
+                  {item.status === 'rejected' ? '（可以点「编辑」改完再提交，或直接「重新提交」）' : ''}
+                </p>}
               </div>
-              <button type="button" className="secondary-button danger" disabled={disabled}
-                onClick={() => void withdraw(item.id)}>
-                {item.status === 'public' ? '撤回已发布内容' : '撤回'}
-              </button>
+              <div className="community-actions">
+                <button type="button" className="secondary-button" disabled={disabled}
+                  onClick={() => startEdit(item)}>
+                  {item.status === 'public' ? '编辑（会重新审核）' : '编辑'}
+                </button>
+                {item.status === 'rejected' && <button type="button" className="secondary-button"
+                  disabled={disabled || busy === `resubmit-${item.id}`}
+                  onClick={() => void resubmit(item.id)}>
+                  {busy === `resubmit-${item.id}` ? '提交中…' : '重新提交'}
+                </button>}
+                <button type="button" className="secondary-button danger" disabled={disabled}
+                  onClick={() => void withdraw(item.id)}>
+                  {item.status === 'public' ? '撤回已发布内容' : '撤回'}
+                </button>
+              </div>
             </li>)}
           </ul>}
       </>}

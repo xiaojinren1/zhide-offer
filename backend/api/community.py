@@ -48,6 +48,19 @@ class CommentRequest(BaseModel):
     body: str = Field(min_length=1, max_length=1000)
 
 
+class ReviseRequest(BaseModel):
+    """作者修改投稿；改完一律回到待审，不再沿用上一次的审核结论。"""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    title: str | None = Field(default=None, max_length=200)
+    body_md: str | None = Field(default=None, max_length=20000)
+    company: str | None = Field(default=None, max_length=200)
+    role: str | None = Field(default=None, max_length=200)
+    round: str | None = Field(default=None, max_length=40)
+    tags: list[str] | None = Field(default=None, max_length=20)
+
+
 class ResolveRequest(BaseModel):
     """举报处理：保留内容（已人工核对）时不需要备注，删除内容直接用 DELETE。"""
 
@@ -292,3 +305,35 @@ def restore_comment(comment_id: str, user: dict = Depends(_require_admin)):
         if not community.comments.restore_comment(db, comment_id):
             raise HTTPException(status_code=404, detail="评论不存在")
     return {"ok": True}
+
+
+# ---- 作者修改与重新提交 ----
+
+
+@router.put("/cards/{card_id}")
+def revise_card(card_id: str, req: ReviseRequest, user: dict = Depends(_require_account)):
+    """作者修改自己的投稿：保存后回到待审（已发布的会先从列表撤下，等复核）。"""
+    try:
+        with accounts.connection() as db:
+            result = community.cards.revise(
+                db, card_id, user["id"], title=req.title, body_md=req.body_md,
+                company=req.company, role=req.role, round=req.round, tags=req.tags,
+            )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"ok": True, **result, "message": "已保存并重新提交审核，通过后会再次公开。"}
+
+
+@router.post("/cards/{card_id}/resubmit")
+def resubmit_card(card_id: str, user: dict = Depends(_require_account)):
+    """被退回的投稿，不改内容直接重新提交。"""
+    try:
+        with accounts.connection() as db:
+            result = community.cards.resubmit(db, card_id, user["id"])
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"ok": True, **result, "message": "已重新提交审核。"}

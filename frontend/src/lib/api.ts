@@ -547,4 +547,16 @@ export const communityApi = {
     }>,
   restoreComment: (commentId: string) =>
     http.post(`/community/comments/${encodeURIComponent(commentId)}/restore`).then(r => r.data) as Promise<{ ok: boolean }>,
+  revise: (id: string, payload: { title?: string; body_md?: string; company?: string; role?: string; round?: string; tags?: string[] }) =>
+    http.put(`/community/cards/${encodeURIComponent(id)}`, payload).then(r => r.data) as Promise<{
+      ok: boolean
+      status: string
+      message: string
+    }>,
+  resubmit: (id: string) =>
+    http.post(`/community/cards/${encodeURIComponent(id)}/resubmit`).then(r => r.data) as Promise<{
+      ok: boolean
+      status: string
+      message: string
+    }>,
 }

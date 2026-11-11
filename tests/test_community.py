@@ -454,3 +454,90 @@ class CommunityCommentReportDedupe(unittest.TestCase):
         self.assertEqual(second["report_count"], 1)
         self.assertFalse(second["hidden"], "一个人刷两次不能把评论撤下")
         self.assertEqual(len(self.client.get(f"/api/community/cards/{card_id}/comments").json()["items"]), 1)
+
+
+class CommunityRevision(unittest.TestCase):
+    """被退回后要能改、能重新提交；已发布内容一改就回到待审。"""
+
+    setUp = CommunityContract.setUp
+    submit = CommunityContract.submit
+    as_user = CommunityContract.as_user
+    approve = CommunityContract.approve
+
+    def reject(self, card_id: str, note: str = "信息不足") -> None:
+        self.as_user("u-admin")
+        response = self.client.patch(f"/api/community/cards/{card_id}",
+                                     json={"action": "reject", "note": note}, headers=HEADER)
+        self.assertEqual(response.status_code, 200, response.text)
+
+    def test_author_edits_rejected_card_and_it_returns_to_review(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.reject(card_id)
+        self.as_user("u-alice")
+        revised = self.client.put(f"/api/community/cards/{card_id}", json={
+            "title": "某公司数据岗一面（补充版）",
+            "body_md": "补充了二面的细节：问了数仓分层和调度失败补偿，还让我手写窗口函数。",
+            "company": "某科技", "role": "数据开发", "round": "一面", "tags": ["SQL", "数仓"],
+        }, headers=HEADER)
+        self.assertEqual(revised.status_code, 200, revised.text)
+        self.assertEqual(revised.json()["status"], "pending")
+
+        mine = self.client.get("/api/community/mine").json()["items"][0]
+        self.assertEqual(mine["status"], "pending")
+        self.assertEqual(mine["review_note"], "", "重新提交后清掉旧退回原因")
+        self.assertIn("补充版", mine["title"])
+
+        self.as_user("u-admin")
+        queue = self.client.get("/api/community/review").json()["items"]
+        self.assertEqual([item["id"] for item in queue], [card_id])
+
+    def test_edit_is_owner_only_and_redacted(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.as_user("u-bob")
+        denied = self.client.put(f"/api/community/cards/{card_id}",
+                                 json={"title": "改别人的"}, headers=HEADER)
+        self.assertEqual(denied.status_code, 404)
+
+        self.as_user("u-alice")
+        self.client.put(f"/api/community/cards/{card_id}", json={
+            "title": "留下联系方式 13812345678",
+            "body_md": "补充说明：我的邮箱 me@example.com，正文要够长才能通过校验。",
+        }, headers=HEADER)
+        mine = self.client.get("/api/community/mine").json()["items"][0]
+        self.assertNotIn("13812345678", mine["title"])
+        self.assertNotIn("me@example.com", mine["body_md"])
+
+    def test_editing_public_card_unpublishes_it(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-alice")
+        revised = self.client.put(f"/api/community/cards/{card_id}", json={
+            "body_md": "改了内容之后必须重新审核：补充二面问了窗口函数与调度补偿的实现细节。",
+        }, headers=HEADER)
+        self.assertEqual(revised.json()["status"], "pending")
+        self.as_user("u-bob")
+        self.assertEqual(self.client.get("/api/community/cards").json()["items"], [],
+                         "改过的内容不能继续留在公开列表里")
+
+    def test_resubmit_without_edit(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.reject(card_id)
+        self.as_user("u-alice")
+        result = self.client.post(f"/api/community/cards/{card_id}/resubmit", headers=HEADER)
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(result.json()["status"], "pending")
+        # 已发布的不能走“重新提交”，只能改
+        self.approve(card_id)
+        self.as_user("u-alice")
+        self.assertEqual(self.client.post(f"/api/community/cards/{card_id}/resubmit",
+                                          headers=HEADER).status_code, 422)
+
+    def test_guest_and_short_body_are_rejected(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.reject(card_id)
+        self.as_user("u-guest")
+        self.assertEqual(self.client.put(f"/api/community/cards/{card_id}",
+                                         json={"title": "试用账号改"}, headers=HEADER).status_code, 403)
+        self.as_user("u-alice")
+        self.assertEqual(self.client.put(f"/api/community/cards/{card_id}",
+                                         json={"body_md": "太短"}, headers=HEADER).status_code, 422)

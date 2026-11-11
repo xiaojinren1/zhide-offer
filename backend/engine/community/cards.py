@@ -227,6 +227,63 @@ def review(db, card_id: str, *, reviewer_id: str, action: str, note: object = ""
     return {"id": card_id, "status": status, "review_note": clean_note}
 
 
+def revise(db, card_id: str, user_id: str, *, title: object = None, body_md: object = None,
+           company: object = None, role: object = None, round: object = None,
+           tags: list[Any] | None = None) -> dict[str, Any]:
+    """作者修改自己的投稿，并重新进入待审。
+
+    为什么改完要重新审：内容一旦公开过，任何修改都等于新内容，不能再沿用上一次的
+    审核结论；已发布内容被改后会自动从列表撤下（`status = 'pending'`），等管理员复核。
+    """
+    row = db.execute("SELECT user_id FROM public_cards WHERE id = ?", (card_id,)).fetchone()
+    if row is None or row["user_id"] != user_id:
+        raise LookupError("投稿不存在或无权修改")
+    updates: dict[str, Any] = {}
+    if title is not None:
+        clean_title = redact(_clip(title, MAX_TITLE))
+        if not clean_title:
+            raise ValueError("请填写标题")
+        updates["title"] = clean_title
+    if body_md is not None:
+        clean_body = redact(_clip(body_md, MAX_BODY))
+        if len(clean_body) < 20:
+            raise ValueError("正文太短，写清一面问了什么、你怎么回答的才有参考价值")
+        updates["body_md"] = clean_body
+    if company is not None:
+        updates["company"] = _clip(company, MAX_COMPANY)
+    if role is not None:
+        updates["role"] = _clip(role, MAX_ROLE)
+    if round is not None:
+        updates["round"] = _clip(round, 20)
+    if tags is not None:
+        clean_tags = [redact(_clip(tag, MAX_TAG)) for tag in tags if _clip(tag, MAX_TAG)][:MAX_TAGS]
+        updates["tags_json"] = json.dumps(clean_tags, ensure_ascii=False)
+    if not updates:
+        raise ValueError("没有需要保存的修改")
+    assignments = ", ".join(f"{key} = ?" for key in updates)
+    db.execute(
+        f"UPDATE public_cards SET {assignments}, status = 'pending', review_note = '',"
+        " published_at = NULL, reviewed_by = NULL, reviewed_at = NULL WHERE id = ?",
+        (*updates.values(), card_id),
+    )
+    return {"id": card_id, "status": "pending"}
+
+
+def resubmit(db, card_id: str, user_id: str) -> dict[str, Any]:
+    """被退回后不改内容、直接重新提交审阅。"""
+    row = db.execute("SELECT user_id, status FROM public_cards WHERE id = ?", (card_id,)).fetchone()
+    if row is None or row["user_id"] != user_id:
+        raise LookupError("投稿不存在或无权操作")
+    if row["status"] != "rejected":
+        raise ValueError("只有被退回的投稿需要重新提交")
+    db.execute(
+        "UPDATE public_cards SET status = 'pending', review_note = '', reviewed_by = NULL,"
+        " reviewed_at = NULL WHERE id = ?",
+        (card_id,),
+    )
+    return {"id": card_id, "status": "pending"}
+
+
 def review_queue(db, *, status: str = "pending", before: float | None = None,
                  limit: int = 20) -> list[dict[str, Any]]:
     if status not in STATUSES:

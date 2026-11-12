@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from core import accounts, events
 from core.llm import LLMError
 from engine import documents
+from engine.documents import applications as doc_applications
 from engine.documents import normalize as doc_normalize
 from engine.documents import paste as doc_paste
 from engine.documents import screenshot as doc_screenshot
@@ -404,6 +405,63 @@ def disable_province(code: str, user: dict = Depends(accounts.require_user)):
     with accounts.connection() as db:
         if not province_templates.disable(db, code):
             raise HTTPException(status_code=404, detail="该省尚未启用")
+    return {"ok": True}
+
+
+class ApplicationRequest(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    stage: str = Field(min_length=1, max_length=20)
+    note: str = Field(default="", max_length=1000)
+    # YYYY-MM-DD；空串表示不改下一次动作时间
+    next_action: str = Field(default="", max_length=20)
+
+
+@router.get("/applications")
+def list_applications(stage: str | None = None, include_archived: bool = False,
+                      user: dict = Depends(accounts.require_user)):
+    """投递看板：当前账号的各阶段记录 + 每阶段条数。"""
+    if stage and stage not in doc_applications.STAGES:
+        raise HTTPException(status_code=422, detail="投递状态不合法")
+    with accounts.connection() as db:
+        items = doc_applications.list_applications(
+            db, user["id"], stage=stage, include_archived=include_archived)
+        counts = doc_applications.summary(db, user["id"])
+    return {"ok": True, "items": items, "counts": counts,
+            "stages": [{"id": key, "label": label}
+                       for key, label in doc_applications.STAGE_LABEL.items()]}
+
+
+@router.get("/applications/{doc_id}")
+def get_application(doc_id: str, user: dict = Depends(accounts.require_user)):
+    with accounts.connection() as db:
+        record = doc_applications.get_application(db, user["id"], doc_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="这个岗位还没有投递记录")
+    return {"ok": True, "application": record}
+
+
+@router.post("/applications/{doc_id}")
+def advance_application(doc_id: str, req: ApplicationRequest,
+                        user: dict = Depends(accounts.require_user)):
+    """加入看板或推进状态；每次变化都留痕。"""
+    try:
+        with accounts.connection() as db:
+            record = doc_applications.advance(
+                db, user["id"], doc_id, stage=req.stage, note=req.note,
+                next_action=req.next_action)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"ok": True, "application": record}
+
+
+@router.delete("/applications/{doc_id}")
+def delete_application(doc_id: str, user: dict = Depends(accounts.require_user)):
+    with accounts.connection() as db:
+        if not doc_applications.remove(db, user["id"], doc_id):
+            raise HTTPException(status_code=404, detail="这个岗位没有投递记录")
     return {"ok": True}
 
 

@@ -328,3 +328,96 @@
   flex: 0 0 auto;
   white-space: nowrap;
 }
+
+/* 投递看板：阶段徽标、筛选与详情里的状态条 */
+.jobs-stage {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-style: normal;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-muted, #5c6470);
+}
+
+.jobs-stage[data-stage='applied'],
+.jobs-stage[data-stage='interview'] {
+  background: rgba(47, 111, 79, 0.12);
+  color: #2f6f4f;
+}
+
+.jobs-stage[data-stage='offer'] {
+  background: rgba(197, 140, 30, 0.16);
+  color: #8a5b00;
+}
+
+.jobs-stage[data-stage='rejected'] {
+  background: rgba(161, 60, 47, 0.12);
+  color: #a13c2f;
+}
+
+.jobs-stage-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: var(--text-muted, #5c6470);
+}
+
+.jobs-stage-filter label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jobs-stage-filter select {
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+  background: #fff;
+}
+
+.jobs-application {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 12px 0;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.jobs-application-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.jobs-application-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.jobs-application .jobs-form-grid {
+  margin-bottom: 8px;
+}
+
+.jobs-application-history {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted, #5c6470);
+}
+
+.jobs-application-history summary {
+  cursor: pointer;
+  color: #2f6f4f;
+}
+
+.jobs-application-history ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  line-height: 1.8;
+}

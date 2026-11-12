@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { apiErrorMessage, jobsApi, jobsFetchAllApi, jobsPasteApi, jobsProvinceApi, jobsSourceApi } from '../../lib/api'
-import type { JobDocument, JobProvince, JobSource, PasteGuess } from '../../lib/api'
+import { apiErrorMessage, applicationsApi, jobsApi, jobsFetchAllApi, jobsPasteApi, jobsProvinceApi, jobsSourceApi } from '../../lib/api'
+import type { ApplicationStage, JobApplication, JobDocument, JobProvince, JobSource, PasteGuess } from '../../lib/api'
 import './jobs.css'
 
 interface Props {
@@ -54,6 +54,16 @@ function subtitle(doc: JobDocument): string {
   return [doc.company, doc.city].filter(Boolean).join(' · ') || '未填写公司'
 }
 
+const APPLICATION_STAGE_LABEL: Record<ApplicationStage, string> = {
+  saved: '已收藏',
+  tailored: '已定制简历',
+  applied: '已投递',
+  interview: '面试中',
+  offer: '拿到 offer',
+  rejected: '被拒',
+  archived: '已归档',
+}
+
 const SOURCE_LABELS: Record<string, string> = {
   feed: '信源采集', paste: '粘贴文本', image: '截图转写', upload: '上传文件', manual: '手工录入',
 }
@@ -78,6 +88,13 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
   const [provinceUrl, setProvinceUrl] = useState('')
   const [guess, setGuess] = useState<{ fields: PasteGuess; duplicate: { id: string; title: string } | null } | null>(null)
   const [imageBusy, setImageBusy] = useState(false)
+  // 投递看板：doc_id -> 当前阶段；筛选与详情都要用
+  const [applications, setApplications] = useState<Record<string, JobApplication>>({})
+  const [application, setApplication] = useState<JobApplication | null>(null)
+  const [appNote, setAppNote] = useState('')
+  const [appDate, setAppDate] = useState('')
+  const [stageFilter, setStageFilter] = useState<'' | ApplicationStage>('')
+  const [busyStage, setBusyStage] = useState('')
   const imageInput = useRef<HTMLInputElement>(null)
   const analysisSeq = useRef(0)
 
@@ -144,6 +161,17 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
   }, [canManage])
 
   useEffect(() => { void loadProvinces() }, [loadProvinces])
+
+  const loadApplications = useCallback(async () => {
+    try {
+      const result = await applicationsApi.list({ include_archived: true })
+      setApplications(Object.fromEntries(result.items.map(item => [item.doc_id, item])))
+    } catch {
+      setApplications({})
+    }
+  }, [])
+
+  useEffect(() => { void loadApplications() }, [loadApplications, userId])
 
   const selectedProvince = provinces.find(item => item.code === provinceCode) || null
 
@@ -240,6 +268,56 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
       const result = await jobsApi.detail(id)
       setSelected(result.document)
       setChunkCount(result.chunks.length)
+      const record = applications[id]
+      setApplication(record || null)
+      setAppNote(record?.note || '')
+      setAppDate(record?.next_action_date || '')
+      if (!record) {
+        try {
+          const detail = await applicationsApi.detail(id)
+          setApplication(detail.application)
+          setAppNote(detail.application.note)
+          setAppDate(detail.application.next_action_date)
+        } catch {
+          /* 还没加入看板，保持空状态 */
+        }
+      }
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    }
+  }
+
+  /** 推进投递状态；第一次调用等价于「加入投递看板」。 */
+  async function advanceApplication(stage: ApplicationStage) {
+    if (!selected || disabled) return
+    setBusyStage(stage)
+    setError('')
+    try {
+      const result = await applicationsApi.advance(selected.id, {
+        stage, note: appNote, next_action: appDate,
+      })
+      setApplication(result.application)
+      setApplications(previous => ({ ...previous, [selected.id]: result.application }))
+      setNotice(`已更新投递状态：${result.application.stage_label}`)
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    } finally {
+      setBusyStage('')
+    }
+  }
+
+  async function removeApplication() {
+    if (!selected || disabled) return
+    if (!window.confirm('把这个岗位移出投递看板？岗位资料本身不会被删除。')) return
+    try {
+      await applicationsApi.remove(selected.id)
+      setApplication(null)
+      setApplications(previous => {
+        const next = { ...previous }
+        delete next[selected.id]
+        return next
+      })
+      setNotice('已移出投递看板')
     } catch (reason) {
       setError(apiErrorMessage(reason))
     }
@@ -521,6 +599,24 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
         <button type="button" className="secondary-button" disabled={disabled || loading}
           onClick={() => void refresh(query)}>搜索</button>
       </div>
+      <div className="jobs-stage-filter">
+        <label>投递状态筛选
+          <select value={stageFilter} disabled={disabled}
+            onChange={event => setStageFilter(event.target.value as '' | ApplicationStage)}>
+            <option value="">全部</option>
+            <option value="saved">已收藏</option>
+            <option value="tailored">已定制简历</option>
+            <option value="applied">已投递</option>
+            <option value="interview">面试中</option>
+            <option value="offer">拿到 offer</option>
+            <option value="rejected">被拒</option>
+            <option value="archived">已归档</option>
+          </select>
+        </label>
+        <span className="jobs-hint">
+          进行中 {Object.values(applications).filter(item => item.stage !== 'archived').length} 个岗位
+        </span>
+      </div>
 
       {error && <p className="jobs-message jobs-message-error">{error}</p>}
       {notice && !error && <p className="jobs-message">{notice}</p>}
@@ -530,17 +626,24 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
           {query.trim() ? '没有匹配的资料。' : '收件箱还是空的。点右上角「录入岗位 / 资料」，粘贴 JD 或从截图导入就能开始。'}
         </p>
         : <ul className="jobs-list">
-          {items.map(item => <li key={item.id}>
+          {items
+            .filter(item => !stageFilter || applications[item.id]?.stage === stageFilter)
+            .map(item => <li key={item.id}>
             <button type="button" className={`jobs-card ${selected?.id === item.id ? 'active' : ''}`}
               onClick={() => void openDocument(item.id)}>
               <span className="jobs-card-title">{item.title || '未命名资料'}</span>
               <span className="jobs-card-meta">{subtitle(item)}</span>
               <span className="jobs-card-foot">
+                {applications[item.id] && <em className="jobs-stage" data-stage={applications[item.id].stage}>
+                  {applications[item.id].stage_label}
+                </em>}
                 {salaryLine(item) || item.kind}
                 {item.matched_excerpt && <em>命中：{item.matched_excerpt.slice(0, 24)}…</em>}
               </span>
             </button>
           </li>)}
+          {items.filter(item => !stageFilter || applications[item.id]?.stage === stageFilter).length === 0
+            && <li className="jobs-empty">这个状态下还没有岗位。在右侧详情里把岗位加入投递看板并推进状态。</li>}
         </ul>}
     </section>
 
@@ -564,6 +667,50 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
         </dl>
         {selected.url && <p className="jobs-source">来源：
           <a href={selected.url} target="_blank" rel="noreferrer noopener">{selected.url}</a></p>}
+
+        <section className="jobs-application" aria-label="投递状态">
+          <div className="jobs-application-head">
+            <h3>投递状态</h3>
+            <span className="jobs-stage" data-stage={application?.stage || ''}>
+              {application ? application.stage_label : '还没加入投递看板'}
+            </span>
+          </div>
+          <div className="jobs-form-grid">
+            <label>备注
+              <input value={appNote} disabled={disabled} placeholder="如 已投内推、等 HR 回复"
+                onChange={event => setAppNote(event.target.value)} />
+            </label>
+            <label>下一次动作（YYYY-MM-DD）
+              <input value={appDate} disabled={disabled} placeholder="如 2026-12-01"
+                onChange={event => setAppDate(event.target.value)} />
+            </label>
+          </div>
+          <div className="jobs-actions">
+            {!application && <button type="button" className="primary-button" disabled={disabled || busyStage === 'saved'}
+              onClick={() => void advanceApplication('saved')}>
+              {busyStage === 'saved' ? '保存中…' : '加入投递看板'}
+            </button>}
+            {application?.next_stage.map(stage => <button key={stage} type="button"
+              className="secondary-button" disabled={disabled || Boolean(busyStage)}
+              onClick={() => void advanceApplication(stage)}>
+              {busyStage === stage ? '保存中…' : `标记为${APPLICATION_STAGE_LABEL[stage]}`}
+            </button>)}
+            {application && <button type="button" className="secondary-button danger" disabled={disabled}
+              onClick={() => void removeApplication()}>移出看板</button>}
+          </div>
+          {application?.next_action_date && <p className="jobs-hint">下一次动作：{application.next_action_date}</p>}
+          {application && application.history && application.history.length > 0 && <details className="jobs-application-history">
+            <summary>状态留痕（{application.history.length} 条）</summary>
+            <ul>
+              {application.history.map((event, index) => <li key={`${event.to_stage}-${index}`}>
+                {new Date(event.created_at * 1000).toLocaleString('zh-CN')} ·
+                {event.from_stage ? ` ${APPLICATION_STAGE_LABEL[event.from_stage as ApplicationStage]} → ` : ' 新建 · '}
+                {APPLICATION_STAGE_LABEL[event.to_stage as ApplicationStage]}
+                {event.note ? ` · ${event.note}` : ''}
+              </li>)}
+            </ul>
+          </details>}
+        </section>
 
         {(['hard_requirements', 'soft_requirements', 'responsibilities', 'keywords'] as const).map(key => {
           const values = stringList(selected.structured[key])

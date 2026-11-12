@@ -24,6 +24,7 @@
 | 文档 | `docs/plan-jobs-knowledge-community.md` | ✅ 完整方案（表结构、工具契约、分期验收、风险） |
 | 面经与内推（社群） | `backend/engine/community/` + `api/community.py` + `pages/community/` | ✅ 匿名投稿 → 审核 → 公开、有帮助、举报、撤回；契约见 `docs/COMMUNITY.md` |
 | 管理员开通 CLI | `backend/manage.py` | ✅ `admin grant/revoke/list`，无管理员时启动日志给出补救命令 |
+| 投递看板 | `backend/engine/documents/applications.py` + `api/jobs.py` + 收件箱页 | ✅ 状态机、留痕、备注与下一次动作、阶段筛选 |
 
 提交记录：
 
@@ -36,21 +37,11 @@
 
 ## 三、下一步（按优先级）
 
-### 1. 投递看板
+### 1. 下一步
 
-**要解决的问题**：「我投过哪些、下一步该干嘛」现在没地方放。
-
-**做法**：
-- `applications` 表已经建好了（`stage` / `resume_snapshot_id` / `next_action_at` / `note`），直接用
-- 状态机：`saved → tailored → applied → interview → offer / rejected / archived`
-- 接口：`POST /api/jobs/{doc_id}/application`（推进状态）、`GET /api/jobs/applications`（列表）
-- 前端：收件箱详情页加一条状态条；列表页加「投递中」筛选
-- 提醒只做"下一次动作时间"，不做推送（推送要额外通道，本期不做）
-
-**验收线**：
-- 一个岗位从 `saved` 走到 `interview` 全程留痕，刷新后仍在
-- 同一岗位只能有一条 `applications` 记录（已有唯一索引 `idx_applications_doc`）
-- 未授权用户看不到别人的投递记录
+完整排期见 [BACKLOG.md](BACKLOG.md)。按顺序：B3 第二期收口（一键匹配→定制→质检 + 50 条真实岗位）、
+B4 管理员错误统计、B5 知识库接入剩余两处、B6 面经转面试题、B7 简历模板库，
+B8/B9（弱实名、语音）需要先做产品决策，B11 视觉模型验收要等有可用的图片模型。
 
 ### 2. 社群 v1 还差的东西
 

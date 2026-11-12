@@ -80,6 +80,18 @@ CREATE TABLE IF NOT EXISTS applications (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_applications_doc ON applications(user_id, doc_id);
 CREATE INDEX IF NOT EXISTS idx_applications_stage ON applications(user_id, stage, updated_at DESC);
 
+-- 投递状态变化的留痕：谁在什么时候从哪个阶段走到哪个阶段
+CREATE TABLE IF NOT EXISTS application_events (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    application_id TEXT NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+    from_stage     TEXT NOT NULL DEFAULT '',
+    to_stage       TEXT NOT NULL,
+    note           TEXT NOT NULL DEFAULT '',
+    created_at     REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_application_events ON application_events(application_id, id DESC);
+
 CREATE TABLE IF NOT EXISTS anon_identities (
     id           TEXT PRIMARY KEY,
     user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

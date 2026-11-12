@@ -11,7 +11,7 @@
 | 编号 | 事项 | 状态 | 预估 |
 | --- | --- | --- | --- |
 | B1 | 清理测试噪声与孤儿表（回归可信度） | 已完成 | 半天 |
-| B2 | 投递看板（applications 状态机 + 接口 + 页面） | 待办 | 1~1.5 天 |
+| B2 | 投递看板（applications 状态机 + 接口 + 页面） | 已完成 | 1~1.5 天 |
 | B3 | 第二期收口：一键「匹配→定制→质检」+ 50 条真实岗位验收 | 待办 | 半天 |
 | B4 | 管理员错误统计 + 读事件流 | 待办 | 1 天 |
 | B5 | 知识库接入剩下两处（术语归一、面试面经检索），example_lib 改读 documents | 待办 | 1 天 |
@@ -60,6 +60,19 @@
 
 **验收**：一个岗位 saved→interview 全程留痕且刷新仍在；同一岗位只有一条记录（已有唯一索引
 `idx_applications_doc`）；他人看不到别人的投递记录。
+
+**结果（2026-11-12）**
+- 新增 `engine/documents/applications.py` + `application_events` 留痕表：
+  `saved → tailored → applied → interview → offer`，任意非终态可 `rejected / archived`，
+  归档后能重新 `saved`；非法跳转返回 422 并列出可选状态。
+- 接口：`GET /api/jobs/applications`（阶段筛选、每阶段计数、默认排除归档）、
+  `GET /api/jobs/applications/{doc_id}`（含留痕）、`POST`（加入或推进，可带备注与
+  `YYYY-MM-DD` 的下一次动作）、`DELETE`（移出看板，连带删留痕）。
+- 前端岗位收件箱：详情里新增「投递状态」条（当前阶段、备注、下一次动作、可选推进按钮、
+  状态留痕折叠列表、移出看板）；列表卡片加阶段徽标；顶部加投递状态筛选与"进行中 N 个岗位"。
+- 验收：`tests/test_applications.py` 9 项覆盖 saved→interview 留痕、唯一记录、非法跳转、
+  未加入直接推进、账号隔离、归档默认隐藏并可重启、删除连带留痕、删岗位级联；
+  真页面走完 加入→定制→投递→面试 并确认刷新后阶段与 4 条留痕仍在。
 
 ## B3 · 第二期收口
 

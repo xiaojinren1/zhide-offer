@@ -319,6 +319,45 @@ export const jobsApi = {
   },
 }
 
+export type ApplicationStage = 'saved' | 'tailored' | 'applied' | 'interview' | 'offer' | 'rejected' | 'archived'
+
+export type JobApplication = {
+  id: string
+  doc_id: string
+  stage: ApplicationStage
+  stage_label: string
+  next_stage: ApplicationStage[]
+  next_action_at: number | null
+  next_action_date: string
+  note: string
+  created_at: number
+  updated_at: number
+  job: { title: string; company: string; city: string; url: string; salary_text: string } | null
+  history?: Array<{ from_stage: string; to_stage: string; note: string; created_at: number }>
+}
+
+export const applicationsApi = {
+  list: (params: { stage?: string; include_archived?: boolean } = {}) =>
+    http.get('/jobs/applications', { params }).then(r => r.data) as Promise<{
+      ok: boolean
+      items: JobApplication[]
+      counts: Record<string, number>
+      stages: Array<{ id: ApplicationStage; label: string }>
+    }>,
+  detail: (docId: string) =>
+    http.get(`/jobs/applications/${encodeURIComponent(docId)}`).then(r => r.data) as Promise<{
+      ok: boolean
+      application: JobApplication
+    }>,
+  advance: (docId: string, payload: { stage: ApplicationStage; note?: string; next_action?: string }) =>
+    http.post(`/jobs/applications/${encodeURIComponent(docId)}`, payload).then(r => r.data) as Promise<{
+      ok: boolean
+      application: JobApplication
+    }>,
+  remove: (docId: string) =>
+    http.delete(`/jobs/applications/${encodeURIComponent(docId)}`).then(r => r.data) as Promise<{ ok: boolean }>,
+}
+
 export type JobSource = {
   id: string
   name: string

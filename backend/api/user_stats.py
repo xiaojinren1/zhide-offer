@@ -3,10 +3,10 @@ from datetime import datetime, timedelta, timezone
 from threading import Lock
 from time import time
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
-from core import accounts
+from core import accounts, event_log
 
 router = APIRouter(prefix="/api/user-stats")
 _presence: dict[str, float] = {}
@@ -143,3 +143,20 @@ def overview(response: Response, user: dict = Depends(accounts.require_user)):
     return {"online": online, "registered": registered, "new_this_week": new_this_week,
             "trend": [{"date": day, "registrations": registrations.get(day, 0), "tokens": tokens.get(day, 0)}
                       for day in dates]}
+
+
+@router.get("/errors")
+def error_trend(response: Response, days: int = Query(7, ge=1, le=30),
+                limit: int = Query(30, ge=1, le=200),
+                user: dict = Depends(accounts.require_user)):
+    """错误趋势：近 24 小时与近 N 天的分类/功能聚合 + 脱敏明细。
+
+    只给管理员。明细里没有原始错误文本、上游响应、材料内容或密钥——
+    事件文件里可能有这些，但对外只保留时间、功能、分类和排查编号。
+    """
+    response.headers["Cache-Control"] = "no-store"
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="只有管理员可以查看错误统计")
+    summary = event_log.summarize(days=days, sample_limit=limit)
+    summary["recent"] = event_log.recent_errors(limit=limit)
+    return summary

@@ -5,8 +5,8 @@ import { CONTACT_UPDATED_EVENT } from '../components/AdminContact'
 import './admin-dashboard.css'
 
 type Stats = NonNullable<Awaited<ReturnType<typeof api.userStats>>>
-type Tab = 'overview' | 'feedback' | 'roles' | 'contact'
-const tabs: Array<[Tab, string]> = [['overview', '数据概览'], ['feedback', '反馈管理'], ['roles', '管理员角色'], ['contact', '联系方式']]
+type Tab = 'overview' | 'errors' | 'feedback' | 'roles' | 'contact'
+const tabs: Array<[Tab, string]> = [['overview', '数据概览'], ['errors', '错误趋势'], ['feedback', '反馈管理'], ['roles', '管理员角色'], ['contact', '联系方式']]
 const number = new Intl.NumberFormat('zh-CN')
 
 function Trend({ title, days, metric }: { title: string; days: Stats['trend']; metric: 'registrations' | 'tokens' }) {
@@ -21,6 +21,106 @@ function Trend({ title, days, metric }: { title: string; days: Stats['trend']; m
       </li>)}
     </ol>
   </figure>
+}
+
+function ErrorTrend() {
+  const [days, setDays] = useState(7)
+  const [report, setReport] = useState<NonNullable<Awaited<ReturnType<typeof api.errorTrend>>> | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    api.errorTrend({ days, limit: 50 }).then(result => {
+      if (active) { setReport(result); setError('') }
+    }).catch(reason => { if (active) setError(apiErrorMessage(reason)) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [days])
+
+  const maxDaily = Math.max(1, ...(report?.daily.map(day => day.errors) ?? [1]))
+  return <section className="account-section admin-errors">
+    <h3>错误趋势</h3>
+    <p className="field-hint">
+      按事件流（<code>data/events.jsonl</code>）聚合。只展示脱敏的时间、功能、分类和排查编号；
+      原始错误文本、材料内容与密钥不会出现在这里。单次尝试失败但已成功切换的不算故障，单独计为「调用重试」。
+    </p>
+    <label className="admin-errors-window">统计窗口
+      <select value={days} onChange={event => setDays(Number(event.target.value))}>
+        <option value={1}>近 1 天</option>
+        <option value={7}>近 7 天</option>
+        <option value={14}>近 14 天</option>
+        <option value={30}>近 30 天</option>
+      </select>
+    </label>
+    {error && <p role="alert" className="auth-error">{error}</p>}
+    {loading && !report ? <p role="status">正在读取事件流…</p> : report && <>
+      <dl className="admin-metrics">
+        <div><dt>近 24 小时失败</dt><dd>{number.format(report.totals['24h'])}</dd></div>
+        <div><dt>近 {report.window_days} 天失败</dt><dd>{number.format(report.totals.window)}</dd></div>
+        <div><dt>调用重试（可能已恢复）</dt><dd>{number.format(report.retries.window)}</dd></div>
+        <div><dt>扫描事件数</dt><dd>{number.format(report.events_scanned)}</dd></div>
+      </dl>
+      {report.totals.window === 0
+        ? <p role="status">这个窗口内没有失败事件。</p>
+        : <>
+          <h4>按分类</h4>
+          <table className="admin-table">
+            <thead><tr><th scope="col">分类</th><th scope="col">近 24 小时</th>
+              <th scope="col">近 {report.window_days} 天</th><th scope="col">排查建议</th></tr></thead>
+            <tbody>
+              {report.by_category.map(item => <tr key={item.id}>
+                <th scope="row">{item.label}</th>
+                <td>{number.format(item.last24h)}</td>
+                <td>{number.format(item.window)}</td>
+                <td className="admin-table-hint">{item.hint}</td>
+              </tr>)}
+            </tbody>
+          </table>
+          <h4>按功能入口</h4>
+          <table className="admin-table">
+            <thead><tr><th scope="col">功能</th><th scope="col">近 24 小时</th>
+              <th scope="col">近 {report.window_days} 天</th></tr></thead>
+            <tbody>
+              {report.by_feature.map(item => <tr key={item.feature}>
+                <th scope="row">{item.feature}</th>
+                <td>{number.format(item.last24h)}</td>
+                <td>{number.format(item.window)}</td>
+              </tr>)}
+            </tbody>
+          </table>
+          <h4>每日失败次数</h4>
+          <figure className="admin-trend">
+            <figcaption>近 {report.window_days} 天</figcaption>
+            <ol aria-label="每日失败次数">
+              {report.daily.map(day => <li key={day.date} title={`${day.date} · ${number.format(day.errors)}`}>
+                <span className="admin-bar-track"><span style={{ height: `${day.errors / maxDaily * 100}%` }} /></span>
+                <time dateTime={day.date}>{day.date.slice(5)}</time>
+                <span className="visually-hidden">{number.format(day.errors)}</span>
+              </li>)}
+            </ol>
+          </figure>
+        </>}
+      <h4>最近失败明细</h4>
+      {report.recent.length === 0 ? <p className="field-hint">没有可展示的失败记录。</p>
+        : <>
+          <p className="field-hint">同一条排查编号会合并成一行，"次数"是这一组在窗口内出现的总次数。</p>
+          <table className="admin-table">
+            <thead><tr><th scope="col">最近一次（北京时间）</th><th scope="col">功能</th>
+              <th scope="col">分类</th><th scope="col">次数</th><th scope="col">排查编号</th></tr></thead>
+            <tbody>
+              {report.recent.map((item, index) => <tr key={`${item.trace_id}-${item.category}-${index}`}>
+                <td>{item.time}</td>
+                <td>{item.feature}</td>
+                <td>{item.category_label}</td>
+                <td>{number.format(item.count)}</td>
+                <td><code>{item.trace_id}</code></td>
+              </tr>)}
+            </tbody>
+          </table>
+        </>}
+    </>}
+  </section>
 }
 
 function Roles({ username }: { username: string }) {
@@ -140,6 +240,7 @@ export default function UserStats({ username }: { username: string }) {
         <Trend title="近 14 天 Token 用量" days={stats.trend} metric="tokens" />
       </div>
     </> : !error && <p role="status">正在读取统计…</p>)}
+    {tab === 'errors' && <ErrorTrend />}
     {tab === 'feedback' && <Feedback manage />}
     {tab === 'roles' && <Roles username={username} />}
     {tab === 'contact' && <ContactSettings />}

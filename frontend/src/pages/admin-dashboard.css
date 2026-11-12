@@ -38,3 +38,74 @@
 .admin-roles li { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
 .admin-roles ul { padding: 0; list-style: none; }
 .admin-roles li { padding: .65rem 0; border-top: 1px solid #dbe5ef; }
+
+/* 错误趋势：分类/功能表 + 明细 */
+.admin-errors-window {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted, #5c6470);
+  margin-bottom: 10px;
+}
+
+.admin-errors-window select {
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+  background: #fff;
+}
+
+.admin-errors h4 {
+  margin: 14px 0 6px;
+  font-size: 14px;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  vertical-align: top;
+}
+
+.admin-table thead th {
+  font-size: 12px;
+  color: var(--text-muted, #6b7280);
+  font-weight: 500;
+}
+
+.admin-table tbody th {
+  font-weight: 500;
+}
+
+.admin-table td {
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-table-hint {
+  color: var(--text-muted, #6b7280);
+  font-size: 12px;
+}
+
+.admin-table code {
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.admin-errors .admin-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 0 0 10px;
+}

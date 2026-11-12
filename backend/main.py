@@ -43,7 +43,8 @@ async def model_error(_request: Request, exc: LLMError):
         504: "模型处理超时，请稍后重试",
     }
     status_code = exc.status_code if exc.status_code in messages else 503
-    events.emit("model_request_failed", status_code=status_code)
+    # 带上接口路径：管理员统计要能看出是哪个功能在失败（路径只用于归类，不对外暴露）
+    events.emit("model_request_failed", status_code=status_code, path=_request.url.path)
     return JSONResponse(status_code=status_code, content={"detail": messages[status_code]})
 
 

@@ -118,6 +118,27 @@ export const api = {
     online: number; registered: number; new_this_week: number
     trend: Array<{ date: string; registrations: number; tokens: number }>
   } | null>('/user-stats').then(r => r.data),
+  errorTrend: (params: { days?: number; limit?: number } = {}) =>
+    http.get('/user-stats/errors', { params }).then(r => r.data) as Promise<{
+      ok: boolean
+      window_days: number
+      events_scanned: number
+      totals: { '24h': number; window: number }
+      retries: { '24h': number; window: number }
+      by_category: Array<{ id: string; label: string; hint: string; last24h: number; window: number }>
+      by_feature: Array<{ feature: string; last24h: number; window: number }>
+      daily: Array<{ date: string; errors: number }>
+      samples: Array<{ time: string; feature: string; category: string; category_label: string; trace_id: string }>
+      recent: Array<{
+        time: string
+        first_time: string
+        feature: string
+        category: string
+        category_label: string
+        trace_id: string
+        count: number
+      }>
+    }>,
   listAdmins: () => http.get<{ admins: string[] }>('/user-stats/admins').then(r => r.data),
   changeAdmin: (username: string, admin: boolean) => http.put('/user-stats/admins', { username, admin }),
   modelPreference: (kind: ModelKind = 'text') => http.get<TextModelPreference | null>('/model-preferences', { params: { kind } }).then(r => r.data),

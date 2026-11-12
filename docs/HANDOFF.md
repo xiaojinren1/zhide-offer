@@ -29,6 +29,7 @@
 | 错误统计 | `backend/core/event_log.py` + `GET /api/user-stats/errors` + 管理后台「错误趋势」 | ✅ 读事件流做分类/功能/趋势聚合，明细脱敏 |
 | 知识层 | `backend/engine/knowledge/` | ✅ 术语归一（匹配用）+ 范例检索（从资料层读，JSON 作种子）+ 面试同岗位面经 |
 | 面经转题 | `backend/engine/community/peer_questions.py` + 面试准备页勾选 | ✅ 程序抽提问角度、只作参考不进事实；出题记录引用可回看（真实模型未实测） |
+| 简历模板库 | `backend/data/resume/templates.json` + `GET /api/resume/templates` + 外观面板 | ✅ 6 个预设，先预览再套用，只改排版不动正文 |
 
 提交记录：
 

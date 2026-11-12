@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "note": "简历模板库：每组都是完整的 ResumeAppearance 参数，前端可直接预览与套用。新增模板只改这个文件，不改代码。模板只影响排版与配色，不改变正文事实。",
+  "templates": [
+    {
+      "id": "poster-charcoal",
+      "name": "海报炭黑",
+      "tags": ["通用", "沉稳"],
+      "description": "炭黑标题配雾蓝章节色，纸张偏瓷白。适合互联网与产品类岗位。",
+      "appearance": {
+        "template": "classic",
+        "background": "#e8eaed",
+        "paper": "#fffdf9",
+        "accent": "#2b2f36",
+        "fontSize": 14,
+        "spacing": 1.6,
+        "headerAlign": "left",
+        "sidebarSide": "left",
+        "headerStyle": "standard",
+        "nameColor": "#1f2328",
+        "headingFont": "sans"
+      }
+    },
+    {
+      "id": "poster-amber",
+      "name": "海报琥珀",
+      "tags": ["通用", "醒目"],
+      "description": "琥珀金强调色，标题居中，适合需要一点辨识度的投递。",
+      "appearance": {
+        "template": "classic",
+        "background": "#f4efe6",
+        "paper": "#fffdf8",
+        "accent": "#a8741a",
+        "fontSize": 14,
+        "spacing": 1.6,
+        "headerAlign": "center",
+        "sidebarSide": "left",
+        "headerStyle": "standard",
+        "nameColor": "#2b2f36",
+        "headingFont": "sans"
+      }
+    },
+    {
+      "id": "muted-blue-sidebar",
+      "name": "雾蓝侧栏",
+      "tags": ["技术", "信息密度高"],
+      "description": "左侧窄栏放技能与教育，正文单栏。适合技能条目多的技术岗。",
+      "appearance": {
+        "template": "sidebar",
+        "background": "#eaf0f5",
+        "paper": "#ffffff",
+        "accent": "#3c5a78",
+        "fontSize": 13,
+        "spacing": 1.35,
+        "headerAlign": "left",
+        "sidebarSide": "left",
+        "headerStyle": "standard",
+        "nameColor": "#254264",
+        "headingFont": "sans"
+      }
+    },
+    {
+      "id": "compact-print",
+      "name": "紧凑打印",
+      "tags": ["通用", "一页纸"],
+      "description": "最紧凑的一档，适合内容多、希望压到一页的简历；打印时不带明显底纹。",
+      "appearance": {
+        "template": "compact",
+        "background": "#ffffff",
+        "paper": "#ffffff",
+        "accent": "#1f2328",
+        "fontSize": 13,
+        "spacing": 1.35,
+        "headerAlign": "left",
+        "sidebarSide": "left",
+        "headerStyle": "standard",
+        "nameColor": "#1f2328",
+        "headingFont": "sans"
+      }
+    },
+    {
+      "id": "serif-classic",
+      "name": "宋体经典",
+      "tags": ["国企", "体制内", "教育"],
+      "description": "宋体标题、靠左对齐，偏正式的表述风格，适合国企、事业单位与教育岗。",
+      "appearance": {
+        "template": "classic",
+        "background": "#f6f6f4",
+        "paper": "#ffffff",
+        "accent": "#33413a",
+        "fontSize": 14,
+        "spacing": 1.6,
+        "headerAlign": "left",
+        "sidebarSide": "left",
+        "headerStyle": "standard",
+        "nameColor": "#22302a",
+        "headingFont": "serif"
+      }
+    },
+    {
+      "id": "portrait-sidebar",
+      "name": "证件照侧栏",
+      "tags": ["通用", "需要照片"],
+      "description": "右侧栏 + 证件照页眉。照片沿用你在预览里上传的那张，不会替换。",
+      "appearance": {
+        "template": "sidebar",
+        "background": "#eceff3",
+        "paper": "#ffffff",
+        "accent": "#39485c",
+        "fontSize": 14,
+        "spacing": 1.6,
+        "headerAlign": "left",
+        "sidebarSide": "right",
+        "headerStyle": "portrait",
+        "nameColor": "#2b2f36",
+        "headingFont": "sans"
+      }
+    }
+  ]
+}

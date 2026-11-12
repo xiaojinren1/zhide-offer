@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import json
+from pathlib import Path
 import time
 import math
 
@@ -422,3 +423,48 @@ def generate(req: GenerateRequest):
         },
         "examples_used": len(examples_used),
     }
+
+
+_TEMPLATE_ALLOWED = ("classic", "sidebar", "compact")
+_TEMPLATE_HEX = r"^#[0-9A-Fa-f]{6}$"
+
+
+def _template_path() -> Path:
+    return Path(__file__).resolve().parent.parent / "data" / "resume" / "templates.json"
+
+
+@router.get("/templates")
+def list_templates():
+    """简历模板库：只返回排版与配色参数，不含任何简历正文。
+
+    模板本身是静态数据（`backend/data/resume/templates.json`），加模板不用改代码。
+    服务器会对每一条做字段校验：格式不合规的模板直接跳过，而不是下发一份前端渲染不了的样式。
+    """
+    path = _template_path()
+    if not path.is_file():
+        return {"ok": True, "items": [], "note": "模板库文件缺失，仍可手动调整外观"}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"ok": True, "items": [], "note": "模板库文件无法解析，仍可手动调整外观"}
+
+    items: list[dict] = []
+    for raw in (data.get("templates") or []):
+        if not isinstance(raw, dict):
+            continue
+        appearance = raw.get("appearance")
+        if not isinstance(appearance, dict):
+            continue
+        try:
+            layout = ResumeLayout(**appearance)
+        except Exception:
+            continue  # 单条不合规不影响其它模板
+        items.append({
+            "id": str(raw.get("id") or "")[:40],
+            "name": str(raw.get("name") or "")[:30],
+            "tags": [str(tag)[:12] for tag in (raw.get("tags") or [])][:4],
+            "description": str(raw.get("description") or "")[:120],
+            "appearance": layout.model_dump(),
+        })
+    return {"ok": True, "items": items,
+            "note": "模板只影响排版与配色，不改变简历正文；套用前请先在预览里核对。"}

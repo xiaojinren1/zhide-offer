@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import ResumePreview, { defaultResumeAppearance, type ResumeAppearance } from './ResumePreview'
 import { operationError } from './state'
@@ -14,6 +14,19 @@ const colors = [
   { key: 'paper', label: '纸张背景' },
   { key: 'accent', label: '章节标题颜色' },
 ] as const
+
+interface TemplatePreset {
+  id: string
+  name: string
+  tags: string[]
+  description: string
+  appearance: Record<string, unknown>
+}
+
+/** 把服务端下发的模板参数收窄成前端可用的外观；字段不合规就返回 null。 */
+export function readTemplatePreset(appearance: Record<string, unknown>): ResumeAppearance | null {
+  return readResumeTemplate(JSON.stringify({ version: 1, appearance }))
+}
 
 export function readResumeTemplate(text: string): ResumeAppearance | null {
   try {
@@ -79,6 +92,31 @@ export default function ResumeAppearanceControls({ markdown, appearance, onChang
   latestAppearance.current = appearance
   const [loadingPortrait, setLoadingPortrait] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [presets, setPresets] = useState<TemplatePreset[]>([])
+  const [presetNote, setPresetNote] = useState('')
+  // 模板库：先在预览里看效果，确认后再套用；取消不改当前外观
+  const [presetPreview, setPresetPreview] = useState<{ preset: TemplatePreset; appearance: ResumeAppearance } | null>(null)
+
+  useEffect(() => {
+    let active = true
+    api.resumeTemplates().then(result => {
+      if (!active) return
+      setPresets(result.items || [])
+      setPresetNote(result.note || '')
+    }).catch(() => { if (active) setPresets([]) })
+    return () => { active = false }
+  }, [])
+
+  function previewPreset(preset: TemplatePreset) {
+    const parsed = readTemplatePreset(preset.appearance)
+    if (!parsed) {
+      setError('这个模板的参数不完整，暂时无法预览。')
+      return
+    }
+    setError('')
+    // 证件照沿用用户当前那张，模板不替换照片
+    setPresetPreview({ preset, appearance: { ...parsed, portrait: appearance.portrait } })
+  }
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [suggestion, setSuggestion] = useState<ResumeAppearance | null>(null)
@@ -130,6 +168,36 @@ export default function ResumeAppearanceControls({ markdown, appearance, onChang
           {label}
         </button>)}
       </div>
+      {presets.length > 0 && <section className="resume-preset-library" aria-label="模板库">
+        <h4>模板库</h4>
+        <p className="field-hint">挑一个先看效果，确认后才会套用；模板只改排版与配色，不改简历正文。</p>
+        <ul className="resume-preset-list">
+          {presets.map(preset => <li key={preset.id}>
+            <button type="button" className="resume-preset-card"
+              aria-pressed={presetPreview?.preset.id === preset.id}
+              onClick={() => previewPreset(preset)}>
+              <strong>{preset.name}</strong>
+              {preset.tags.length > 0 && <span className="resume-preset-tags">{preset.tags.join(' · ')}</span>}
+              <span className="resume-preset-desc">{preset.description}</span>
+            </button>
+          </li>)}
+        </ul>
+        {presetNote && <p className="field-hint">{presetNote}</p>}
+      </section>}
+      {presetPreview && <section className="resume-preset-preview" aria-label="模板预览">
+        <p>预览 · {presetPreview.preset.name}</p>
+        <div className="resume-preview-canvas" style={{ backgroundColor: presetPreview.appearance.background }}>
+          <ResumePreview markdown={markdown} appearance={presetPreview.appearance} />
+        </div>
+        <div className="resume-template-file-actions">
+          <button type="button" className="primary-button" onClick={() => {
+            onChange(presetPreview.appearance)
+            setPresetPreview(null)
+            setNotice(`已套用模板「${presetPreview.preset.name}」。`)
+          }}>套用这个模板</button>
+          <button type="button" className="secondary-button" onClick={() => setPresetPreview(null)}>取消</button>
+        </div>
+      </section>}
       <div className="resume-template-file-actions">
         <button type="button" className="secondary-button" disabled={importing}
           onClick={() => fileInput.current?.click()}>{importing ? '正在读取…' : '导入模板'}</button>

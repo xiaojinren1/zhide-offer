@@ -208,6 +208,19 @@ export const api = {
     }>
   },
 
+  resumeTemplates: () =>
+    http.get('/resume/templates').then(r => r.data) as Promise<{
+      ok: boolean
+      items: Array<{
+        id: string
+        name: string
+        tags: string[]
+        description: string
+        appearance: Record<string, unknown>
+      }>
+      note?: string
+    }>,
+
   recognizeResumeTemplate: (file: File, visual: boolean) => {
     const form = new FormData()
     form.append('file', file)

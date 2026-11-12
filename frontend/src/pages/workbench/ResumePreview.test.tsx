@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import ResumePreview, { defaultResumeAppearance } from './ResumePreview'
-import { readResumeTemplate } from './ResumeAppearanceControls'
+import { readResumeTemplate, readTemplatePreset } from './ResumeAppearanceControls'
 
 describe('简历模板导入', () => {
   it('证件照页眉保留原有联系信息，正文在页眉之外', () => {
@@ -18,6 +18,14 @@ describe('简历模板导入', () => {
     expect(readResumeTemplate(JSON.stringify({
       version: 1, appearance: { ...appearance, markdown: '不应被导入' },
     }))).toEqual(appearance)
+  })
+
+  it('模板库下发的参数可直接收窄成外观，坏参数返回空', () => {
+    const appearance = { ...defaultResumeAppearance, template: 'sidebar', accent: '#3c5a78' }
+    expect(readTemplatePreset(appearance)).toEqual({ ...appearance, headerAlign: undefined,
+      sidebarSide: undefined, headerStyle: undefined, nameColor: undefined, headingFont: undefined })
+    expect(readTemplatePreset({ ...appearance, fontSize: 22 })).toBeNull()
+    expect(readTemplatePreset({ ...appearance, accent: 'blue' })).toBeNull()
   })
 
   it('拒绝不兼容的版本、颜色和行距', () => {

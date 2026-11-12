@@ -36,6 +36,25 @@ class BankRequest(Request):
     resume_profile: ProfileState
     resume_markdown: str = Field(min_length=1, max_length=60000)
     jd_text: str = Field(min_length=1, max_length=20000)
+    # 可选：勾选同岗位面经后，把它们里"问过什么"作为考察角度参考（不是事实来源）
+    card_ids: list[str] = Field(default_factory=list, max_length=5)
+
+
+def _peer_material(card_ids: list[str], user_id: str) -> tuple[list[dict], list[dict]]:
+    """取已公开的匿名卡片并压成参考问题；未公开/不存在的卡片直接跳过，不报错打扰出题。"""
+    from engine.community import cards as community_cards
+    from engine.community import peer_questions
+
+    if not card_ids:
+        return [], []
+    picked: list[dict] = []
+    with accounts.connection() as db:
+        for card_id in card_ids[:5]:
+            card = community_cards.get_card(db, card_id, viewer_id=user_id, admin=False)
+            if card is None or card.get("status") != "public":
+                continue
+            picked.append(card)
+    return peer_questions.collect(picked)
 
 
 class StartRequest(Request):
@@ -85,7 +104,8 @@ def public_session(session: dict) -> dict:
     return {"id": session["id"], "bank_id": session["bank_id"], "version": session["version"],
             "status": session["status"], "turns": session["turns"], "elapsed_seconds": session["elapsed_seconds"],
             "job_title": session_context(session)["job_title"], "started_at": session["started_at"],
-            "mode": session.get("mode", "bank"), "snapshot": session["snapshot"]}
+            "mode": session.get("mode", "bank"), "snapshot": session["snapshot"],
+            "card_refs": list(session.get("card_refs") or [])}
 
 
 def session_context(session: dict) -> dict:
@@ -188,8 +208,8 @@ def related_cards(jd_text: str = "", company: str = "", role: str = "",
     return {"ok": True, "items": items, "note": _RELATED_NOTE}
 
 
-_RELATED_NOTE = ("这些是同岗位的匿名面经，仅供准备参考；"
-                 "不是标准答案，也不会用于生成题目或评分。")
+_RELATED_NOTE = ("这些是同岗位的匿名面经，仅供你自己参考；"
+                 "不是标准答案，其中的事实不会被当作你的经历，也不会用于评分。")
 
 
 @router.post("/bank")
@@ -205,7 +225,10 @@ def bank(req: BankRequest, user: dict = Depends(accounts.require_user)):
                 if data["fingerprint"] != fingerprint(req):
                     raise HTTPException(409, "相同请求编号不能生成不同题库")
             else:
-                data = {"id": artifact_id, "snapshot": snapshot, "fingerprint": fingerprint(req), **engine.generate_bank(snapshot)}
+                references, questions = _peer_material(req.card_ids, user["id"])
+                data = {"id": artifact_id, "snapshot": snapshot, "fingerprint": fingerprint(req),
+                        "card_refs": references,
+                        **engine.generate_bank(snapshot, questions)}
                 store.write(artifact_id, user["id"], "bank", data, None)
         return {"ok": True, "bank": {k: v for k, v in data.items() if k != "fingerprint"}}
     except sqlite3.Error as exc:
@@ -230,7 +253,9 @@ def create_session(req: Request, user: dict, bank_id: str | None, snapshot: dict
             context, question = engine.start_direct(snapshot)
             practice_bank = None
         session = {"id": session_id, "bank_id": bank_id, "snapshot": snapshot,
-                   "bank": practice_bank, "context": context, "mode": "bank" if bank_id else "direct",
+                   "bank": practice_bank, "context": context,
+                   "card_refs": list((bank_data.get("card_refs") or [])) if bank_id else [],
+                   "mode": "bank" if bank_id else "direct",
                    "version": 1, "status": "active", "started_at": timestamp(), "elapsed_seconds": 0,
                    "turns": [{"id": "turn-1", "question": question, "answer": None, "skipped": False}],
                    "last_request_id": req.request_id, "last_fingerprint": fingerprint(req)}

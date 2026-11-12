@@ -151,9 +151,9 @@ def sample_answer(source_ids: list[str], sources: list[dict], missing: list[str]
     return base + "\n" + "\n".join("【待补充：" + item + "】" for item in missing)
 
 
-def generate_bank(snapshot: dict) -> dict:
+def generate_bank(snapshot: dict, peer_questions: list[dict] | None = None) -> dict:
     sources = build_sources(snapshot["resume_profile"], snapshot["jd_text"])
-    data = _model("""按最新生成简历与JD生成10至30道个性化题，四类至少各一题：experience经历深挖、professional岗位专业能力、
+    system = """按最新生成简历与JD生成10至30道个性化题，四类至少各一题：experience经历深挖、professional岗位专业能力、
 behavior行为情景、motivation动机。优先深挖代表经历的个人贡献、决策、方法、结果依据与复盘，
 同时覆盖JD的关键能力及资料缺口。不要所有人都问同样的通用题，不局限三个问题。
 自主选择数量：独立且相关的经历、决策和岗位要求越丰富，可以增加题目；不要按字数机械增加，
@@ -163,8 +163,22 @@ behavior行为情景、motivation动机。优先深挖代表经历的个人贡�
 sample_source_ids只能选择0至6个resume来源，用于服务端组装示范回答；没有可引用的事实时为空。
 每题follow_ups为1至3个具体追问，answer_structure为2至5步行动建议，missing为1至4个需用户亲自补充的真实细节。
 不要自由编造示范经历、职责、指标；建议与待补充项必须用建议或问题语气，不当作用户已做过的事实。
-job_title仅从JD概括目标岗位。""", {"sources": sources, "resume_markdown": snapshot["resume_markdown"],
-                                               "jd_text": snapshot["jd_text"]}, BankOutput)
+job_title仅从JD概括目标岗位。"""
+
+    payload = {"sources": sources, "resume_markdown": snapshot["resume_markdown"],
+               "jd_text": snapshot["jd_text"]}
+    peer = [item for item in (peer_questions or []) if str(item.get("question") or "").strip()]
+    if peer:
+        # 同岗位面经里"面试官问过什么"只用来参考考察角度。
+        # 铁律：卡片是别人写的，里面的事实、公司、数字一律不能进候选人的材料。
+        payload["peer_question_references"] = [str(item["question"])[:120] for item in peer[:9]]
+        system += (
+            chr(10)
+            + "peer_question_references 是其他候选人的匿名面经里转述的提问，只用来说明"
+            "同类岗位可能从哪些角度发问。它们既不是候选人的经历，也不是标准答案："
+            "不得把其中的公司、项目、数字、结论写进题目、示范或待补充项；"
+            "题目仍必须基于本候选人的简历与JD，source_ids 仍只能引用所提供来源。")
+    data = _model(system, payload, BankOutput)
     ids = {s["id"] for s in sources}
     if {q["category"] for q in data["questions"]} != set(CATEGORIES):
         invalid("missing question categories")

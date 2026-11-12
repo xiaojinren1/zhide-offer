@@ -6,7 +6,8 @@ export interface BankQuestion {
   id: string; category: string; question: string; focus: string; source_ids: string[]
   follow_ups: string[]; answer_structure: string[]; sample_answer: string; missing: string[]
 }
-export interface Bank { id: string; job_title: string; questions: BankQuestion[]; sources: Source[]; snapshot: Snapshot }
+export interface CardRef { id: string; title: string; company: string; role: string; round: string }
+export interface Bank { id: string; job_title: string; questions: BankQuestion[]; sources: Source[]; snapshot: Snapshot; card_refs?: CardRef[] }
 export interface InterviewContext {
   job_title: string; sources: Source[]; resume_markdown: string; jd_text: string
   topics: { id: string; category: string; focus: string; source_ids: string[] }[]
@@ -18,7 +19,7 @@ export interface Turn {
 export interface Session {
   id: string; bank_id: string | null; version: number; status: 'active' | 'ended'; turns: Turn[]
   elapsed_seconds: number; job_title: string; started_at: string
-  mode?: 'bank' | 'direct'; snapshot?: Snapshot
+  mode?: 'bank' | 'direct'; snapshot?: Snapshot; card_refs?: CardRef[]
 }
 export interface Citation { turn_id: string; quote: string }
 export interface Report {

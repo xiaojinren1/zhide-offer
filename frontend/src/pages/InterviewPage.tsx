@@ -38,6 +38,8 @@ export default function InterviewPage({ userId: suppliedUserId, jdText, profile,
     title: string; author: string; helpful_count: number; excerpt: string
   }>>([])
   const [relatedNote, setRelatedNote] = useState('')
+  // 勾选要作为"考察角度参考"的面经（只取里面的问题句，不含作者事实）
+  const [pickedCards, setPickedCards] = useState<string[]>([])
   const controller = useRef(new AbortController())
   const alive = useRef(true)
   const working = useRef(false)
@@ -112,7 +114,10 @@ export default function InterviewPage({ userId: suppliedUserId, jdText, profile,
   function generate() {
     if (!ready || unsaved) return
     void run(async () => {
-      const body = requestBody('bank:' + materials, { resume_profile: profile, resume_markdown: markdown, jd_text: jdText })
+      const body = requestBody('bank:' + materials + ':' + pickedCards.join(','), {
+        resume_profile: profile, resume_markdown: markdown, jd_text: jdText,
+        ...(pickedCards.length ? { card_ids: pickedCards } : {}),
+      })
       const value = await interviewClient.bank(body, controller.current.signal)
       if (!alive.current) return
       setBank(value); bankMaterials.current = materials; setSession(null); setResult(null); setLegacy(null); setEnding(false)
@@ -210,9 +215,17 @@ export default function InterviewPage({ userId: suppliedUserId, jdText, profile,
         <span className="section-kicker">PEERS' POSTS</span>
         <h2>同岗位面经（{relatedCards.length} 条）</h2>
         <p>{relatedNote || '这些是他人匿名投稿，仅供你了解考察方向；不是标准答案，也不会用于出题或评分。'}</p>
+        <p className="muted">勾选后生成题库时会把它们的提问角度作为参考：只用问题句，不会把别人的经历、公司或数字当成你的材料。</p>
         <ul className="interview-related-list">
           {relatedCards.map(card => <li key={card.id}>
-            <strong>{card.title}</strong>
+            <label className="interview-related-pick">
+              <input type="checkbox" checked={pickedCards.includes(card.id)}
+                disabled={busy}
+                onChange={event => setPickedCards(previous => event.target.checked
+                  ? [...previous, card.id].slice(0, 5)
+                  : previous.filter(id => id !== card.id))} />
+              <strong>{card.title}</strong>
+            </label>
             <span className="muted">{[
               card.company && `公司：${card.company}`,
               card.role && `岗位：${card.role}`,
@@ -225,7 +238,10 @@ export default function InterviewPage({ userId: suppliedUserId, jdText, profile,
       </section>}
       {!ready && <div className="notice">尚缺：{missing.join('、')}。请在工作台补齐后开始，两个入口会保留。</div>}
       {stale && <div className="notice">题库材料与当前工作台不同，仅供回看。可重新生成题库，或按最新材料直接模拟。</div>}
-      {bank && <section className="panel"><h2>{bank.job_title} · {bank.questions.length} 道个性化题</h2><p>不必先看完题库；模拟将沿用这些能力主题，变换问法并动态追问。</p><button className="primary-button" disabled={busy || stale || !ready || unsaved} onClick={() => setPrestart('bank')}>从这份题库进入模拟</button></section>}
+      {bank && <section className="panel"><h2>{bank.job_title} · {bank.questions.length} 道个性化题</h2>
+        {bank.card_refs && bank.card_refs.length > 0 && <p className="muted">
+          出题时参考了 {bank.card_refs.length} 篇同岗位面经的提问角度：{bank.card_refs.map(card => card.title).join('、')}。
+        </p>}<p>不必先看完题库；模拟将沿用这些能力主题，变换问法并动态追问。</p><button className="primary-button" disabled={busy || stale || !ready || unsaved} onClick={() => setPrestart('bank')}>从这份题库进入模拟</button></section>}
       {prestart && <section className="panel"><span className="section-kicker">BEFORE YOU BEGIN</span><h2>确认本轮模拟材料与规则</h2><p>入口：{prestart === 'direct' ? '直接模拟' : '题库模拟'} · 目标岗位：{prestart === 'bank' && bank ? bank.job_title : jdText.split('\n').find((line) => line.trim()) || '尚未填写'}</p><p>简历版本：{preview.captured_at}</p>
         <details><summary>核对本轮简历与 JD</summary><pre>{preview.resume_markdown}</pre><pre>{preview.jd_text}</pre></details>
         <p>开始后冻结本轮材料。按自我介绍、经历与专业深挖、岗位情景、候选人反问推进；不要求问满 10 题。</p>

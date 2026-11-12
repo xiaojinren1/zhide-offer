@@ -79,6 +79,8 @@ def persist_completed(session: dict, user_id: str) -> None:
         "overall_feedback": {"schema_version": 3, "mode": session.get("mode", "bank"),
                              "context": context, "snapshot": session["snapshot"], "bank": session["bank"],
                              "transcript": session["turns"], "report": session["report"],
+                             # 出题时参考过哪些匿名面经（只有标题/公司/岗位/轮次，不含正文）
+                             "card_refs": list(session.get("card_refs") or []),
                              "elapsed_seconds": session["elapsed_seconds"]},
     }
     encoded = encode_record(record, MAX_INTERVIEW_BYTES)

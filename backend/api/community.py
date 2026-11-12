@@ -95,7 +95,9 @@ def _from_draft(doc_id: str, user_id: str) -> dict[str, Any]:
     """
     with accounts.connection() as db:
         row = store.get_document(db, doc_id, user_id=user_id)
-        if row is None:
+        # 只允许引用**自己录入**的资料：公共岗位池是采集来的公告，拿来当投稿正文没有意义，
+        # 界面上的下拉也只列自己的资料，这里保持一致。
+        if row is None or (row["user_id"] or "") != user_id:
             raise HTTPException(
                 status_code=422,
                 detail="选中的资料不存在或不属于当前账号，请重新选择；如果不需要引用资料，留空直接写正文",

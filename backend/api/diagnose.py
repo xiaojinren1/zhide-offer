@@ -60,6 +60,9 @@ def diagnose(req: DiagnoseRequest):
             events.emit("diagnose_model_validation_failed", stage=stage)
             raise HTTPException(502, detail) from None
         raise
+    except HTTPException:
+        # 模型未配置（428）这类必须原样返回，否则前端只会看到"匹配失败"而不是去配置模型
+        raise
     except Exception as exc:
         events.emit_error("diagnose", exc)
         return {"ok": False, "error": str(exc)}

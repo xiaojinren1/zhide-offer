@@ -681,3 +681,22 @@ class CommunityRevisionHistory(unittest.TestCase):
             db.execute("DELETE FROM card_revisions WHERE card_id = ?", (card_id,))
         history = self.client.get(f"/api/community/cards/{card_id}/revisions").json()["items"]
         self.assertEqual(len(history), 1, "老卡片至少能看到当前这一版")
+
+
+class CommunitySourceDocumentScope(unittest.TestCase):
+    """投稿只能引用自己录入的资料；公共岗位池的公告不能当正文来源。"""
+
+    setUp = CommunityContract.setUp
+    submit = CommunityContract.submit
+
+    def test_public_pool_document_is_rejected_as_source(self) -> None:
+        with accounts.connection() as db:
+            db.execute(
+                "INSERT INTO documents(id, user_id, kind, source, source_key, title, content_md,"
+                " visibility, fetched_at, created_at, updated_at)"
+                " VALUES(?,NULL,'job','feed',?,'某市事业单位招聘公告',?,'public',0,0,0)",
+                ("doc-public-x", "feed:doc-public-x", "某市事业单位公开招聘公告，岗位职责详见正文。" * 2),
+            )
+        response = self.submit(title="", body_md="", company="", role="", doc_id="doc-public-x")
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("留空直接写正文", response.json()["detail"])

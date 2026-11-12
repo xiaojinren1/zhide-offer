@@ -201,3 +201,92 @@ class JobPipelineContract(unittest.TestCase):
                 "resume_profile": self.profile(),
             }, headers=HEADER)
         self.assertEqual(response.status_code, 504)
+
+
+class ApplicationOnPublicPool(unittest.TestCase):
+    """公共岗位池（采集来的公告，user_id 为 NULL）也要能加入投递看板。
+
+    早先按"文档 owner == 当前用户"判断权限，导致点「加入投递看板」直接报
+    “岗位不存在或无权操作”——采集来的岗位 owner 本来就是 NULL。
+    """
+
+    setUp = ApplicationContract.setUp
+
+    def make_public_doc(self) -> str:
+        with accounts.connection() as db:
+            db.execute(
+                "INSERT INTO documents(id, user_id, kind, source, source_key, title, company,"
+                " content_md, visibility, fetched_at, created_at, updated_at)"
+                " VALUES(?,NULL,'job','feed',?,'某市事业单位招聘公告','某单位',?,'public',0,0,0)",
+                ("doc-public-1", "feed:doc-public-1", "某市事业单位招聘公告\n岗位职责\n负责数据统计。"),
+            )
+        return "doc-public-1"
+
+    def test_public_pool_job_can_join_board(self) -> None:
+        doc_id = self.make_public_doc()
+        response = self.client.post(f"/api/jobs/applications/{doc_id}",
+                                    json={"stage": "saved"}, headers=HEADER)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["application"]["job"]["title"], "某市事业单位招聘公告")
+        self.assertEqual(response.json()["application"]["job"]["company"], "某单位")
+        # 推进也正常
+        advanced = self.client.post(f"/api/jobs/applications/{doc_id}",
+                                    json={"stage": "applied"}, headers=HEADER)
+        self.assertEqual(advanced.status_code, 200, advanced.text)
+
+    def test_public_doc_is_shared_but_records_are_isolated(self) -> None:
+        doc_id = self.make_public_doc()
+        self.client.post(f"/api/jobs/applications/{doc_id}", json={"stage": "saved"}, headers=HEADER)
+        self.current_user = {"id": "u-bob", "username": "bob"}
+        self.assertEqual(self.client.get("/api/jobs/applications").json()["items"], [],
+                         "别人在同一个公共岗位上的记录不能互相可见")
+        self.assertEqual(self.client.get(f"/api/jobs/applications/{doc_id}").status_code, 404)
+        joined = self.client.post(f"/api/jobs/applications/{doc_id}",
+                                  json={"stage": "saved"}, headers=HEADER)
+        self.assertEqual(joined.status_code, 200, joined.text)
+
+    def test_other_private_document_still_rejected(self) -> None:
+        # self.doc_id 属于 u-alice（setUp 里导入）
+        self.current_user = {"id": "u-bob", "username": "bob"}
+        response = self.client.post(f"/api/jobs/applications/{self.doc_id}",
+                                    json={"stage": "saved"}, headers=HEADER)
+        self.assertEqual(response.status_code, 404)
+
+    def test_pipeline_accepts_public_pool_job(self) -> None:
+        doc_id = self.make_public_doc()
+        with patch("api.diagnose.diagnose", return_value={
+                "ok": True, "coverage": 0.4, "missing_hard_count": 0, "items": [],
+                "jd": {"keywords": ["SQL"]}}), \
+                patch("api.resume.generate", return_value={"markdown": "# 演示同学"}), \
+                patch("api.quality.quality", return_value={"ok": True, "issues": []}):
+            response = self.client.post(f"/api/jobs/{doc_id}/pipeline", json={
+                "resume_profile": {
+                    "name": "演示同学",
+                    "experiences": [{"kind": "project", "name": "数据平台", "role": "开发",
+                                     "period": "2024", "actions": ["搭建数仓"], "results": [],
+                                     "skills": ["SQL"]}],
+                    "skills": ["SQL"], "education": [], "raw_text": "材料",
+                    "user_confirmed": True,
+                },
+            }, headers=HEADER)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["ok"])
+
+    def test_pipeline_propagates_model_not_configured(self) -> None:
+        """没配模型时要原样返回 428，让前端弹"去配置模型"，而不是 200 + 一句失败文案。"""
+        from fastapi import HTTPException
+
+        with patch("api.diagnose.diagnose",
+                   side_effect=HTTPException(status_code=428, detail="请先在模型设置中配置并启用文本模型")):
+            response = self.client.post(f"/api/jobs/{self.doc_id}/pipeline", json={
+                "resume_profile": {
+                    "name": "演示同学",
+                    "experiences": [{"kind": "project", "name": "数据平台", "role": "开发",
+                                     "period": "2024", "actions": ["搭建数仓"], "results": [],
+                                     "skills": ["SQL"]}],
+                    "skills": ["SQL"], "education": [], "raw_text": "材料",
+                    "user_confirmed": True,
+                },
+            }, headers=HEADER)
+        self.assertEqual(response.status_code, 428)
+        self.assertIn("文本模型", response.json()["detail"])

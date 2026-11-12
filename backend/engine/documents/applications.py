@@ -144,11 +144,11 @@ def advance(db, user_id: str, doc_id: str, *, stage: str, note: object = "",
     """推进（或创建）一条投递记录。校验文档属于本人、状态转移合法。"""
     if stage not in STAGES:
         raise ValueError("投递状态不合法")
-    doc = db.execute(
-        "SELECT id FROM documents WHERE id = ? AND COALESCE(user_id,'') = ?",
-        (doc_id, user_id),
-    ).fetchone()
-    if doc is None:
+    # 用统一的可见性规则：自己的私有资料 + 公共岗位池都能加入看板
+    # （公共池文档的 user_id 是 NULL，早先按 owner 相等判断会把采集来的岗位全部误判为不存在）
+    from .store import get_document
+
+    if get_document(db, doc_id, user_id=user_id) is None:
         raise LookupError("岗位不存在或无权操作")
     clean_note = _clip(note, 500)
     next_at = parse_next_action(next_action)

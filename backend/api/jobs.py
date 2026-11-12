@@ -408,6 +408,76 @@ def disable_province(code: str, user: dict = Depends(accounts.require_user)):
     return {"ok": True}
 
 
+class PipelineRequest(BaseModel):
+    """一键跑「匹配 → 定制 → 质检」。经历事实必须已在工作台确认。"""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    resume_profile: dict
+    resume_markdown: str = Field(default="", max_length=40000)
+
+
+@router.post("/{doc_id}/pipeline")
+def run_pipeline(doc_id: str, req: PipelineRequest,
+                 user: dict = Depends(accounts.require_user)):
+    """收件箱里的一条岗位跑完整链路：匹配诊断 → 定制简历 → 质检。
+
+    三段共享同一份已确认事实：没有确认过的经历直接拒绝，不拿模型编造；
+    任何一段模型失败都按原错误码返回，不返回"半成品成功"。
+    """
+    from api.diagnose import DiagnoseRequest, diagnose
+    from api.quality import QualityRequest, quality
+    from api.resume import GenerateRequest, generate
+
+    profile = req.resume_profile or {}
+    if profile.get("user_confirmed") is not True:
+        raise HTTPException(status_code=422, detail="请先在工作台核对并确认经历事实，再一键跑链路")
+
+    with accounts.connection() as db:
+        row = store.get_document(db, doc_id, user_id=user["id"])
+    if row is None:
+        raise HTTPException(status_code=404, detail="岗位不存在或无权使用")
+    jd_text = row["content_md"]
+    if not jd_text.strip():
+        raise HTTPException(status_code=422, detail="这条岗位没有正文，无法匹配")
+
+    events.emit("pipeline_started", doc_id=doc_id)
+    match = diagnose(DiagnoseRequest(jd_text=jd_text, resume_profile=profile,
+                                     resume_markdown=req.resume_markdown or None))
+    if not match.get("ok"):
+        return {"ok": False, "stage": "match", "error": match.get("error", ""), "jd": match.get("jd")}
+
+    draft = generate(GenerateRequest(jd_text=jd_text, resume_profile=profile,
+                                     jd_keywords=[], use_examples=True))
+    markdown = str(draft.get("markdown") or "")
+    if not markdown.strip():
+        return {"ok": False, "stage": "generate", "error": "定制稿为空，请重试", "match": match}
+
+    check = quality(QualityRequest(jd_text=jd_text, resume_profile=profile,
+                                   resume_markdown=markdown,
+                                   jd_keywords=list(match.get("jd", {}).get("keywords") or [])))
+    events.emit("pipeline_done", doc_id=doc_id,
+                coverage=match.get("coverage"), issues=len(check.get("issues") or []))
+    return {
+        "ok": True,
+        "doc_id": doc_id,
+        "title": row["title"],
+        "jd": match.get("jd"),
+        "match": {
+            "coverage": match.get("coverage"),
+            "missing_hard_count": match.get("missing_hard_count"),
+            "items": match.get("items"),
+        },
+        "markdown": markdown,
+        "keyword_coverage": check.get("keyword_coverage"),
+        "quality": {
+            "passed": check.get("passed"),
+            "failure_reasons": check.get("failure_reasons"),
+            "issues": check.get("issues"),
+        },
+    }
+
+
 class ApplicationRequest(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 

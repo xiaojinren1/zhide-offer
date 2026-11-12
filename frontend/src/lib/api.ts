@@ -358,6 +358,32 @@ export const applicationsApi = {
     http.delete(`/jobs/applications/${encodeURIComponent(docId)}`).then(r => r.data) as Promise<{ ok: boolean }>,
 }
 
+export type JobPipelineResult = {
+  ok: boolean
+  stage?: string
+  error?: string
+  doc_id?: string
+  title?: string
+  jd?: { keywords?: string[] } | null
+  match?: {
+    coverage?: number | null
+    missing_hard_count?: number | null
+    items?: Array<{ requirement?: string; status?: string; suggestion?: string }>
+  }
+  markdown?: string
+  keyword_coverage?: number | null
+  quality?: {
+    passed?: boolean | null
+    failure_reasons?: string[]
+    issues?: Array<{ type?: string; detail?: string; suggestion?: string }>
+  }
+}
+
+export const jobsPipelineApi = {
+  run: (docId: string, payload: { resume_profile: Record<string, unknown>; resume_markdown?: string }) =>
+    http.post(`/jobs/${encodeURIComponent(docId)}/pipeline`, payload).then(r => r.data) as Promise<JobPipelineResult>,
+}
+
 export type JobSource = {
   id: string
   name: string

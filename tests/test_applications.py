@@ -133,3 +133,71 @@ class ApplicationContract(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JobPipelineContract(unittest.TestCase):
+    """一键「匹配 → 定制 → 质检」：串起来但不越过事实确认与账号隔离。"""
+
+    setUp = ApplicationContract.setUp
+
+    def profile(self, confirmed: bool = True) -> dict:
+        return {
+            "name": "演示同学",
+            "experiences": [{
+                "kind": "project", "name": "数据平台", "role": "开发",
+                "period": "2024.03-2024.09", "actions": ["搭建离线数仓"], "results": ["报表按时产出"],
+                "skills": ["SQL"], "start": [2024, 3], "end": [2024, 9],
+                "source_text": "数据平台", "quantified": [],
+            }],
+            "skills": ["SQL"], "education": [], "raw_text": "合成材料",
+            "user_confirmed": confirmed,
+        }
+
+    def test_pipeline_runs_three_stages_in_order(self) -> None:
+        # 链路把三个接口按顺序串起来；这里在它们各自的源模块上打桩
+        with patch("api.diagnose.diagnose", return_value={
+                "ok": True, "coverage": 0.6, "missing_hard_count": 1,
+                "items": [], "jd": {"keywords": ["SQL"]}}), \
+                patch("api.resume.generate", return_value={"markdown": "# 演示同学\n\n## 经历\n数据平台"}), \
+                patch("api.quality.quality", return_value={
+                    "ok": True, "passed": False, "keyword_coverage": 0.5,
+                    "failure_reasons": ["JD 关键词覆盖率低于 60%。"], "issues": [{"type": "cliche"}]}):
+            response = self.client.post(f"/api/jobs/{self.doc_id}/pipeline", json={
+                "resume_profile": self.profile(), "resume_markdown": "",
+            }, headers=HEADER)
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["match"]["coverage"], 0.6)
+        self.assertEqual(body["match"]["missing_hard_count"], 1)
+        self.assertIn("数据平台", body["markdown"])
+        self.assertEqual(body["quality"]["passed"], False)
+        self.assertEqual(body["keyword_coverage"], 0.5)
+        self.assertEqual(body["doc_id"], self.doc_id)
+
+    def test_pipeline_requires_confirmed_facts(self) -> None:
+        response = self.client.post(f"/api/jobs/{self.doc_id}/pipeline", json={
+            "resume_profile": self.profile(confirmed=False),
+        }, headers=HEADER)
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("确认经历事实", response.json()["detail"])
+
+    def test_pipeline_is_account_scoped(self) -> None:
+        with patch("api.diagnose.diagnose", return_value={"ok": True, "jd": {"keywords": []},
+                                                         "coverage": 0, "items": []}), \
+                patch("api.resume.generate", return_value={"markdown": "# x"}), \
+                patch("api.quality.quality", return_value={"ok": True, "issues": []}):
+            self.current_user = {"id": "u-bob", "username": "bob"}
+            response = self.client.post(f"/api/jobs/{self.doc_id}/pipeline", json={
+                "resume_profile": self.profile(),
+            }, headers=HEADER)
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("无权使用", response.json()["detail"])
+
+    def test_pipeline_surfaces_stage_failure(self) -> None:
+        from core.llm import LLMError
+        with patch("api.diagnose.diagnose", side_effect=LLMError("boom", status_code=504)):
+            response = self.client.post(f"/api/jobs/{self.doc_id}/pipeline", json={
+                "resume_profile": self.profile(),
+            }, headers=HEADER)
+        self.assertEqual(response.status_code, 504)

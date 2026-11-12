@@ -30,7 +30,8 @@
       "code": "11",
       "name": "北京",
       "url": "https://rsj.beijing.gov.cn/",
-      "verified": true
+      "verified": false,
+      "note": "2026-11-12 实测：栏目页 /col/rsks/ 返回 404，官网改版后需重新确认列表页地址"
     },
     {
       "code": "12",

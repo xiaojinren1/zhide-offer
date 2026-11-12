@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { apiErrorMessage, applicationsApi, jobsApi, jobsFetchAllApi, jobsPasteApi, jobsProvinceApi, jobsSourceApi } from '../../lib/api'
-import type { ApplicationStage, JobApplication, JobDocument, JobProvince, JobSource, PasteGuess } from '../../lib/api'
+import { apiErrorMessage, applicationsApi, jobsApi, jobsFetchAllApi, jobsPasteApi, jobsPipelineApi, jobsProvinceApi, jobsSourceApi } from '../../lib/api'
+import type { ApplicationStage, JobApplication, JobDocument, JobPipelineResult, JobProvince, JobSource, PasteGuess } from '../../lib/api'
+import type { ResumeProfile } from '../../lib/types'
 import './jobs.css'
 
 interface Props {
@@ -8,6 +9,11 @@ interface Props {
   disabled: boolean
   canManage: boolean
   onUseJd: (text: string, title: string) => void
+  /** 工作台当前已确认的经历与当前稿：一键链路只使用确认过的事实 */
+  profile: ResumeProfile | null
+  markdown: string
+  /** 链路结果载入工作台：写入 JD、定制稿与关键词，并跳到「检查与优化」 */
+  onApplyPipeline: (payload: { jdText: string; markdown: string; keywords: string[] }) => void
 }
 
 interface ImportForm {
@@ -68,7 +74,7 @@ const SOURCE_LABELS: Record<string, string> = {
   feed: '信源采集', paste: '粘贴文本', image: '截图转写', upload: '上传文件', manual: '手工录入',
 }
 
-export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props) {
+export default function JobsPage({ userId, disabled, canManage, onUseJd, profile, markdown, onApplyPipeline }: Props) {
   const [items, setItems] = useState<JobDocument[]>([])
   const [selected, setSelected] = useState<JobDocument | null>(null)
   const [chunkCount, setChunkCount] = useState(0)
@@ -95,6 +101,8 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
   const [appDate, setAppDate] = useState('')
   const [stageFilter, setStageFilter] = useState<'' | ApplicationStage>('')
   const [busyStage, setBusyStage] = useState('')
+  const [pipelineBusy, setPipelineBusy] = useState(false)
+  const [pipeline, setPipeline] = useState<JobPipelineResult | null>(null)
   const imageInput = useRef<HTMLInputElement>(null)
   const analysisSeq = useRef(0)
 
@@ -303,6 +311,35 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
       setError(apiErrorMessage(reason))
     } finally {
       setBusyStage('')
+    }
+  }
+
+  /** 一键跑「匹配 → 定制 → 质检」；结果先展示，用户确认后再载入工作台。 */
+  async function runPipeline() {
+    if (!selected || disabled || pipelineBusy) return
+    if (!profile || profile.user_confirmed !== true) {
+      setError('请先在工作台核对并确认经历事实，再一键跑链路')
+      return
+    }
+    setPipelineBusy(true)
+    setError('')
+    setNotice('')
+    setPipeline(null)
+    try {
+      const result = await jobsPipelineApi.run(selected.id, {
+        resume_profile: profile as unknown as Record<string, unknown>,
+        resume_markdown: markdown,
+      })
+      if (!result.ok) {
+        setError(result.error ? `${result.stage === 'generate' ? '定制' : '匹配'}阶段失败：${result.error}` : '链路未完成，请重试')
+        return
+      }
+      setPipeline(result)
+      setNotice('链路已跑完：匹配报告、定制稿和质检结果都在下面')
+    } catch (reason) {
+      setError(apiErrorMessage(reason))
+    } finally {
+      setPipelineBusy(false)
     }
   }
 
@@ -652,8 +689,16 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
         <div className="panel-heading">
           <h2 id="jobs-detail-title">{selected.title || '未命名资料'}</h2>
           <div className="jobs-actions">
+            <button type="button" className="primary-button"
+              disabled={disabled || pipelineBusy || !profile || profile.user_confirmed !== true}
+              title={profile && profile.user_confirmed === true
+                ? '用当前已确认的事实跑完匹配、定制与质检'
+                : '先在工作台确认经历事实'}
+              onClick={() => void runPipeline()}>
+              {pipelineBusy ? '跑链路中…（可能要一两分钟）' : '一键匹配→定制→质检'}
+            </button>
             <button type="button" className="secondary-button" disabled={disabled}
-              onClick={() => onUseJd(selected.content_md, selected.title)}>用这份 JD 去匹配</button>
+              onClick={() => onUseJd(selected.content_md, selected.title)}>只把 JD 带去工作台</button>
             <button type="button" className="secondary-button danger" disabled={disabled}
               onClick={() => void remove(selected.id)}>删除</button>
           </div>
@@ -667,6 +712,50 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd }: Props
         </dl>
         {selected.url && <p className="jobs-source">来源：
           <a href={selected.url} target="_blank" rel="noreferrer noopener">{selected.url}</a></p>}
+
+        {pipeline && <section className="jobs-pipeline" aria-label="一键链路结果">
+          <div className="jobs-application-head">
+            <h3>匹配 → 定制 → 质检</h3>
+            <span className={`jobs-stage`} data-stage={pipeline.quality?.passed ? 'offer' : 'applied'}>
+              {pipeline.quality?.passed ? '质检通过' : '质检有待改进'}
+            </span>
+          </div>
+          <ul className="jobs-pipeline-facts">
+            <li>岗位匹配覆盖度：{pipeline.match?.coverage == null
+              ? '—' : `${Math.round((pipeline.match.coverage || 0) * 100)}%`}</li>
+            <li>硬性要求缺口：{pipeline.match?.missing_hard_count ?? 0} 条</li>
+            <li>关键词覆盖：{pipeline.keyword_coverage == null
+              ? '—' : `${Math.round((pipeline.keyword_coverage || 0) * 100)}%`}</li>
+            <li>质检问题：{pipeline.quality?.issues?.length ?? 0} 条</li>
+          </ul>
+          {!!pipeline.quality?.failure_reasons?.length && <ul className="jobs-pipeline-reasons">
+            {pipeline.quality.failure_reasons.map((reason, index) => <li key={`reason-${index}`}>{reason}</li>)}
+          </ul>}
+          {!!pipeline.match?.items?.length && <details className="jobs-application-history">
+            <summary>匹配明细（{pipeline.match.items.length} 条）</summary>
+            <ul>
+              {pipeline.match.items.slice(0, 12).map((item, index) => <li key={`match-${index}`}>
+                {item.requirement || '要求'} · {item.status || ''}
+                {item.suggestion ? ` · ${item.suggestion}` : ''}
+              </li>)}
+            </ul>
+          </details>}
+          <div className="jobs-actions">
+            <button type="button" className="primary-button" disabled={disabled}
+              onClick={() => onApplyPipeline({
+                jdText: selected.content_md,
+                markdown: pipeline.markdown || '',
+                keywords: pipeline.jd?.keywords || [],
+              })}>
+              载入这份定制稿，去检查与优化
+            </button>
+            <button type="button" className="secondary-button" disabled={disabled}
+              onClick={() => setPipeline(null)}>忽略这次结果</button>
+          </div>
+          <p className="jobs-hint">
+            链路只使用你已确认的事实；结果需要你自己核对，模型输出不等于事实认证。
+          </p>
+        </section>}
 
         <section className="jobs-application" aria-label="投递状态">
           <div className="jobs-application-head">

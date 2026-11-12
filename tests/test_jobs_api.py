@@ -323,10 +323,13 @@ class JobsApiContract(unittest.TestCase):
         self._grant_admin()
         listing = self.client.get("/api/jobs/provinces").json()
         self.assertEqual(len(listing["items"]), 31)
-        beijing = next(item for item in listing["items"] if item["code"] == "11")
-        self.assertTrue(beijing["verified"])
-        self.assertFalse(beijing["enabled"])
-        self.assertEqual(beijing["source_id"], "prov-11")
+        # 至少有一个省是实测可用的；不要再写死具体省份——模板的 verified 会随实测更新
+        self.assertTrue(any(item["verified"] for item in listing["items"]))
+        unverified = [item for item in listing["items"] if not item["verified"]]
+        self.assertTrue(all(item.get("note") for item in unverified), "未验证的省份必须写原因")
+        sample = listing["items"][0]
+        self.assertFalse(sample["enabled"])
+        self.assertEqual(sample["source_id"], f"prov-{sample['code']}")
 
     def test_enable_and_disable_province(self) -> None:
         self._grant_admin()

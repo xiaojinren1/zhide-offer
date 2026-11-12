@@ -15,7 +15,7 @@
 | B3 | 第二期收口：一键「匹配→定制→质检」+ 50 条真实岗位验收 | 已完成 | 半天 |
 | B4 | 管理员错误统计 + 读事件流 | 已完成 | 1 天 |
 | B14 | 修复：投递看板误判公共岗位 + 一键链路吞掉 428 | 已完成 | — |
-| B5 | 知识库接入剩下两处（术语归一、面试面经检索），example_lib 改读 documents | 待办 | 1 天 |
+| B5 | 知识库接入剩下两处（术语归一、面试面经检索），example_lib 改读 documents | 已完成 | 1 天 |
 | B6 | 面经卡片 → 面试题 / 关联面试记录 | 待办 | 1 天 |
 | B7 | 简历模板库（可选模板 + 预览应用） | 待办 | 1.5 天 |
 | B8 | 弱实名（邮箱/域名标签）+ anon 映射加密 | 待办 | 2~3 天 |
@@ -128,6 +128,29 @@
 
 **问题**：`knowledge_chunks` + FTS5 目前只服务岗位搜索与 `document_tools`；`example_lib.py` 仍读
 `data/knowledge/examples.json`；匹配的术语归一、面试面经检索都没接。
+
+**结果（2026-11-12）**
+- 新增 `backend/engine/knowledge/terms.py`：人工维护的同义组（数仓↔数据仓库、k8s↔容器编排…），
+  `find_match` 返回命中的写法，拉丁写法按词边界判断（`ml` 不会命中 `html`）。
+  `corpus_pairs` 只从岗位语料里**推荐**候选同义词，不自动生效——学错了会让报告集体失真。
+- 匹配的术语归一接上：`matcher._keyword_coverage` 在精确命中失败后走同义写法，
+  命中时 note 写「命中同义写法：数仓建模」，用户看得见依据也能否决。
+- 新增 `backend/engine/knowledge/examples.py`：`data/knowledge/examples.json` 只作**种子**，
+  `seed()` 幂等导入资料层（`kind='example'`、`visibility='public'`），检索走 `documents`；
+  资料层没有可用范例时回退种子，不会静默失效。删除了旧 `engine/example_lib.py`。
+- 新增 `GET /api/interview/related-cards`：按岗位/公司/JD 里的行业术语检索**已公开**的匿名面经。
+  相关性用两条线兜噪：岗位/公司/标题命中算强相关；仅靠正文术语命中的只列标题、不给摘录。
+  **不喂进模型**——别人的项目和数字一旦进 prompt，很容易被当成"候选人应该有的事实"。
+- 面试准备页新增「同岗位面经」面板（条数、公司/岗位/轮次、有帮助数、摘录），
+  并明确写"不是标准答案，也不会用于生成题目或评分"。
+
+**验证**
+- `tests/test_knowledge.py` 13 项：同义命中与命中说明、原写法优先、拉丁词边界、未知术语回退、
+  批量判定、候选不自动生效、`_keyword_coverage` 命中同义、范例幂等导入与只返回三件套、
+  私有范例不参与并回退种子、面经只出 public、无关卡片被过滤、空 JD 返回空。
+- `tests/run_examples_qa.py` 6 项脚本检查（替换已删除的 `run_example_lib_qa.py`）。
+- 全量 discover 349 项通过；真页面（临时账号，验证后清理）：面试准备页显示 1 条同岗位面经，
+  无关的「agent开发」卡片被过滤掉。
 
 ## B6 · 面经卡片 → 面试题
 

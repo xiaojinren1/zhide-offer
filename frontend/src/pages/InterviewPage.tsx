@@ -32,6 +32,12 @@ export default function InterviewPage({ userId: suppliedUserId, jdText, profile,
   const [deleteId, setDeleteId] = useState('')
   const [prestart, setPrestart] = useState<'direct' | 'bank' | null>(null)
   const [viewedTurn, setViewedTurn] = useState<string | null>(null)
+  // 同岗位的匿名面经参考：只给人看，不参与出题与评分
+  const [relatedCards, setRelatedCards] = useState<Array<{
+    id: string; kind: string; company: string; role: string; round: string
+    title: string; author: string; helpful_count: number; excerpt: string
+  }>>([])
+  const [relatedNote, setRelatedNote] = useState('')
   const controller = useRef(new AbortController())
   const alive = useRef(true)
   const working = useRef(false)
@@ -63,6 +69,17 @@ export default function InterviewPage({ userId: suppliedUserId, jdText, profile,
     void api.listInterviewRecords().then((r) => { if (!current.signal.aborted) setHistory(r.records) }).catch((e) => { if (!current.signal.aborted) setError(apiErrorMessage(e)) })
     return () => { alive.current = false; current.abort(); clock.current.pause(); window.removeEventListener(ACCOUNT_CHANGED_EVENT, clear) }
   }, [])
+
+  useEffect(() => {
+    if (!userId || !jdText.trim()) { setRelatedCards([]); return }
+    let aliveCards = true
+    api.interviewRelatedCards({ jd_text: jdText, limit: 5 }).then(result => {
+      if (!aliveCards) return
+      setRelatedCards(result.items || [])
+      setRelatedNote(result.note || '')
+    }).catch(() => { if (aliveCards) setRelatedCards([]) })
+    return () => { aliveCards = false }
+  }, [userId, jdText])
 
   useEffect(() => {
     if (!active || ending || busy) { clock.current.pause(); return }
@@ -189,6 +206,23 @@ export default function InterviewPage({ userId: suppliedUserId, jdText, profile,
         <p>根据相关经历和岗位重点生成 10–30 道题，覆盖经历深挖、专业能力、行为情景与动机。每题附出题依据、追问和折叠示范回答。</p>
         <div className="interview-actions"><button className="primary-button" disabled={busy || !ready || unsaved} onClick={generate}>{busy ? '处理中…' : bank ? '按当前材料重新生成题库' : '生成个性化题库'}</button></div>
       </section><section className="panel"><span className="section-kicker">REALISTIC INTERVIEW</span><h2>直接进入全真模拟</h2><p>无需先生成或看完题库。面试官根据最新简历与 JD 动态追问，结束后统一评价。</p><div className="interview-actions"><button className="primary-button" disabled={busy || !ready || unsaved} onClick={() => setPrestart('direct')}>直接进入全真模拟</button></div></section></div>
+      {relatedCards.length > 0 && <section className="panel interview-related" aria-label="同岗位面经参考">
+        <span className="section-kicker">PEERS' POSTS</span>
+        <h2>同岗位面经（{relatedCards.length} 条）</h2>
+        <p>{relatedNote || '这些是他人匿名投稿，仅供你了解考察方向；不是标准答案，也不会用于出题或评分。'}</p>
+        <ul className="interview-related-list">
+          {relatedCards.map(card => <li key={card.id}>
+            <strong>{card.title}</strong>
+            <span className="muted">{[
+              card.company && `公司：${card.company}`,
+              card.role && `岗位：${card.role}`,
+              card.round && `轮次：${card.round}`,
+              `有帮助 ${card.helpful_count}`,
+            ].filter(Boolean).join(' · ')}</span>
+            <p>{card.excerpt}{card.excerpt.length >= 160 ? '…' : ''}</p>
+          </li>)}
+        </ul>
+      </section>}
       {!ready && <div className="notice">尚缺：{missing.join('、')}。请在工作台补齐后开始，两个入口会保留。</div>}
       {stale && <div className="notice">题库材料与当前工作台不同，仅供回看。可重新生成题库，或按最新材料直接模拟。</div>}
       {bank && <section className="panel"><h2>{bank.job_title} · {bank.questions.length} 道个性化题</h2><p>不必先看完题库；模拟将沿用这些能力主题，变换问法并动态追问。</p><button className="primary-button" disabled={busy || stale || !ready || unsaved} onClick={() => setPrestart('bank')}>从这份题库进入模拟</button></section>}

@@ -27,6 +27,7 @@
 | 投递看板 | `backend/engine/documents/applications.py` + `api/jobs.py` + 收件箱页 | ✅ 状态机、留痕、备注与下一次动作、阶段筛选 |
 | 一键链路 | `POST /api/jobs/{doc_id}/pipeline` + 收件箱详情 | ✅ 匹配→定制→质检一次跑完，结果确认后载入工作台（真实模型未实测） |
 | 错误统计 | `backend/core/event_log.py` + `GET /api/user-stats/errors` + 管理后台「错误趋势」 | ✅ 读事件流做分类/功能/趋势聚合，明细脱敏 |
+| 知识层 | `backend/engine/knowledge/` | ✅ 术语归一（匹配用）+ 范例检索（从资料层读，JSON 作种子）+ 面试同岗位面经 |
 
 提交记录：
 

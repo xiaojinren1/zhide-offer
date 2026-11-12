@@ -20,7 +20,7 @@ WORKDAYS_PER_MONTH = 21.75
 HOURS_PER_WORKDAY = 8
 MONTHS_PER_YEAR = 12
 
-DOC_KINDS = ("job", "jd", "note", "review", "tech")
+DOC_KINDS = ("job", "jd", "note", "review", "tech", "example")
 DOC_SOURCES = ("feed", "paste", "upload", "image", "manual")
 VISIBILITIES = ("private", "pending", "public", "rejected")
 

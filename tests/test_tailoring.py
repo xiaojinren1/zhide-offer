@@ -242,7 +242,7 @@ class TailoringApi(unittest.TestCase):
     def test_initial_draft_keeps_all_facts_and_skips_job_stages(self):
         request = {**self.request, 'jd_text': ' ', 'use_examples': True}
         with patch('api.resume.plan_tailoring') as planner, patch('api.resume.review_tailoring') as reviewer, \
-             patch('engine.example_lib.retrieve') as examples, patch('api.resume.chat_with_tools',
+             patch('engine.knowledge.examples.retrieve') as examples, patch('api.resume.chat_with_tools',
                 return_value={'content': '# 虚构同学\n整理练习数据', 'rounds': 1, 'tool_calls': []}) as writer:
             response = self.client.post('/api/resume/generate', json=request)
         self.assertEqual(response.status_code, 200, response.text)

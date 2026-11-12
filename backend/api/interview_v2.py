@@ -120,6 +120,78 @@ def make_snapshot(profile: ProfileState, markdown: str, jd: str) -> dict:
     return snapshot
 
 
+@router.get("/related-cards")
+def related_cards(jd_text: str = "", company: str = "", role: str = "",
+                  limit: int = 5, user: dict = Depends(accounts.require_user)):
+    """同岗位的面经参考：只读已公开的匿名卡片，供准备页自己看。
+
+    刻意**不喂进模型**：卡片是别人的经历描述，一旦进 prompt，模型很容易把别人的
+    项目和数字当成"候选人应该有的答案"。这里只作为人的参考材料显示。
+
+    相关性用两条线兜住噪声：岗位/公司/标题命中算强相关；仅靠正文关键词命中的，
+    要求至少命中两个不同关键词——否则 "开发" 这种通用词会把无关卡片全捞进来。
+    """
+    from engine.community import cards as community_cards
+    from engine.documents import paste as doc_paste
+    from engine.knowledge import terms as term_util
+
+    limit = max(1, min(limit, 10))
+    guess = doc_paste.analyze(jd_text) if jd_text.strip() else None
+    # 强相关词：岗位、公司、JD 标题原文。中文按二元组分词会产生「发工」「程师」这类噪声，
+    # 所以正文侧只认术语表里真实存在的行业术语，不用裸分词结果去检索。
+    strong_terms = [value for value in (role, company, guess.title if guess else "") if value and value.strip()]
+    industry_terms = [term for term in term_util.known_terms() if term_util.find_match(term, jd_text)]
+    strong_terms = list(dict.fromkeys(term.strip().lower() for term in strong_terms))[:5]
+    industry_terms = [term for term in dict.fromkeys(industry_terms)][:8]
+    if not strong_terms and not industry_terms:
+        return {"ok": True, "items": [], "note": _RELATED_NOTE}
+
+    with accounts.connection() as db:
+        candidates: dict[str, dict] = {}
+        strong_hits: dict[str, set[str]] = {}
+        term_hits: dict[str, set[str]] = {}
+        for term in strong_terms + industry_terms:
+            for card in community_cards.list_public(db, q=term, limit=limit * 3, viewer_id=user["id"]):
+                card_id = card["id"]
+                candidates.setdefault(card_id, card)
+                strong_hits.setdefault(card_id, set())
+                term_hits.setdefault(card_id, set())
+                label = f"{card['company']} {card['role']} {card['title']}".lower()
+                if term in strong_terms and term in label:
+                    strong_hits[card_id].add(term)
+                term_hits[card_id].add(term)
+
+        items: list[dict] = []
+        for card_id, card in candidates.items():
+            strong = bool(strong_hits[card_id])
+            # 标题/公司/岗位对不上时，至少要命中一个行业术语（术语表是人工维护的，
+            # 不会出现「开发」这种把无关卡片全捞进来的通用词）
+            if not strong and not term_hits[card_id]:
+                continue
+            # 只有强相关、或命中两个以上术语时才给正文摘录，避免把弱相关内容当参考读
+            show_excerpt = strong or len(term_hits[card_id]) >= 2
+            items.append({
+                "id": card_id,
+                "kind": card["kind"],
+                "company": card["company"],
+                "role": card["role"],
+                "round": card["round"],
+                "title": card["title"],
+                "author": card["author"],
+                "helpful_count": card["helpful_count"],
+                "excerpt": str(card["body_md"] or "")[:160] if show_excerpt else "",
+                "matched": sorted(term_hits[card_id])[:4],
+            })
+            if len(items) >= limit:
+                break
+    items.sort(key=lambda item: (0 if item["excerpt"] else 1, -item["helpful_count"], item["title"]))
+    return {"ok": True, "items": items, "note": _RELATED_NOTE}
+
+
+_RELATED_NOTE = ("这些是同岗位的匿名面经，仅供准备参考；"
+                 "不是标准答案，也不会用于生成题目或评分。")
+
+
 @router.post("/bank")
 def bank(req: BankRequest, user: dict = Depends(accounts.require_user)):
     check_account(req.expected_user_id, user)

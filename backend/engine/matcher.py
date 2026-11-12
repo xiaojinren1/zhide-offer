@@ -9,6 +9,7 @@ import json
 
 from core.llm import LLMError, chat_json
 from engine.models import MatchItem, MatchReport, ParsedJD, ResumeProfile
+from engine.knowledge import terms as term_util
 from engine.suspicion import _tokenize
 from engine.tailoring import has_evidence_anchor, markdown_excerpt_catalog
 from core.config import agent_rules
@@ -39,17 +40,34 @@ def _fact_sources(resume: ResumeProfile) -> list[str]:
 
 
 def _keyword_coverage(jd: ParsedJD, resume: ResumeProfile) -> list[MatchItem]:
-    """程序快筛：JD 关键词是否出现在经历库文本中。"""
+    """程序快筛：JD 关键词是否出现在经历库文本中。
+
+    术语归一：JD 写「数据仓库建模」而经历里写「数仓建模」，按同义写法算命中，
+    并在 note 里写明命中的是哪种写法——用户能看见依据，也能自己否决这个同义判断。
+    """
     sources = _fact_sources(resume)
     items: list[MatchItem] = []
     for kw in jd.keywords:
-        source = next((value for value in sources if kw.lower() in _tokenize(value) or kw.lower() in value.lower()), "")
+        source = ""
+        matched_as = ""
+        for value in sources:
+            # 先按分词命中（精确），再走术语归一（同义改写）
+            if kw.lower() in _tokenize(value) or kw.lower() in value.lower():
+                source, matched_as = value, kw.lower()
+                break
+            hit_variant = term_util.find_match(kw, value)
+            if hit_variant:
+                source, matched_as = value, hit_variant
+                break
         hit = bool(source)
+        note = "" if hit else "经历库中未出现该关键词（含同义写法）"
+        if hit and matched_as and matched_as != kw.lower():
+            note = f"命中同义写法：{matched_as}"
         items.append(MatchItem(
             requirement=f"关键词：{kw}",
             status="covered" if hit else "missing",
             evidence=source,
-            note="" if hit else "经历库中未出现该关键词",
+            note=note,
         ))
     return items
 

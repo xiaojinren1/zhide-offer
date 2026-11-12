@@ -114,6 +114,22 @@ export const api = {
     http.get<ModelUsageReport>('/auth/model-usage', { params }).then((r) => r.data),
   startTrial: () => http.post("/auth/trial").then(() => announceAccountChange()),
   heartbeat: () => http.post('/user-stats/heartbeat'),
+  interviewRelatedCards: (params: { jd_text?: string; company?: string; role?: string; limit?: number }) =>
+    http.get('/interview/related-cards', { params }).then(r => r.data) as Promise<{
+      ok: boolean
+      items: Array<{
+        id: string
+        kind: string
+        company: string
+        role: string
+        round: string
+        title: string
+        author: string
+        helpful_count: number
+        excerpt: string
+      }>
+      note: string
+    }>,
   userStats: () => http.get<{
     online: number; registered: number; new_this_week: number
     trend: Array<{ date: string; registrations: number; tokens: number }>

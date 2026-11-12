@@ -15,7 +15,7 @@ import math
 from fastapi import APIRouter, File, Form, UploadFile, HTTPException
 from pydantic import BaseModel, ValidationError
 
-from core import events
+from core import accounts, events
 from core.llm import LLMError, chat, chat_json_multimodal, chat_with_tools, is_configured
 from api.workspace import ResumeLayout
 from engine.resume_layout import docx_layout, markdown_layout, pdf_first_page
@@ -325,9 +325,10 @@ def generate(req: GenerateRequest):
     examples_used: list[dict] = []
     if has_jd and req.use_examples:
         try:
-            from engine.example_lib import retrieve
+            from engine.knowledge.examples import retrieve
 
-            examples_used = retrieve(req.jd_text, used_kw, top_k=3)
+            with accounts.connection() as db:
+                examples_used = retrieve(db, req.jd_text, used_kw, top_k=3)
         except Exception as exc:
             events.emit_error("example_retrieve", exc)
     events.emit("resume_generate_examples", count=len(examples_used),

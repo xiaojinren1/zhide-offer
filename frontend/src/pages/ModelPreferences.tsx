@@ -135,6 +135,10 @@ export default function ModelPreferences({ userId, guest = false, kind = "text" 
     <p className="panel-description">{kind === 'vision'
       ? '使用支持图片输入的模型解析简历图片。连接测试只发送一张样例图片。'
       : '用于简历文本处理和模拟面试。启用后，相关材料会发送给所选服务商。'}</p>
+    {kind === 'vision' && <p className="field-hint">
+      必须是能读图的模型。同服务商常分文本和视觉两款，例如 DeepSeek 需填 <code>deepseek-flash</code>
+      （<code>deepseek-v4-pro</code> 只读文本）；填错会在启用时的样图测试里直接失败并提示。
+    </p>}
     <p className="field-hint">{guest ? '密钥仅保存在当前试用会话中。' : '配置按账号保存，API Key 加密存储。'}</p>
     {!secure && <p>请通过 HTTPS 打开站点后填写 API Key。</p>}
     <div role="group" aria-label="模型连接配置">

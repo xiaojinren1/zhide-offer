@@ -30,6 +30,9 @@
 | 知识层 | `backend/engine/knowledge/` | ✅ 术语归一（匹配用）+ 范例检索（从资料层读，JSON 作种子）+ 面试同岗位面经 |
 | 面经转题 | `backend/engine/community/peer_questions.py` + 面试准备页勾选 | ✅ 程序抽提问角度、只作参考不进事实；出题记录引用可回看（真实模型未实测） |
 | 简历模板库 | `backend/data/resume/templates.json` + `GET /api/resume/templates` + 外观面板 | ✅ 6 个预设，先预览再套用，只改排版不动正文 |
+| PDF 导出 | `api/export.build_pdf(markdown, appearance)` | ✅ 按模板铺底色/字号/强调色/对齐，多页一致 |
+| 省份巡检 | `backend/tools/audit_provinces.py` | ✅ 三态判定（可用/不可用/判不出来），`--write` 才回写模板 |
+| 举报时效 | `GET /api/community/reports` 的 `sla` | ✅ 待处理/最久等待/超 24 小时/处理中位耗时 |
 
 提交记录：
 
@@ -101,6 +104,13 @@ npm.cmd --prefix frontend run build
 **当前全量回归是全绿的**：`.venv/bin/python -m unittest discover -s tests -p "test_*.py"` 308 项通过
 （2026-11-12）。原来那 2 项 `test_accounts` 长期失败已修掉，`test_model_errors` 的串扰来自
 "导入即执行"的脚本永久改写 `core.llm`——这些脚本已改名为 `tests/run_*_qa.py`，discover 不再导入它们。
+
+省份信源巡检（人工触发，加 `--write` 才回写模板）：
+
+```
+.venv/bin/python backend/tools/audit_provinces.py
+.venv/bin/python backend/tools/audit_provinces.py --write
+```
 
 脚本式检查（不是 unittest，需要单独跑）：
 

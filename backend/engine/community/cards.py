@@ -442,6 +442,42 @@ def report(db, card_id: str, user_id: str, reason: object) -> dict[str, Any]:
     return {"report_count": count, "already": False, "hidden": hidden}
 
 
+def report_sla(db) -> dict[str, Any]:
+    """举报处置时效：待处理条数、最久等了多久、已处理的中位耗时。
+
+    口径：以"第一条举报"为起点，`resolve_reports` 的时间为终点。这里只算汇总，
+    不暴露举报人、卡片正文或任何账号信息——后台只回答"有没有积压"。
+    """
+    open_rows = db.execute(
+        "SELECT card_id, MIN(created_at) AS first_at FROM card_reports WHERE status = 'open'"
+        " GROUP BY card_id"
+    ).fetchall()
+    resolved = db.execute(
+        "SELECT r.created_at, r.handled_at FROM card_reports r"
+        " WHERE r.status = 'resolved' AND r.handled_at IS NOT NULL"
+        " ORDER BY r.id DESC LIMIT 500"
+    ).fetchall()
+    now = _now()
+    waits = [max(0.0, now - row["first_at"]) for row in open_rows]
+    handled = [max(0.0, float(row["handled_at"]) - float(row["created_at"])) for row in resolved]
+    handled.sort()
+
+    def hours(seconds: float) -> float:
+        return round(seconds / 3600, 1)
+
+    median = 0.0
+    if handled:
+        middle = len(handled) // 2
+        median = handled[middle] if len(handled) % 2 else (handled[middle - 1] + handled[middle]) / 2
+    return {
+        "open_cards": len(open_rows),
+        "oldest_open_hours": hours(max(waits)) if waits else 0.0,
+        "over_24h": sum(1 for wait in waits if wait > 24 * 3600),
+        "handled_recent": len(handled),
+        "median_handle_hours": hours(median) if handled else 0.0,
+    }
+
+
 def _report_count(db, card_id: str) -> int:
     return db.execute("SELECT COUNT(*) FROM card_reports WHERE card_id = ?", (card_id,)).fetchone()[0]
 

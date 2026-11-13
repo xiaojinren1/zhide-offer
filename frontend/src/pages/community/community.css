@@ -432,3 +432,29 @@
   display: block;
   color: var(--text-muted, #5c6470);
 }
+
+/* 举报处置时效：只回答"有没有积压" */
+.community-sla {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.community-sla div {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.community-sla dt {
+  font-size: 11px;
+  color: var(--text-muted, #6b7280);
+}
+
+.community-sla dd {
+  margin: 2px 0 0;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}

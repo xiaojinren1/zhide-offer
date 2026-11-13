@@ -644,6 +644,13 @@ export const communityApi = {
     http.get('/community/reports', { params: { only_open: onlyOpen } }).then(r => r.data) as Promise<{
       ok: boolean
       items: CommunityReportGroup[]
+      sla: {
+        open_cards: number
+        oldest_open_hours: number
+        over_24h: number
+        handled_recent: number
+        median_handle_hours: number
+      }
     }>,
   resolveReports: (cardId: string, note = '') =>
     http.post(`/community/reports/${encodeURIComponent(cardId)}/resolve`, { note }).then(r => r.data) as Promise<{

@@ -30,21 +30,21 @@
       "code": "11",
       "name": "北京",
       "url": "https://rsj.beijing.gov.cn/",
-      "verified": false,
-      "note": "2026-11-12 实测：栏目页 /col/rsks/ 返回 404，官网改版后需重新确认列表页地址"
+      "verified": true
     },
     {
       "code": "12",
       "name": "天津",
       "url": "https://hrss.tj.gov.cn/",
-      "verified": true
+      "verified": true,
+      "note": "本轮能连上但没有新公告，建议隔几天再测"
     },
     {
       "code": "13",
       "name": "河北",
       "url": "https://rst.hebei.gov.cn/",
       "verified": false,
-      "note": "首页返回的是前端渲染骨架，需改栏目页地址"
+      "note": "证书校验失败，需人工确认站点证书"
     },
     {
       "code": "14",
@@ -68,14 +68,15 @@
       "code": "22",
       "name": "吉林",
       "url": "https://hrss.jl.gov.cn/",
-      "verified": true
+      "verified": false,
+      "note": "站点返回 403，可能拦截了服务器出口 IP；需要换栏目页或代理"
     },
     {
       "code": "23",
       "name": "黑龙江",
       "url": "https://rst.hlj.gov.cn/",
       "verified": false,
-      "note": "当前网络不可达，请换成可访问的栏目页"
+      "note": "证书校验失败，需人工确认站点证书"
     },
     {
       "code": "31",
@@ -100,7 +101,8 @@
       "code": "34",
       "name": "安徽",
       "url": "https://hrss.ah.gov.cn/",
-      "verified": true
+      "verified": true,
+      "note": "本轮能连上但没有新公告，建议隔几天再测"
     },
     {
       "code": "35",
@@ -113,7 +115,7 @@
       "name": "江西",
       "url": "https://hrss.jiangxi.gov.cn/",
       "verified": false,
-      "note": "当前网络不可达，请换成可访问的栏目页"
+      "note": "证书校验失败，需人工确认站点证书"
     },
     {
       "code": "37",
@@ -125,7 +127,8 @@
       "code": "41",
       "name": "河南",
       "url": "https://hrss.henan.gov.cn/",
-      "verified": true
+      "verified": true,
+      "note": "本轮能连上但没有新公告，建议隔几天再测"
     },
     {
       "code": "42",
@@ -137,7 +140,8 @@
       "code": "43",
       "name": "湖南",
       "url": "https://rst.hunan.gov.cn/",
-      "verified": true
+      "verified": false,
+      "note": "证书校验失败，需人工确认站点证书"
     },
     {
       "code": "44",
@@ -150,7 +154,7 @@
       "name": "广西",
       "url": "https://rst.gxzf.gov.cn/",
       "verified": false,
-      "note": "当前网络不可达，请换成可访问的栏目页"
+      "note": "证书校验失败，需人工确认站点证书"
     },
     {
       "code": "46",
@@ -174,21 +178,21 @@
       "code": "52",
       "name": "贵州",
       "url": "https://rst.guizhou.gov.cn/",
-      "verified": true
+      "verified": true,
+      "note": "本轮能连上但没有新公告，建议隔几天再测"
     },
     {
       "code": "53",
       "name": "云南",
       "url": "https://hrss.yn.gov.cn/",
-      "verified": false,
-      "note": "首页未发现招聘公告链接，需改栏目页地址"
+      "verified": true
     },
     {
       "code": "54",
       "name": "西藏",
       "url": "",
       "verified": false,
-      "note": "未验证，请填写可访问的招聘公告列表页"
+      "note": "西藏 还没有可用地址，请先填写招聘公告列表页"
     },
     {
       "code": "61",
@@ -201,13 +205,14 @@
       "name": "甘肃",
       "url": "https://rst.gansu.gov.cn/",
       "verified": false,
-      "note": "站点返回 412，需要手工确认栏目页"
+      "note": "站点返回 412（反爬校验），需人工确认可用地址"
     },
     {
       "code": "63",
       "name": "青海",
       "url": "https://rst.qinghai.gov.cn/",
-      "verified": true
+      "verified": true,
+      "note": "本轮能连上但没有新公告，建议隔几天再测"
     },
     {
       "code": "64",

@@ -108,6 +108,55 @@ class ExportContract(unittest.TestCase):
         self.assertGreater(len(response.content), 1000)
         self.assertEqual(list(self.root.glob("*.pdf")), [])
 
+    def test_pdf_applies_appearance_template(self):
+        """PDF 不能无视外观：纸张底色要跟用户选的模板一致。"""
+        import pypdfium2 as pdfium
+
+        self.register()
+        plain = self.client.post("/api/export/pdf",
+                                 json={"markdown": "# 演示同学" + chr(10) + chr(10) + "正文。"}).content
+        tinted_payload = dict(self.payload)
+        tinted_payload["appearance"] = {
+            "template": "classic", "background": "#eaf0f5", "paper": "#fffdf9",
+            "accent": "#a8741a", "fontSize": 16, "spacing": 1.6,
+        }
+        tinted = self.client.post("/api/export/pdf", json=tinted_payload).content
+
+        plain_page = pdfium.PdfDocument(plain)[0].render(scale=1).to_pil()
+        tinted_page = pdfium.PdfDocument(tinted)[0].render(scale=1).to_pil()
+        self.assertEqual(plain_page.getpixel((5, 5)), (255, 255, 255), "没配外观时保持白底")
+        self.assertEqual(tinted_page.getpixel((5, 5)), (255, 253, 249), "纸张底色要铺满页面")
+
+    def test_pdf_font_size_follows_appearance(self):
+        import pdfplumber
+
+        self.register()
+        seen = {}
+        for size in (13, 16):
+            payload = dict(self.payload)
+            payload["appearance"] = {
+                "template": "classic", "background": "#ffffff", "paper": "#ffffff",
+                "accent": "#254264", "fontSize": size, "spacing": 1.6,
+            }
+            content = self.client.post("/api/export/pdf", json=payload).content
+            with pdfplumber.open(BytesIO(content)) as pdf:
+                        # 取正文字号（最小的一档），标题字号不随模板变化
+                seen[size] = min(char["size"] for char in pdf.pages[0].chars if char["text"].strip())
+        self.assertLess(seen[13], seen[16], f"字号应随模板变大：{seen}")
+
+    def test_long_resume_paginates(self):
+        import pypdfium2 as pdfium
+
+        self.register()
+        newline = chr(10)
+        sections = [f"### 项目 {i}" + newline + f"- 第 {i} 段内容，负责数据链路搭建与口径对齐。"
+                    for i in range(40)]
+        long_markdown = "# 演示同学" + newline + newline + (newline + newline).join(sections)
+        content = self.client.post("/api/export/pdf",
+                                   json={"markdown": long_markdown, "name": "长简历"}).content
+        self.assertGreater(len(pdfium.PdfDocument(content)), 1, "长内容必须分页，不能挤在一页")
+
+
     def test_pdf_reuses_auth_and_input_contract(self):
         self.assertEqual(self.client.post("/api/export/pdf", json=self.payload).status_code, 401)
         self.register()

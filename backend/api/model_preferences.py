@@ -100,9 +100,17 @@ def activate(request: Request, preference: Preference, user: dict = Depends(acco
                                  uri, **options)
         else:
             chat_json("Return only a JSON object.", 'Return {"ok": true}.', **options)
-    except LLMError:
-        message = ("图片测试失败，请确认模型支持图片输入，并核对 API Key、模型 ID 和额度"
-                   if kind == "vision" else "连接失败，请核对 API Key、模型 ID 和服务商额度")
+    except LLMError as exc:
+        # 给一句能照着做的提示：区分"模型不支持读图"和"钥匙/额度/网络"。
+        # 供应商对图片输入不支持的常见表现是 400 且提到 image（如 DeepSeek 的 v4-pro）。
+        upstream = str(exc).lower()
+        if kind == "vision" and ("image" in upstream or "vision" in upstream or "multimodal" in upstream):
+            message = ("这个模型不接受图片输入，请换成支持读图的模型"
+                       "（例如 DeepSeek 的 deepseek-flash），或改配文本模型后用文字材料")
+        elif kind == "vision":
+            message = "图片测试失败，请确认模型支持图片输入，并核对 API Key、模型 ID 和额度"
+        else:
+            message = "连接失败，请核对 API Key、模型 ID 和服务商额度"
         raise HTTPException(502, message) from None
     config = {"user_id": user_id, "provider": preference.provider, "base_url": url, "model": preference.model}
     if cipher is None:

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { downloadMarkdown, downloadWord, printResume } from '../lib/export'
+import { downloadMarkdown, downloadPdf, downloadWord, printResume } from '../lib/export'
 import ResumePreview, { defaultResumeAppearance, type ResumeAppearance } from './workbench/ResumePreview'
 import './workbench/workbench.css'
 
@@ -34,6 +34,23 @@ export default function ResumeLibraryPage({ markdown, name, appearance, onOpenWo
     }
   }
 
+  async function downloadPdfFile() {
+    if (activeExport.current) return
+    const controller = new AbortController()
+    activeExport.current = controller
+    setExporting(true)
+    setError('')
+    try {
+      // 服务端按当前模板渲染 PDF（含纸张底色与字号），浏览器打印是另一条路，两者都保留
+      await downloadPdf(markdown, name, controller.signal, style)
+    } catch (reason) {
+      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'PDF 下载失败，请重试。')
+    } finally {
+      activeExport.current = null
+      if (!controller.signal.aborted) setExporting(false)
+    }
+  }
+
   return <div className="role-b-workbench">
     <section className="panel" aria-labelledby="current-resume-title">
       <div className="panel-heading">
@@ -49,6 +66,8 @@ export default function ResumeLibraryPage({ markdown, name, appearance, onOpenWo
           }}>按预览保存 PDF</button>
           <button type="button" className="secondary-button" disabled={exporting}
             onClick={() => void exportWord()}>{exporting ? '正在导出 Word…' : '下载 Word'}</button>
+          <button type="button" className="secondary-button" disabled={exporting}
+            onClick={() => void downloadPdfFile()}>{exporting ? '正在导出 PDF…' : '下载 PDF 文件'}</button>
           <button type="button" className="secondary-button"
             onClick={() => downloadMarkdown(markdown, name)}>下载 Markdown</button>
         </div>

@@ -63,6 +63,8 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
   const [queue, setQueue] = useState<CommunityCard[]>([])
   const [published, setPublished] = useState<CommunityCard[]>([])
   const [reports, setReports] = useState<CommunityReportGroup[]>([])
+  const [sla, setSla] = useState<{ open_cards: number; oldest_open_hours: number; over_24h: number
+    handled_recent: number; median_handle_hours: number } | null>(null)
   const [commentQueue, setCommentQueue] = useState<CommunityComment[]>([])
   const [comments, setComments] = useState<CommunityComment[]>([])
   const [commentDraft, setCommentDraft] = useState('')
@@ -140,6 +142,7 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
         communityApi.list({ limit: 50 }),
       ])
       setReports(reportResult.items)
+      setSla(reportResult.sla)
       setCommentQueue(commentResult.items)
       setPublished(publicResult.items)
     } catch (reason) {
@@ -689,6 +692,12 @@ export default function CommunityPage({ userId, disabled, canManage }: Props) {
           用户举报会出现在这里（不止是计数）。核对后可以「标记已处理」保留内容，或直接删除。
           累计 3 条举报的内容会自动从列表撤下，等这里处理。
         </p>
+        {sla && <dl className="community-sla">
+          <div><dt>待处理</dt><dd>{sla.open_cards} 篇</dd></div>
+          <div><dt>最久等待</dt><dd>{sla.oldest_open_hours} 小时</dd></div>
+          <div><dt>超 24 小时</dt><dd>{sla.over_24h} 篇</dd></div>
+          <div><dt>近期处理中位耗时</dt><dd>{sla.median_handle_hours} 小时</dd></div>
+        </dl>}
         {reports.length === 0 ? <p className="community-hint">没有待处理的举报。</p>
           : <ul className="community-list">
             {reports.map(group => <li key={group.card_id} className="community-review">

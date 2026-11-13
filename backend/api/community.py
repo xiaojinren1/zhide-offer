@@ -232,9 +232,15 @@ def review_card(card_id: str, req: ReviewRequest, user: dict = Depends(_require_
 @router.get("/reports")
 def list_reports(only_open: bool = True, limit: int = Query(30, ge=1, le=100),
                  user: dict = Depends(_require_admin)):
-    """举报队列：按卡片聚合，带每条举报原因，管理员据此判断保留还是删除。"""
+    """举报队列：按卡片聚合，带每条举报原因，管理员据此判断保留还是删除。
+
+    附带处置时效汇总（待处理数、最久等待、超 24 小时条数、近期处理中位耗时），
+    只回答"有没有积压"，不含举报人与正文。
+    """
     with accounts.connection() as db:
-        return {"ok": True, "items": community.cards.list_reports(db, only_open=only_open, limit=limit)}
+        return {"ok": True,
+                "items": community.cards.list_reports(db, only_open=only_open, limit=limit),
+                "sla": community.cards.report_sla(db)}
 
 
 @router.post("/reports/{card_id}/resolve")

@@ -210,9 +210,10 @@ def _pdf_inline(text: str) -> str:
     return text
 
 
-def build_pdf(markdown: str) -> BytesIO:
+def build_pdf(markdown: str, appearance: ResumeAppearance | None = None) -> BytesIO:
     try:
-        from reportlab.lib.enums import TA_LEFT
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_LEFT, TA_CENTER
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import mm
@@ -229,12 +230,23 @@ def build_pdf(markdown: str) -> BytesIO:
         raise HTTPException(status_code=503, detail="PDF 导出字体无法加载，请检查 JOBAGENT_PDF_FONT") from exc
 
     styles = getSampleStyleSheet()
-    normal = ParagraphStyle("JobAgentNormal", parent=styles["Normal"], fontName="JobAgentCJK", fontSize=10.5,
-                            leading=16, spaceAfter=5, alignment=TA_LEFT, wordWrap="CJK")
+    # 字号与行距跟 Word 用同一套换算（网页 px × 0.75 = pt），保证两种导出看起来一致。
+    body_size = round((appearance.fontSize if appearance else 14) * 0.75 * 2) / 2
+    line_ratio = (appearance.spacing if appearance else 1.6) / 1.6
+    accent = appearance.accent if appearance else "#254264"
+    name_color = (appearance.nameColor if appearance and appearance.nameColor else accent)
+    tight = bool(appearance and appearance.template == "compact")
+    normal = ParagraphStyle("JobAgentNormal", parent=styles["Normal"], fontName="JobAgentCJK",
+                            fontSize=body_size, leading=body_size * line_ratio * 1.5,
+                            spaceAfter=2 if tight else 5, alignment=TA_LEFT, wordWrap="CJK")
     heading = {
-        1: ParagraphStyle("JobAgentH1", parent=normal, fontSize=18, leading=24, spaceBefore=8, spaceAfter=10),
-        2: ParagraphStyle("JobAgentH2", parent=normal, fontSize=14, leading=20, spaceBefore=7, spaceAfter=7),
-        3: ParagraphStyle("JobAgentH3", parent=normal, fontSize=11.5, leading=17, spaceBefore=6, spaceAfter=5),
+        1: ParagraphStyle("JobAgentH1", parent=normal, fontSize=18, leading=24, textColor=name_color,
+                          spaceBefore=8, spaceAfter=8 if tight else 10,
+                          alignment=TA_CENTER if appearance and appearance.headerAlign == "center" else TA_LEFT),
+        2: ParagraphStyle("JobAgentH2", parent=normal, fontSize=14, leading=20, textColor=accent,
+                          spaceBefore=6 if tight else 7, spaceAfter=5 if tight else 7),
+        3: ParagraphStyle("JobAgentH3", parent=normal, fontSize=body_size + 1, leading=body_size * 1.6,
+                          textColor="#26384d", spaceBefore=5 if tight else 6, spaceAfter=4 if tight else 5),
     }
     mono = ParagraphStyle("JobAgentMono", parent=normal, fontName="JobAgentCJK", fontSize=9.5, leading=14,
                           leftIndent=5, textColor="#4f6075")
@@ -287,9 +299,18 @@ def build_pdf(markdown: str) -> BytesIO:
     flush_lists()
 
     output = BytesIO()
+    def paint_background(canvas, doc):
+        """把纸张底色铺满整页：PDF 不像浏览器，不铺就没有背景色。"""
+        if not appearance:
+            return
+        canvas.saveState()
+        canvas.setFillColor(colors.HexColor(appearance.paper))
+        canvas.rect(0, 0, A4[0], A4[1], stroke=0, fill=1)
+        canvas.restoreState()
+
     document = SimpleDocTemplate(output, pagesize=A4, rightMargin=20 * mm, leftMargin=20 * mm,
                                  topMargin=18 * mm, bottomMargin=18 * mm, title="职得offer 定向简历")
-    document.build(story)
+    document.build(story, onFirstPage=paint_background, onLaterPages=paint_background)
     output.seek(0)
     return output
 
@@ -311,7 +332,7 @@ def export_docx(request: ExportRequest):
 @router.post("/pdf")
 def export_pdf(request: ExportRequest):
     filename = _safe_filename(request.name, "pdf")
-    return StreamingResponse(build_pdf(request.markdown), media_type=MIME_PDF, headers={
+    return StreamingResponse(build_pdf(request.markdown, request.appearance), media_type=MIME_PDF, headers={
         "Content-Disposition": f"attachment; filename=resume.pdf; filename*=UTF-8''{filename}",
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
     })

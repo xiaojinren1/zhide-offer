@@ -80,7 +80,8 @@ export async function downloadWord(markdown: string, name = '职得offer', signa
   }
 }
 
-export async function downloadPdf(markdown: string, name = '职得offer', signal?: AbortSignal) {
+export async function downloadPdf(markdown: string, name = '职得offer', signal?: AbortSignal,
+                                  appearance?: ResumeAppearance) {
   requireMarkdown(markdown)
   const controller = new AbortController()
   const cancel = () => controller.abort()
@@ -93,7 +94,7 @@ export async function downloadPdf(markdown: string, name = '职得offer', signal
     const response = await fetch('/api/export/pdf', {
       method: 'POST', credentials: 'same-origin', signal: controller.signal,
       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      body: JSON.stringify({ markdown, name }),
+      body: JSON.stringify({ markdown, name, ...(appearance ? { appearance } : {}) }),
     })
     if (!response.ok) {
       if (response.status === 401 && !controller.signal.aborted) window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT))

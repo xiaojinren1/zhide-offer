@@ -700,3 +700,51 @@ class CommunitySourceDocumentScope(unittest.TestCase):
         response = self.submit(title="", body_md="", company="", role="", doc_id="doc-public-x")
         self.assertEqual(response.status_code, 422)
         self.assertIn("留空直接写正文", response.json()["detail"])
+
+
+class CommunityReprotSla(unittest.TestCase):
+    """举报处置时效：待处理数量与等待时长可读，且不含举报人/正文。"""
+
+    setUp = CommunityContract.setUp
+    submit = CommunityContract.submit
+    as_user = CommunityContract.as_user
+    approve = CommunityContract.approve
+
+    def test_sla_reports_backlog_and_median(self) -> None:
+        import time as _time
+
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-bob")
+        self.client.post(f"/api/community/cards/{card_id}/report",
+                         json={"reason": "内容包含联系方式"}, headers=HEADER)
+
+        self.as_user("u-admin")
+        sla = self.client.get("/api/community/reports").json()["sla"]
+        self.assertEqual(sla["open_cards"], 1)
+        self.assertEqual(sla["over_24h"], 0)
+        self.assertLess(sla["oldest_open_hours"], 1)
+
+        # 把举报时间往前挪 30 小时，检查"超过 24 小时"能被统计出来
+        with accounts.connection() as db:
+            db.execute("UPDATE card_reports SET created_at = ?", (_time.time() - 30 * 3600,))
+        sla = self.client.get("/api/community/reports").json()["sla"]
+        self.assertEqual(sla["over_24h"], 1)
+        self.assertGreaterEqual(sla["oldest_open_hours"], 29)
+
+        self.client.post(f"/api/community/reports/{card_id}/resolve",
+                         json={"note": "人工核对后保留"}, headers=HEADER)
+        sla = self.client.get("/api/community/reports").json()["sla"]
+        self.assertEqual(sla["open_cards"], 0)
+        self.assertEqual(sla["handled_recent"], 1)
+        self.assertGreaterEqual(sla["median_handle_hours"], 29, "处理耗时要按首次举报时间算")
+
+    def test_sla_payload_has_no_personal_data(self) -> None:
+        card_id = self.submit().json()["id"]
+        self.approve(card_id)
+        self.as_user("u-bob")
+        self.client.post(f"/api/community/cards/{card_id}/report",
+                         json={"reason": "bob 的私人理由 13800001111"}, headers=HEADER)
+        self.as_user("u-admin")
+        sla = self.client.get("/api/community/reports", params={"only_open": False}).text
+        self.assertNotIn("13800001111", sla.split('"sla"')[-1], "时效汇总里不能夹带举报原因")

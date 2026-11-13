@@ -1,0 +1,16 @@
+/* 管理端独立入口：与用户端完全分开的版式，不带求职侧栏 */
+.admin-console{min-height:100vh;background:#f4f7fb;padding:24px 28px 60px}
+.admin-console-top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:26px}
+.admin-console-brand{display:flex;align-items:center;gap:10px;font-size:26px;font-weight:800;color:#1f2b3a;text-decoration:none}
+.admin-console-brand .brand-offer{color:#1e70ed}
+.admin-console-tag{font-size:13px;padding:3px 10px;border-radius:999px;background:rgba(30,112,237,.1);color:#1e70ed}
+.admin-console-actions{display:flex;gap:10px;margin-left:auto;flex-wrap:wrap}
+.admin-console-actions .secondary-button,.admin-console-actions .primary-button{text-decoration:none;display:inline-flex;align-items:center}
+.admin-console-body{max-width:1120px;margin:0 auto;background:#fff;border:1px solid #e6edf7;border-radius:16px;padding:26px 28px}
+.admin-console-body h1{font-size:26px;margin:0 0 10px}
+.admin-console-heading{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.admin-console-form{display:grid;gap:8px;max-width:380px;margin-top:14px}
+.admin-console-form label{font-size:14px;color:#58718f}
+.admin-console-form input{border:1px solid rgba(0,0,0,.16);border-radius:8px;padding:9px 11px;font:inherit}
+.admin-console-form .primary-button{margin-top:6px}
+.admin-console code{background:rgba(0,0,0,.05);border-radius:4px;padding:1px 6px;font-size:13px}

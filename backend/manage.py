@@ -6,15 +6,21 @@
 
 用法（在项目根目录）：
 
+    .venv/bin/python backend/manage.py admin create zhangsan   # 直接创建管理员（推荐）
     .venv/bin/python backend/manage.py admin list
-    .venv/bin/python backend/manage.py admin grant zhangsan
+    .venv/bin/python backend/manage.py admin grant zhangsan    # 给已注册账号授权
     .venv/bin/python backend/manage.py admin revoke zhangsan
 """
 from __future__ import annotations
 
 import argparse
+import re
+import secrets
+import string
 import sys
+import time
 from pathlib import Path
+from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -45,6 +51,39 @@ def list_admins() -> int:
     print(f"共 {len(rows)} 个管理员：")
     for row in rows:
         print(f"  - {row['username']}")
+    return 0
+
+
+def create_admin(username: str, password: str | None = None) -> int:
+    """直接创建管理员账号（公开注册一律是普通用户，管理员只能由运维创建）。
+
+    密码不传就随机生成并打印一次；账号已存在时拒绝，避免覆盖别人的密码。
+    """
+    name = username.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_]{3,32}", name):
+        print("用户名需为 3–32 位英文字母、数字或下划线。", file=sys.stderr)
+        return 1
+    generated = password is None
+    secret = password or "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16))
+    if len(secret) < 8 or len(secret) > 128:
+        print("密码长度应为 8–128 个字符。", file=sys.stderr)
+        return 1
+    with accounts.connection() as db:
+        exists = db.execute("SELECT id FROM users WHERE LOWER(username) = ?", (name.lower(),)).fetchone()
+        if exists:
+            print(f"账号 {name} 已存在：请改用 `admin grant {name}` 授予管理员，不会覆盖已有密码。",
+                  file=sys.stderr)
+            return 1
+        user_id = uuid4().hex
+        db.execute(
+            "INSERT INTO users(id,username,password_hash,created_at) VALUES(?,?,?,?)",
+            (user_id, name, accounts.password_hash(secret), time.time()),
+        )
+        db.execute("INSERT OR IGNORE INTO user_roles(user_id, role) VALUES(?, 'admin')", (user_id,))
+    print(f"已创建管理员 {name}。")
+    if generated:
+        print(f"初始密码（只显示这一次，请立即保存）：{secret}")
+    print("用该账号打开 /admin 即可进入管理端；普通用户注册后只能是用户端。")
     return 0
 
 
@@ -94,6 +133,9 @@ def main(argv: list[str] | None = None) -> int:
     admin = sub.add_parser("admin", help="管理员角色")
     actions = admin.add_subparsers(dest="action", required=True)
     actions.add_parser("list", help="列出所有管理员")
+    create = actions.add_parser("create", help="直接创建管理员账号（公开注册不会产生管理员）")
+    create.add_argument("username")
+    create.add_argument("--password", default=None, help="不填则随机生成并打印一次")
     grant = actions.add_parser("grant", help="把已注册账号设为管理员")
     grant.add_argument("username")
     revoke = actions.add_parser("revoke", help="撤销管理员角色（保留最后一个）")
@@ -103,6 +145,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"数据库：{accounts.DATABASE_PATH}")
     if args.action == "list":
         return list_admins()
+    if args.action == "create":
+        return create_admin(args.username, args.password)
     if args.action == "grant":
         return grant_admin(args.username)
     return revoke_admin(args.username)

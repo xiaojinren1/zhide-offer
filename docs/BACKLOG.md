@@ -7,8 +7,8 @@
 > 中途发现的新问题追加编号，不要只放在聊天里。
 > 状态取值：`待办` / `进行中` / `阻塞` / `部分完成` / `已完成`。
 >
-> 其它文档的分工见文末「文档索引」：协作规范在 `AGENTS.md`，运行与部署在 `RUNBOOK.md` /
-> `DEPLOY.md`，功能行为契约在各自模块的 `BEHAVIOR.md` 或根目录契约文件里。
+> 其它文档的分工见文末「文档索引」：协作规范在 `AGENTS.md`，运行与部署在 `RUNBOOK.md`，
+> 功能契约在 `docs/CONTRACTS.md`，模块级行为在各自的 `BEHAVIOR.md`。
 
 最后更新：2026-11-12
 
@@ -47,9 +47,10 @@
 | B15 | 私有资料区页面（笔记/面经/技术资料的上传、标签、筛选） | 待办 | 1 天 |
 | B16 | 投递记录关联简历快照与面试记录 + 三个 Agent 工具 | 待办 | 1 天 |
 | B17 | 示例库页面（按岗位/技能筛选范例） | 待办 | 半天 |
-| B18 | 管理员自助领取入口（站点无管理员时首个正式账号可领） | 已完成 | 2 小时 |
+| B18 | 管理端 / 用户端分离，管理员只能由运维创建 | 已完成 | 3 小时 |
 | B19 | 经历库按分类切换，卡片多时默认聚焦最多的一类 | 已完成 | 2 小时 |
 | B20 | 文档收敛：排期/状态/验收合并为单一文档，删除过期文档 | 已完成 | 2 小时 |
+| B21 | 文档再合并：契约合成一份、运行与部署合成一份 | 已完成 | 2 小时 |
 
 ## 分期完成情况
 
@@ -92,7 +93,7 @@
 ### 第三期 · 资料检索与可审核知识库
 
 - [x] 复用个人经历卡片的上传、核对、编辑和历史版本功能。用户确认过的经历用于生成简历中的个人事实。
-  > 见 [LIBRARY.md](../LIBRARY.md)：查重、合并、迁移先预览，事实冲突由用户选择，删除与恢复留版本。
+  > 见 [CONTRACTS.md](CONTRACTS.md) 第 4 节：查重、合并、迁移先预览，事实冲突由用户选择，删除与恢复留版本。
 - [ ] 增加独立的私有资料区页面：上传或录入岗位 JD、面试复盘、技术笔记和经验总结，提供预览、编辑、标签、搜索与删除。（B15）
 - [x] 新增 `knowledge_chunks` 与 FTS5 中文检索，并接入三处：匹配的术语归一、改写的同岗范例检索、面试的面经检索。
   > 分词没用 jieba，改用汉字二元组（零依赖、可复算）。术语归一在 `engine/knowledge/terms.py`；
@@ -437,19 +438,25 @@
 **做法**：资料页加一个"范例"分栏，按 `role_tags` / `skill_tags` 筛选，只做只读浏览。
 **验收**：能按岗位筛出相关范例，且不把范例内容当作用户事实。
 
-## B18 · 管理员自助领取入口
+## B18 · 管理端 / 用户端分离（替代原「自助领取」方案）
 
-**问题**：公开部署时如果忘了配 `JOBAGENT_ADMIN_USERNAMES`、也没人上服务器跑 CLI，站点就永远没有管理员，
-而「管理后台」只有管理员能进——死锁。别人拿去用会直接卡住。
+**问题**：公开部署时如果忘了配名单、也没人上服务器跑 CLI，站点会永远没有管理员；
+但"首个注册账号自助领取管理员"更糟——公开站点上谁先看到谁就是管理员，等于把后台交给运气。
 
-**做法**：`GET/POST /api/user-stats/bootstrap`。库里**没有任何管理员**时，首个正式账号可以在左侧栏
-点「成为首个管理员」领取；一旦有人领取，入口永久关闭（`claimable` 恒为 false）。试用账号不能领。
-领取动作写事件流 `admin_bootstrap_claimed` 便于事后核对。CLI（`backend/manage.py`）仍保留为兜底。
+**做法**
+- 站点分两个入口：**用户端 `/`**（求职功能，所有注册用户）与**管理端 `/admin`**（独立页面，
+  不带求职侧栏）。未登录显示管理员登录页；普通账号登录后显示"仅管理员可访问"。
+- 删除 `/api/user-stats/bootstrap` 自助领取接口与前端"成为首个管理员"入口。
+- 管理员只能由运维创建：`backend/manage.py admin create 用户名`（新建账号并随机生成密码，
+  只打印一次）；已有账号用 `admin grant 用户名`。服务端启动时若一个管理员都没有，
+  日志会打印创建命令。
+- 前端 `main.tsx` 按路径分流：`/admin` → `AdminConsole`，`/resume/share/<token>` → 公开简历，
+  其余 → 用户端 `App`。
 
-**验收**：`tests/test_admin_bootstrap.py` 5 项——首次领取成功、第二次 409、已有管理员时入口关闭、
-试用账号 403、领取后可打开管理后台、领取写进事件流。真页面实测：空管理员状态下列表出现
-「成为首个管理员」，点击后变成「管理后台」并可直接打开，`/api/user-stats/bootstrap` 变为
-`{claimable: false, reason: "站点已有管理员"}`。
+**验收**：`tests/test_admin_edition.py` 5 项——公开注册不产生管理员且管理接口一律 403、
+自助领取接口已消失、CLI 创建后可用管理端且密码只打印一次、拒绝重复用户名/坏用户名/短密码、
+显式密码不重复打印。真页面实测：`/admin` 未登录显示登录页（无求职侧栏），管理员登录进入后台，
+普通账号显示"仅管理员可访问"，用户端导航里没有任何管理员入口。
 
 ## B19 · 经历库按分类切换
 
@@ -470,12 +477,25 @@
 **做法**
 - 把产品分期勾选、待办编号、设计决策、历史验收全部并进 `docs/BACKLOG.md`，作为**唯一排期文档**；
 - 删除 `ROADMAP.md`、`docs/plan-jobs-knowledge-community.md`、两个模块 `ACCEPTANCE.md`
-  和已失效的 `frontend/src/pages/memory/BEHAVIOR.md`（页面由 `LibraryPage` 承接，契约见 `LIBRARY.md`）；
+  和已失效的 `frontend/src/pages/memory/BEHAVIOR.md`（页面由 `LibraryPage` 承接，契约见 `docs/CONTRACTS.md` 第 4 节）；
 - `HANDOFF.md` 瘦身为「新会话入口」：现状一句话 + 文档索引 + 代码地图 + 已知坑，不再写排期；
 - `AGENTS.md` 写死：不要再新增 ROADMAP/HANDOFF 式排期文档，也不要给单模块加 ACCEPTANCE。
 
 **验收**：`grep` 确认代码与文档里没有指向已删文件的引用；README/AGENTS/HANDOFF/BEHAVIOR 链接全部可达；
 全量 discover 379 项通过。
+
+## B21 · 文档再合并（成本轮）
+
+**问题**：`ACCOUNT` / `LIBRARY` / `PERSISTENCE` / `MODEL_ERRORS` / `COMMUNITY` 五份契约经常要一起看，
+`RUNBOOK` 与 `DEPLOY` 只是环境不同却写成两份，索引与引用也开始互相打架。
+
+**做法**
+- `ACCOUNT + LIBRARY + PERSISTENCE + MODEL_ERRORS + COMMUNITY` → `docs/CONTRACTS.md`（七节合集）；
+- `RUNBOOK + DEPLOY` → `RUNBOOK.md`（先「两种环境对照」，再「本机运行」「服务器部署」两节）；
+- 全部引用（AGENTS/README/BACKLOG/HANDOFF/BEHAVIOR/代码注释）同步改指向新文件，链接扫描无断链。
+
+**结果**：仓库内非夹具 Markdown 从 13 个减到 8 个：README、AGENTS、RUNBOOK、BACKLOG、CONTRACTS、
+HANDOFF、两个模块 BEHAVIOR（+ 面试集成说明 + backend/RULES）。
 
 ## 设计决策记录
 
@@ -524,7 +544,7 @@
   两个入口、作答、追问、报告、历史全部在隔离 Mock 浏览器验证。真实模型联调时发现题库缺 JD 引用、
   报告引用非实际回答片段等问题，补齐提示并保留严格校验（不自动补造）；`run_interview_v2_qa.py --live` 通过。
 - **2026-10-31 个人记忆页**：经历库维护、更新冲突保护、载入二次确认；当轮前端 166 项、后端 50 项通过。
-  页面组件后来由 `LibraryPage` 承接，契约以 `LIBRARY.md` 为准。
+  页面组件后来由 `LibraryPage` 承接，契约以 `CONTRACTS.md` 第 4 节为准。
 - **2026-11-12 全量回归**：`unittest discover -s tests -p "test_*.py"` 全绿；脚本式检查统一为
   `tests/run_*_qa.py`（见 RUNBOOK）。
 - **2026-11-12 第一期验收**：分享四场景、Word/PDF 实测通过（见 B10）；PDF 忽略外观的缺陷已修。
@@ -537,13 +557,9 @@
 | [README.md](../README.md) | 项目简介与入口 |
 | [AGENTS.md](../AGENTS.md) | 协作规范与不可违反的行为边界（唯一权威） |
 | 本文件 | 计划、状态、待办、设计决策、历史验收 |
-| [RUNBOOK.md](../RUNBOOK.md) | 本机安装、启停、重启、验证命令 |
-| [DEPLOY.md](../DEPLOY.md) | 服务器部署、systemd、环境变量清单 |
-| [ACCOUNT.md](../ACCOUNT.md) | 账户、会话、个人模型与管理员权限契约 |
-| [LIBRARY.md](../LIBRARY.md) | 个人经历库契约（含分类页签与卡片交互） |
-| [PERSISTENCE.md](../PERSISTENCE.md) | 工作台自动保存与历史 |
-| [MODEL_ERRORS.md](../MODEL_ERRORS.md) | 模型错误码与前端表现 |
-| [COMMUNITY.md](COMMUNITY.md) | 社群（面经/内推/JD 评价）行为契约 |
+| [RUNBOOK.md](../RUNBOOK.md) | 本机与服务器两种环境的安装、启停、重启、验证、环境变量 |
+| [CONTRACTS.md](CONTRACTS.md) | 账户、模型、管理员、经历库、自动保存、模型错误、社群契约 |
+| [HANDOFF.md](HANDOFF.md) | 新会话入口：现状一句话、代码地图、已知坑 |
 | [workbench/BEHAVIOR.md](../frontend/src/pages/workbench/BEHAVIOR.md) | 简历工作台行为契约 |
 | [interview/BEHAVIOR.md](../frontend/src/pages/interview/BEHAVIOR.md) | 模拟面试行为契约 |
 | [interview/INTERVIEW_INTEGRATION.md](../frontend/src/pages/interview/INTERVIEW_INTEGRATION.md) | 面试接口与导航集成边界 |

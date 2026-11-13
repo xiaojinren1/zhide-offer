@@ -20,17 +20,13 @@ npm.cmd --prefix frontend run build
 .\.venv\Scripts\python.exe start.py stop
 ```
 
-打开 http://127.0.0.1:8000 。完整的安装、模型配置、重启与验证步骤见 [RUNBOOK.md](RUNBOOK.md)；服务器部署、systemd 启停和环境变量见 [DEPLOY.md](DEPLOY.md)；迭代和提交规范见 [AGENTS.md](AGENTS.md)。
+打开 http://127.0.0.1:8000 。完整的安装、模型配置、重启与验证步骤见 [RUNBOOK.md](RUNBOOK.md)；服务器部署、systemd 启停和环境变量见同一份 RUNBOOK；迭代和提交规范见 [AGENTS.md](AGENTS.md)。
 
 ## 功能契约
 
-- [账户和个人模型](ACCOUNT.md)
+- [账户、模型、管理员、经历库、自动保存、模型错误、社群](docs/CONTRACTS.md)（一份契约合集）
 - [简历工作台](frontend/src/pages/workbench/BEHAVIOR.md)
-- [个人经历库](LIBRARY.md)
-- [社群与审核](docs/COMMUNITY.md)
 - [模拟面试](frontend/src/pages/interview/BEHAVIOR.md)
-- [自动保存与历史](PERSISTENCE.md)
-- [模型错误](MODEL_ERRORS.md)
 
 ## 计划与状态
 

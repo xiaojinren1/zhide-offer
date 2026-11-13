@@ -18,8 +18,8 @@
 | 做到哪了、还剩什么、每项验证到什么程度 | [BACKLOG.md](BACKLOG.md) |
 | 哪些行为不能违反 | [AGENTS.md](../AGENTS.md) |
 | 本机怎么起、怎么重启、怎么验证 | [RUNBOOK.md](../RUNBOOK.md) |
-| 服务器怎么部署、环境变量有哪些 | [DEPLOY.md](../DEPLOY.md) |
-| 账户/经历库/持久化/模型错误/社群契约 | 根目录 `ACCOUNT.md`、`LIBRARY.md`、`PERSISTENCE.md`、`MODEL_ERRORS.md`、`docs/COMMUNITY.md` |
+| 服务器怎么部署、环境变量有哪些 | [RUNBOOK.md](../RUNBOOK.md) 的「服务器部署」 |
+| 账户/经历库/持久化/模型错误/社群契约 | [docs/CONTRACTS.md](CONTRACTS.md) |
 
 ## 三、代码地图（找东西用）
 

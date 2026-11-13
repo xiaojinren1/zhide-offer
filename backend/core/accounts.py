@@ -112,7 +112,9 @@ CREATE TABLE IF NOT EXISTS interview_records (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     saved_at TEXT NOT NULL,
-    record_json TEXT NOT NULL
+    record_json TEXT NOT NULL,
+    -- 从岗位收件箱发起时记录来源岗位，便于投递记录回看
+    job_doc_id TEXT
 );
 CREATE INDEX IF NOT EXISTS interview_records_user ON interview_records(user_id);
 """
@@ -137,6 +139,11 @@ def connection() -> Iterator[sqlite3.Connection]:
             db.execute("ALTER TABLE users ADD COLUMN recovery_code_hash TEXT")
         if "guest_until" not in user_columns:
             db.execute("ALTER TABLE users ADD COLUMN guest_until REAL")
+        record_columns = {row[1] for row in db.execute("PRAGMA table_info(interview_records)")}
+        if "job_doc_id" not in record_columns:
+            db.execute("ALTER TABLE interview_records ADD COLUMN job_doc_id TEXT")
+        db.execute("CREATE INDEX IF NOT EXISTS interview_records_doc ON interview_records(user_id, job_doc_id)")
+
         # 资料层与账户同库同连接：任何入口拿到连接时，docs 相关表已就绪
         from engine.documents import schema as documents_schema
         documents_schema.ensure(db)

@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS documents (
     fetched_at      REAL NOT NULL,
     content_md      TEXT NOT NULL DEFAULT '',
     structured_json TEXT NOT NULL DEFAULT '{}',
+    -- 用户给资料打的标签（笔记/面经常用），JSON 数组
+    tags_json       TEXT NOT NULL DEFAULT '[]',
     visibility      TEXT NOT NULL DEFAULT 'private',
     review_note     TEXT NOT NULL DEFAULT '',
     reviewed_by     TEXT,
@@ -70,6 +72,10 @@ CREATE TABLE IF NOT EXISTS applications (
     user_id            TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     doc_id             TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     stage              TEXT NOT NULL DEFAULT 'saved',
+    -- 投递时用的简历：存摘要与指纹，不存整份 Markdown（避免体积失控）
+    resume_excerpt     TEXT NOT NULL DEFAULT '',
+    resume_hash        TEXT NOT NULL DEFAULT '',
+    resume_saved_at    REAL,
     resume_snapshot_id TEXT,
     next_action_at     REAL,
     note               TEXT NOT NULL DEFAULT '',
@@ -238,6 +244,21 @@ def ensure(db: sqlite3.Connection) -> None:
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (stale,)
         ).fetchone():
             db.execute(f"DROP TABLE IF EXISTS {stale}")
+
+    # 资料标签列是后加的：旧资料默认没有标签
+    doc_columns = {row[1] for row in db.execute("PRAGMA table_info(documents)")}
+    if "tags_json" not in doc_columns:
+        db.execute("ALTER TABLE documents ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'")
+
+    # 投递关联简历的字段是后加的：旧记录留空，不伪造当时的简历
+    app_columns = {row[1] for row in db.execute("PRAGMA table_info(applications)")}
+    for column, ddl in (
+        ("resume_excerpt", "ALTER TABLE applications ADD COLUMN resume_excerpt TEXT NOT NULL DEFAULT ''"),
+        ("resume_hash", "ALTER TABLE applications ADD COLUMN resume_hash TEXT NOT NULL DEFAULT ''"),
+        ("resume_saved_at", "ALTER TABLE applications ADD COLUMN resume_saved_at REAL"),
+    ):
+        if column not in app_columns:
+            db.execute(ddl)
 
     # 内容版本列是后加的：旧卡片与旧评论都按第 1 版算
     card_columns = {row[1] for row in db.execute("PRAGMA table_info(public_cards)")}

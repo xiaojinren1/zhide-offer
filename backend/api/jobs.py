@@ -48,6 +48,8 @@ class ImportRequest(BaseModel):
     salary: str = ""
     url: str = ""
     kind: str = "job"
+    # 用户给资料打的标签，笔记/面经常用
+    tags: list[str] = Field(default_factory=list, max_length=8)
     # paste 粘贴文本 / image 截图转写后保存；只作来源记录
     source: str = "paste"
     # 关掉解析可以省一次模型调用；采集任务会关掉，用户手工录入默认开启
@@ -76,6 +78,7 @@ def _document_dict(row: Any) -> dict[str, Any]:
         "url": row["url"],
         "content_md": row["content_md"],
         "structured": structured,
+        "tags": store.document_tags(row),
         "visibility": row["visibility"],
         "published_at": row["published_at"],
         "updated_at": row["updated_at"],
@@ -142,6 +145,7 @@ def import_document(req: ImportRequest, user: dict = Depends(accounts.require_us
         url=text_util.normalize_text(req.url),
         content_md=body,
         structured=structured,
+        tags=store.clean_tags(req.tags),
         user_id=user["id"],
     )
 
@@ -192,6 +196,7 @@ def list_jobs(
     limit: int = 20,
     offset: int = 0,
     mine: bool = False,
+    tag: str = "",
     user: dict = Depends(accounts.require_user),
 ):
     """资料列表。`mine=true` 只看自己录入的，用于「引用我的资料」这类下拉。"""
@@ -212,7 +217,7 @@ def list_jobs(
             return {"ok": True, "items": items, "total": len(items), "query": q}
 
         rows = store.list_documents(db, user_id=user["id"], kinds=kinds,
-                                   limit=limit, offset=offset, own_only=mine)
+                                   limit=limit, offset=offset, own_only=mine, tag=tag)
         return {"ok": True, "items": [_document_dict(row) for row in rows],
                 "total": len(rows), "query": None}
 
@@ -255,6 +260,55 @@ async def parse_job_screenshot(file: UploadFile = File(...)):
         "guess": guess.to_dict(),
         "warnings": warnings,
     }
+
+
+class UpdateRequest(BaseModel):
+    """编辑自己的资料：正文/标题/公司/城市/标签。改正文会重建检索索引。"""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    title: str | None = Field(default=None, max_length=200)
+    company: str | None = Field(default=None, max_length=120)
+    city: str | None = Field(default=None, max_length=60)
+    content_md: str | None = Field(default=None, max_length=MAX_TEXT)
+    tags: list[str] | None = Field(default=None, max_length=8)
+
+
+@router.patch("/{doc_id}")
+def update_document(doc_id: str, req: UpdateRequest,
+                    user: dict = Depends(accounts.require_user)):
+    """只允许改自己录入的资料；公共 pool 的采集内容不能就地编辑。"""
+    with accounts.connection() as db:
+        row = db.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
+        if row is None or (row["user_id"] or "") != user["id"]:
+            raise HTTPException(status_code=404, detail="资料不存在或无权修改")
+        updates: dict[str, Any] = {}
+        if req.title is not None:
+            updates["title"] = text_util.normalize_text(req.title)[:200]
+            updates["role"] = updates["title"]
+        if req.company is not None:
+            updates["company"] = text_util.normalize_text(req.company)[:120]
+        if req.city is not None:
+            updates["city"] = doc_normalize.normalize_city(req.city)
+        if req.content_md is not None:
+            body = text_util.normalize_text(req.content_md)
+            if not body:
+                raise HTTPException(status_code=422, detail="正文不能为空")
+            updates["content_md"] = body
+        if req.tags is not None:
+            updates["tags_json"] = json.dumps(store.clean_tags(req.tags), ensure_ascii=False)
+        if not updates:
+            raise HTTPException(status_code=422, detail="没有需要保存的修改")
+        updates["updated_at"] = time.time()
+        assignments = ", ".join(f"{column} = ?" for column in updates)
+        db.execute(f"UPDATE documents SET {assignments} WHERE id = ?",
+                   [*updates.values(), doc_id])
+        if "content_md" in updates:
+            store.replace_chunks(db, doc_id, user["id"], updates["content_md"])
+        changed = store.get_document(db, doc_id, user_id=user["id"])
+    if changed is None:
+        raise HTTPException(status_code=500, detail="已保存但读取失败，请刷新后重试")
+    return {"ok": True, "document": _document_dict(changed)}
 
 
 class SourceRequest(BaseModel):
@@ -485,6 +539,8 @@ class ApplicationRequest(BaseModel):
     note: str = Field(default="", max_length=1000)
     # YYYY-MM-DD；空串表示不改下一次动作时间
     next_action: str = Field(default="", max_length=20)
+    # 当前简历正文（可选）：进入定制/投递阶段时记录当时的版本摘要
+    resume_markdown: str = Field(default="", max_length=60000)
 
 
 @router.get("/applications")
@@ -504,11 +560,18 @@ def list_applications(stage: str | None = None, include_archived: bool = False,
 
 @router.get("/applications/{doc_id}")
 def get_application(doc_id: str, user: dict = Depends(accounts.require_user)):
+    """投递详情：状态与留痕，外加从这个岗位发起的模拟面试记录。"""
     with accounts.connection() as db:
         record = doc_applications.get_application(db, user["id"], doc_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail="这个岗位还没有投递记录")
-    return {"ok": True, "application": record}
+        if record is None:
+            raise HTTPException(status_code=404, detail="这个岗位还没有投递记录")
+        interviews = [{"id": row["id"], "title": row["title"], "saved_at": row["saved_at"]}
+                      for row in db.execute(
+                          "SELECT id, title, saved_at FROM interview_records"
+                          " WHERE user_id = ? AND job_doc_id = ? ORDER BY saved_at DESC LIMIT 10",
+                          (user["id"], doc_id),
+                      )]
+    return {"ok": True, "application": record, "interviews": interviews}
 
 
 @router.post("/applications/{doc_id}")
@@ -519,7 +582,7 @@ def advance_application(doc_id: str, req: ApplicationRequest,
         with accounts.connection() as db:
             record = doc_applications.advance(
                 db, user["id"], doc_id, stage=req.stage, note=req.note,
-                next_action=req.next_action)
+                next_action=req.next_action, resume_markdown=req.resume_markdown)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:

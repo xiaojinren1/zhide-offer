@@ -101,6 +101,7 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd, profile
   const [appDate, setAppDate] = useState('')
   const [stageFilter, setStageFilter] = useState<'' | ApplicationStage>('')
   const [busyStage, setBusyStage] = useState('')
+  const [interviews, setInterviews] = useState<Array<{ id: string; title: string; saved_at: string }>>([])
   const [pipelineBusy, setPipelineBusy] = useState(false)
   const [pipeline, setPipeline] = useState<JobPipelineResult | null>(null)
   const imageInput = useRef<HTMLInputElement>(null)
@@ -286,8 +287,17 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd, profile
           setApplication(detail.application)
           setAppNote(detail.application.note)
           setAppDate(detail.application.next_action_date)
+          setInterviews(detail.interviews || [])
         } catch {
           /* 还没加入看板，保持空状态 */
+          setInterviews([])
+        }
+      } else {
+        try {
+          const detail = await applicationsApi.detail(id)
+          setInterviews(detail.interviews || [])
+        } catch {
+          setInterviews([])
         }
       }
     } catch (reason) {
@@ -303,6 +313,8 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd, profile
     try {
       const result = await applicationsApi.advance(selected.id, {
         stage, note: appNote, next_action: appDate,
+        // 带上当前稿：进入定制/投递阶段时记下当时的简历摘要，方便之后回看
+        resume_markdown: markdown || '',
       })
       setApplication(result.application)
       setApplications(previous => ({ ...previous, [selected.id]: result.application }))
@@ -788,6 +800,19 @@ export default function JobsPage({ userId, disabled, canManage, onUseJd, profile
               onClick={() => void removeApplication()}>移出看板</button>}
           </div>
           {application?.next_action_date && <p className="jobs-hint">下一次动作：{application.next_action_date}</p>}
+          {application?.resume_hash && <details className="jobs-application-history">
+            <summary>当时用的简历（{new Date((application.resume_saved_at || 0) * 1000).toLocaleString('zh-CN')}）</summary>
+            <pre className="jobs-body jobs-resume-excerpt">{application.resume_excerpt}</pre>
+            <p className="jobs-hint">版号 {application.resume_hash}；不同版号说明简历改过，投递记录只保留这一次的摘要。</p>
+          </details>}
+          {interviews.length > 0 && <details className="jobs-application-history" open>
+            <summary>从这个岗位发起的模拟面试（{interviews.length}）</summary>
+            <ul>
+              {interviews.map(item => <li key={item.id}>
+                {item.title} · {new Date(item.saved_at).toLocaleString('zh-CN')}
+              </li>)}
+            </ul>
+          </details>}
           {application && application.history && application.history.length > 0 && <details className="jobs-application-history">
             <summary>状态留痕（{application.history.length} 条）</summary>
             <ul>

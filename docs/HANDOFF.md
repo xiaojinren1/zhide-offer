@@ -31,7 +31,7 @@ backend/engine/community/   面经卡片、脱敏、评论文本、面经转题�
 backend/engine/knowledge/   术语归一（terms）、范例检索（examples）
 backend/engine/sources/     RSS/公告列表抓取、31 省模板
 backend/tools/        运维脚本（audit_provinces 省份巡检）
-frontend/src/pages/   页面（workbench / jobs / community / interview / library …）
+frontend/src/pages/   页面（workbench / jobs / notes / community / interview / library …）
 tests/test_*.py       unittest 用例（discover 只跑这些）
 tests/run_*_qa.py     脚本式检查（单独运行，不参与 discover）
 ```

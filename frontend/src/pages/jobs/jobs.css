@@ -448,3 +448,6 @@
   color: #a13c2f;
   line-height: 1.7;
 }
+
+/* 投递记录里"当时用的简历"摘要 */
+.jobs-resume-excerpt{max-height:220px;margin:6px 0;font-size:12.5px}

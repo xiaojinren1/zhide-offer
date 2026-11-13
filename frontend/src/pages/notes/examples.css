@@ -1,0 +1,19 @@
+/* 范式库：只读浏览，按岗位/技能筛选 */
+.examples-page .panel-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.examples-actions{display:flex;gap:8px;flex-wrap:wrap}
+.examples-hint{margin:0 0 10px;font-size:13px;line-height:1.7;color:var(--text-muted,#6b7280)}
+.examples-message{margin:0 0 8px;font-size:13px;color:#2f6f4f}
+.examples-error{color:#a13c2f}
+.examples-filters{display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-bottom:12px}
+.examples-filters label{display:grid;gap:4px;font-size:13px;color:var(--text-muted,#5c6470)}
+.examples-filters select{border:1px solid rgba(0,0,0,.16);border-radius:8px;padding:7px 9px;font:inherit;background:#fff;min-width:150px}
+.examples-filters .examples-hint{align-self:center;margin:0}
+.examples-list{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.examples-card{border:1px solid rgba(0,0,0,.1);border-radius:10px;padding:12px 14px;background:#fff}
+.examples-card header{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px}
+.examples-tags{font-size:12px;color:var(--text-muted,#6b7280)}
+.examples-card dl{margin:0;display:grid;gap:8px}
+.examples-card dt{font-size:12px;color:var(--text-muted,#6b7280);margin-bottom:2px}
+.examples-card dd{margin:0;font-size:13.5px;line-height:1.75}
+.examples-card dl>div{border-left:3px solid rgba(0,0,0,.08);padding-left:10px}
+.examples-card dl>div:nth-child(2){border-left-color:rgba(47,111,79,.45)}

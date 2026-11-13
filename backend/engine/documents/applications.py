@@ -85,6 +85,10 @@ def _record_dict(row: Any, doc: Any) -> dict[str, Any]:
         "next_action_at": row["next_action_at"],
         "next_action_date": format_next_action(row["next_action_at"]),
         "note": row["note"],
+        # 投递时用的简历摘要与指纹：只回看"当时写的是什么"，不存整份 Markdown
+        "resume_excerpt": row["resume_excerpt"],
+        "resume_hash": row["resume_hash"],
+        "resume_saved_at": row["resume_saved_at"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "job": {
@@ -139,9 +143,26 @@ def get_application(db, user_id: str, doc_id: str) -> dict[str, Any] | None:
     return result
 
 
+RESUME_EXCERPT_CHARS = 1200
+
+
+def _resume_snapshot(markdown: object) -> tuple[str, str]:
+    """简历正文 → (摘要, 指纹)。空正文返回空，不覆盖已记录的版本。"""
+    import hashlib
+
+    body = str(markdown or "").strip()
+    if not body:
+        return "", ""
+    return body[:RESUME_EXCERPT_CHARS], hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+
+
 def advance(db, user_id: str, doc_id: str, *, stage: str, note: object = "",
-            next_action: object = "") -> dict[str, Any]:
-    """推进（或创建）一条投递记录。校验文档属于本人、状态转移合法。"""
+            next_action: object = "", resume_markdown: object = "") -> dict[str, Any]:
+    """推进（或创建）一条投递记录。校验文档属于本人、状态转移合法。
+
+    `resume_markdown` 由前端带上当前稿：进入 tailored/applied 时记下当时的简历摘要与指纹，
+    之后回看投递记录能知道"当时投的是哪一版"，而不是只有一句备注。
+    """
     if stage not in STAGES:
         raise ValueError("投递状态不合法")
     # 用统一的可见性规则：自己的私有资料 + 公共岗位池都能加入看板
@@ -152,6 +173,8 @@ def advance(db, user_id: str, doc_id: str, *, stage: str, note: object = "",
         raise LookupError("岗位不存在或无权操作")
     clean_note = _clip(note, 500)
     next_at = parse_next_action(next_action)
+    excerpt, digest = _resume_snapshot(resume_markdown)
+    stamp = _now() if digest else None
     row = db.execute(
         "SELECT * FROM applications WHERE user_id = ? AND doc_id = ?", (user_id, doc_id)
     ).fetchone()
@@ -162,8 +185,10 @@ def advance(db, user_id: str, doc_id: str, *, stage: str, note: object = "",
         application_id = uuid4().hex
         db.execute(
             "INSERT INTO applications(id, user_id, doc_id, stage, note, next_action_at,"
-            " created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
-            (application_id, user_id, doc_id, stage, clean_note, next_at, now, now),
+            " resume_excerpt, resume_hash, resume_saved_at, created_at, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (application_id, user_id, doc_id, stage, clean_note, next_at,
+             excerpt, digest, stamp, now, now),
         )
         db.execute(
             "INSERT INTO application_events(application_id, from_stage, to_stage, note, created_at)"
@@ -181,10 +206,13 @@ def advance(db, user_id: str, doc_id: str, *, stage: str, note: object = "",
                 + "、".join(STAGE_LABEL[s] for s in NEXT_STAGES.get(from_stage, ()))
             )
         db.execute(
-            "UPDATE applications SET stage = ?, note = ?, next_action_at = ?, updated_at = ?"
+            "UPDATE applications SET stage = ?, note = ?, next_action_at = ?,"
+            " resume_excerpt = CASE WHEN ? = '' THEN resume_excerpt ELSE ? END,"
+            " resume_hash = CASE WHEN ? = '' THEN resume_hash ELSE ? END,"
+            " resume_saved_at = COALESCE(?, resume_saved_at), updated_at = ?"
             " WHERE id = ?",
             (stage, clean_note or row["note"], next_at if next_action else row["next_action_at"],
-             now, application_id),
+             digest, excerpt, digest, digest, stamp, now, application_id),
         )
         if stage != from_stage:
             db.execute(

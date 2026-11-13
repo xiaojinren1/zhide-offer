@@ -96,8 +96,10 @@ def persist_completed(session: dict, user_id: str) -> None:
             if exists is None:
                 raise HTTPException(410, "这条面试历史已删除，旧请求不能重新保存")
             return
-        db.execute("INSERT OR IGNORE INTO interview_records(id,user_id,title,saved_at,record_json) VALUES(?,?,?,?,?)",
-                   (session["id"], user_id, record["title"], timestamp(), encoded))
+        db.execute("INSERT OR IGNORE INTO interview_records"
+                   "(id,user_id,title,saved_at,record_json,job_doc_id) VALUES(?,?,?,?,?,?)",
+                   (session["id"], user_id, record["title"], timestamp(), encoded,
+                    str(session.get("job_doc_id") or "")))
         # 与历史写入同一事务，避免删除之后的迟到重试重新创建记录。
         state["history_saved"] = True
         db.execute("UPDATE interview_artifacts SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?",

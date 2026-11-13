@@ -32,10 +32,25 @@ class Request(BaseModel):
         return self
 
 
+def _check_job_doc(doc_id: str | None, user_id: str) -> str:
+    """校验来源岗位属于本人；不合法一律当空处理，不让面试因为一个可选字段失败。"""
+    if not doc_id:
+        return ""
+    from engine.documents import store
+
+    with accounts.connection() as db:
+        row = store.get_document(db, doc_id, user_id=user_id)
+        if row is None or (row["user_id"] or "") != user_id:
+            return ""
+    return doc_id
+
+
 class BankRequest(Request):
     resume_profile: ProfileState
     resume_markdown: str = Field(min_length=1, max_length=60000)
     jd_text: str = Field(min_length=1, max_length=20000)
+    # 从岗位收件箱发起时带上岗位 ID，便于投递记录回看
+    job_doc_id: str = Field(default="", max_length=64)
     # 可选：勾选同岗位面经后，把它们里"问过什么"作为考察角度参考（不是事实来源）
     card_ids: list[str] = Field(default_factory=list, max_length=5)
 
@@ -59,6 +74,7 @@ def _peer_material(card_ids: list[str], user_id: str) -> tuple[list[dict], list[
 
 class StartRequest(Request):
     bank_id: str | None = Field(default=None, min_length=1, max_length=100)
+    job_doc_id: str = Field(default="", max_length=64)
     resume_profile: ProfileState | None = None
     resume_markdown: str | None = Field(default=None, min_length=1, max_length=60000)
     jd_text: str | None = Field(default=None, min_length=1, max_length=20000)
@@ -227,6 +243,7 @@ def bank(req: BankRequest, user: dict = Depends(accounts.require_user)):
             else:
                 references, questions = _peer_material(req.card_ids, user["id"])
                 data = {"id": artifact_id, "snapshot": snapshot, "fingerprint": fingerprint(req),
+                        "job_doc_id": _check_job_doc(req.job_doc_id, user["id"]),
                         "card_refs": references,
                         **engine.generate_bank(snapshot, questions)}
                 store.write(artifact_id, user["id"], "bank", data, None)
@@ -252,7 +269,12 @@ def create_session(req: Request, user: dict, bank_id: str | None, snapshot: dict
         else:
             context, question = engine.start_direct(snapshot)
             practice_bank = None
+        # 老客户端走 /turn 直接建会话时没有这个字段，按"没有来源岗位"处理
+        job_doc_id = _check_job_doc(getattr(req, "job_doc_id", ""), user["id"])
+        if not job_doc_id and bank_id:
+            job_doc_id = str(bank_data.get("job_doc_id") or "")
         session = {"id": session_id, "bank_id": bank_id, "snapshot": snapshot,
+                   "job_doc_id": job_doc_id,
                    "bank": practice_bank, "context": context,
                    "card_refs": list((bank_data.get("card_refs") or [])) if bank_id else [],
                    "mode": "bank" if bank_id else "direct",

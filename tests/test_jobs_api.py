@@ -164,7 +164,8 @@ class JobsApiContract(unittest.TestCase):
 
     def test_tools_search_get_and_import(self) -> None:
         executor, names = document_tools.build_executor(user_id="u-alice")
-        self.assertEqual(names, ["search_jobs", "get_job", "import_document"])
+        self.assertEqual(names, ["search_jobs", "get_job", "import_document",
+                                 "save_application", "search_knowledge", "get_interview_experience"])
 
         imported = executor("import_document", {"text": JD_TEXT, "title": "数据开发工程师"})
         self.assertTrue(imported["created"], imported)

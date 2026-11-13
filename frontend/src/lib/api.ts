@@ -323,6 +323,7 @@ export type JobDocument = {
   url: string
   content_md: string
   structured: Record<string, unknown>
+  tags: string[]
   visibility: string
   published_at: number | null
   updated_at: number
@@ -336,12 +337,14 @@ export type JobImportPayload = {
   city?: string
   salary?: string
   url?: string
+  tags?: string[]
+  kind?: string
   source?: 'paste' | 'image' | 'manual' | 'upload' | 'feed'
   parse?: boolean
 }
 
 export const jobsApi = {
-  list: (params: { kind?: string; q?: string; limit?: number; offset?: number; mine?: boolean } = {}) =>
+  list: (params: { kind?: string; q?: string; limit?: number; offset?: number; mine?: boolean; tag?: string } = {}) =>
     http.get('/jobs', { params }).then(r => r.data) as Promise<{
       ok: boolean; items: JobDocument[]; total: number; query: string | null
     }>,
@@ -355,6 +358,13 @@ export const jobsApi = {
     }>,
   remove: (id: string) =>
     http.delete(`/jobs/${encodeURIComponent(id)}`).then(r => r.data) as Promise<{ ok: boolean }>,
+  update: (id: string, payload: {
+    title?: string; company?: string; city?: string; content_md?: string; tags?: string[]
+  }) =>
+    http.patch(`/jobs/${encodeURIComponent(id)}`, payload).then(r => r.data) as Promise<{
+      ok: boolean
+      document: JobDocument
+    }>,
   // 截图导入第一步：只把图片读成文字，不入库；用户核对后走 import 保存
   parseImage: (file: File) => {
     const fd = new FormData()
@@ -380,6 +390,9 @@ export type JobApplication = {
   next_action_at: number | null
   next_action_date: string
   note: string
+  resume_excerpt: string
+  resume_hash: string
+  resume_saved_at: number | null
   created_at: number
   updated_at: number
   job: { title: string; company: string; city: string; url: string; salary_text: string } | null
@@ -398,8 +411,9 @@ export const applicationsApi = {
     http.get(`/jobs/applications/${encodeURIComponent(docId)}`).then(r => r.data) as Promise<{
       ok: boolean
       application: JobApplication
+      interviews: Array<{ id: string; title: string; saved_at: string }>
     }>,
-  advance: (docId: string, payload: { stage: ApplicationStage; note?: string; next_action?: string }) =>
+  advance: (docId: string, payload: { stage: ApplicationStage; note?: string; next_action?: string; resume_markdown?: string }) =>
     http.post(`/jobs/applications/${encodeURIComponent(docId)}`, payload).then(r => r.data) as Promise<{
       ok: boolean
       application: JobApplication

@@ -38,6 +38,7 @@ class DocumentDraft:
     published_at: float | None = None
     content_md: str = ""
     structured: dict[str, Any] = field(default_factory=dict)
+    tags: list[str] = field(default_factory=list)
     visibility: str = ""
     license_note: str = ""
     user_id: str | None = None
@@ -50,6 +51,37 @@ class DocumentDraft:
             role=self.role,
             content=self.content_md,
         )
+
+
+MAX_TAGS = 8
+MAX_TAG_CHARS = 16
+
+
+def clean_tags(raw: object) -> list[str]:
+    """标签清洗：去空白、去重、限长限量，保持用户输入顺序。"""
+    if isinstance(raw, str):
+        items = [item for item in raw.replace("，", ",").split(",")]
+    elif isinstance(raw, (list, tuple, set)):
+        items = [str(item) for item in raw]
+    else:
+        return []
+    result: list[str] = []
+    for item in items:
+        tag = str(item or "").strip()[:MAX_TAG_CHARS]
+        if tag and tag not in result:
+            result.append(tag)
+        if len(result) >= MAX_TAGS:
+            break
+    return result
+
+
+def document_tags(row: Any) -> list[str]:
+    """从数据库行取标签；旧数据或损坏内容一律当空。"""
+    try:
+        value = json.loads(row["tags_json"] or "[]")
+    except (TypeError, ValueError, KeyError, IndexError):
+        return []
+    return [str(item) for item in value if str(item).strip()] if isinstance(value, list) else []
 
 
 def split_chunks(content: object) -> list[str]:
@@ -107,6 +139,7 @@ def list_documents(
     limit: int = 20,
     offset: int = 0,
     own_only: bool = False,
+    tag: str = "",
 ) -> list[sqlite3.Row]:
     """列出本人资料与公共资料；`visibility` 只作为附加过滤条件。
 
@@ -127,6 +160,10 @@ def list_documents(
     if visibility:
         clauses.append("visibility = ?")
         params.append(visibility)
+    if tag and tag.strip():
+        # 标签存在 JSON 数组里：用带引号的 LIKE 精确匹配某个标签，避免 "SQL" 命中 "SQL优化"
+        clauses.append("tags_json LIKE ?")
+        params.append(f'%"{tag.strip()}"%')
 
     params.extend([max(1, min(int(limit), 100)), max(0, int(offset))])
     sql = (
@@ -178,6 +215,8 @@ def upsert_document(db: sqlite3.Connection, draft: DocumentDraft) -> tuple[str, 
             updates["published_at"] = draft.published_at
         if draft.structured:
             updates["structured_json"] = json.dumps(draft.structured, ensure_ascii=False)
+        if draft.tags:
+            updates["tags_json"] = json.dumps(clean_tags(draft.tags), ensure_ascii=False)
         if draft.visibility:
             updates["visibility"] = draft.visibility
 
@@ -202,9 +241,9 @@ def upsert_document(db: sqlite3.Connection, draft: DocumentDraft) -> tuple[str, 
         """INSERT INTO documents(
             id, user_id, kind, source, source_key, title, company, role, city,
             salary_text, salary_min, salary_max, experience, education, url,
-            published_at, fetched_at, content_md, structured_json, visibility,
+            published_at, fetched_at, content_md, structured_json, tags_json, visibility,
             license_note, created_at, updated_at
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             doc_id, draft.user_id, kind, source, key,
             text_util.normalize_text(draft.title),
@@ -216,6 +255,7 @@ def upsert_document(db: sqlite3.Connection, draft: DocumentDraft) -> tuple[str, 
             draft.published_at, now,
             text_util.normalize_text(draft.content_md),
             json.dumps(draft.structured, ensure_ascii=False),
+            json.dumps(clean_tags(draft.tags), ensure_ascii=False),
             visibility, draft.license_note, now, now,
         ),
     )

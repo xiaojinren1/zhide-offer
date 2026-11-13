@@ -68,7 +68,12 @@
 
 #### 模型列表和自定义服务商
 
-服务商预设填入 Base URL。用户可从 `GET {base_url}/models` 获取模型 ID，也可手动填写后测试。自定义 OpenAI 兼容服务必须由管理员在 `JOBAGENT_CUSTOM_MODEL_BASE_URLS` 中配置完整 HTTPS Base URL，逗号分隔，仅添加可信公网端点，配置后重启。列表查询不会启用或改写当前配置。
+服务商预设填入 Base URL。用户可从 `GET {base_url}/models` 获取模型 ID，也可手动填写后测试。
+
+自定义 OpenAI 兼容服务**默认允许**：只要是合法的公网 HTTPS Base URL（不带账号密码、query，不直接指向 `/chat/completions`），用户填自己的 Key 就能用——与 cc-switch、OpenCode 这类客户端一致。
+**内网/本机地址一律拒绝**（127.0.0.1、10/172.16/192.168 网段、169.254 云元数据、`.local`、`.internal` 等），避免服务端被当成内网跳板。
+运维需要对内收紧时，可设 `JOBAGENT_CUSTOM_MODEL_BASE_URLS_STRICT=1`，此时只允许 `JOBAGENT_CUSTOM_MODEL_BASE_URLS` 里列出的端点，其余返回 422 并说明需要加入白名单。
+列表查询不会启用或改写当前配置。
 
 自定义选项也接受内置服务商的官方 Base URL。DeepSeek 官方地址带 /v1 时按同一端点处理，无需管理员重复登记。
 

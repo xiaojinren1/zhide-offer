@@ -51,6 +51,7 @@
 | B19 | 经历库按分类切换，卡片多时默认聚焦最多的一类 | 已完成 | 2 小时 |
 | B20 | 文档收敛：排期/状态/验收合并为单一文档，删除过期文档 | 已完成 | 2 小时 |
 | B21 | 文档再合并：契约合成一份、运行与部署合成一份 | 已完成 | 2 小时 |
+| B22 | 修复：自定义 Base URL 被白名单误拦（别处能用、这里 422） | 已完成 | 2 小时 |
 
 ## 分期完成情况
 
@@ -591,6 +592,33 @@ get_interview_experience 返回得分）；真页面在收件箱推进状态后�
 
 **结果**：仓库内非夹具 Markdown 从 13 个减到 8 个：README、AGENTS、RUNBOOK、BACKLOG、CONTRACTS、
 HANDOFF、两个模块 BEHAVIOR（+ 面试集成说明 + backend/RULES）。
+
+## B22 · 自定义 Base URL 被白名单误拦
+
+**问题（用户实测）**：同一个模型配置在 cc-switch / OpenCode 里能用，在本项目里
+`POST /api/model-preferences/models?kind=text` 返回 422「该 Base URL 未获准使用，请检查地址或联系管理员添加」。
+
+**根因**：`approved_url()` 要求 `provider=custom` 的地址必须命中 `JOBAGENT_CUSTOM_MODEL_BASE_URLS`
+白名单；没配白名单就全部拒绝。而 cc-switch 这类客户端不做这个限制，于是"别处能用、这里 422"。
+
+**修复**
+- 策略改为：**公网 HTTPS 端点默认放行**（用户填的是自己的 Key 和自己的服务商），
+  只校验 URL 形态（https、无账号密码、无 query/fragment、不直接指向 `/chat/completions`）。
+- **内网/本机地址一律拒绝**（SSRF 防护）：`127.0.0.1`、`10/172.16/192.168` 网段、
+  `169.254`（云元数据）、`::1`、`localhost`、`.local/.internal/.lan` 等；字面 IP 要求 `is_global`。
+- 白名单改为**可选严格模式**：`JOBAGENT_CUSTOM_MODEL_BASE_URLS_STRICT=1` 时才只允许
+  `JOBAGENT_CUSTOM_MODEL_BASE_URLS` 里的端点，报错文案直接说明需要加入哪个变量。
+- 错误文案也有改进：不再是笼统的"未获准使用"，而是说清是"内网地址"还是"URL 形态不对"。
+
+**验证**
+- `tests/test_model_url_policy.py` 9 项：预设与 `/v1` 归一化、第三方公网端点无需白名单、
+  http/带密码/带 query/指向 `/chat/completions` 拒绝、内网与本机地址拒绝、公网 IP 放行、
+  严格模式仍按白名单拦截、默认模式不拦截。
+- 真服务复现同一请求：`https://api.openai-next.com/v1` 与 `https://api.moonshot.cn/v1`
+  现在返回 502「服务商拒绝了 API Key」（说明已真正打到上游，用假 Key 才会 401），
+  `https://127.0.0.1:8000/v1` 仍返回 422「内网或本机地址」。
+- 全量 discover 与前端构建通过；RUNBOOK 环境变量表、`.env.example`、CONTRACTS 第 2 节、
+  AGENTS 边界同步更新。
 
 ## 设计决策记录
 

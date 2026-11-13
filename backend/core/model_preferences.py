@@ -1,6 +1,7 @@
 """Encrypted account model preferences and request-local model context."""
 import base64
 import binascii
+import ipaddress
 import os
 from contextvars import ContextVar
 from urllib.parse import urlsplit
@@ -113,27 +114,83 @@ def clear(user_id: str, kind: ModelKind = "text") -> None:
         db.execute(f"DELETE FROM {_TABLES[kind]} WHERE user_id = ?", (user_id,))
 
 
+# 内网/本机保留地址：自定义端点绝不能指向这里，否则服务端会被当成内网跳板
+_INTERNAL_SUFFIXES = (".local", ".internal", ".lan", ".home.arpa", ".localhost",
+                      ".localdomain", ".intranet", ".corp", ".svc", ".cluster.local")
+_INTERNAL_HOSTNAMES = {"localhost", "metadata", "metadata.google.internal",
+                       "instance-data", "kubernetes.default"}
+
+
+def host_is_public(hostname: str) -> bool:
+    """判断主机名是否公网可达：字面 IP 必须 global，域名不得是内网/元数据地址。"""
+    host = (hostname or "").strip().lower().rstrip(".")
+    if not host or host in _INTERNAL_HOSTNAMES:
+        return False
+    if host.endswith(_INTERNAL_SUFFIXES):
+        return False
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        # 域名允许通过：解析时机留到真正请求时，避免配置阶段依赖 DNS 可用性
+        return "." in host
+    return address.is_global
+
+
+def _custom_urls_strict() -> bool:
+    """严格模式：只允许白名单里的端点（运维需要对内收紧时打开）。"""
+    return os.getenv("JOBAGENT_CUSTOM_MODEL_BASE_URLS_STRICT", "").strip().lower() in {"1", "true", "yes"}
+
+
+def custom_allowlist() -> set[str]:
+    raw = os.getenv("JOBAGENT_CUSTOM_MODEL_BASE_URLS", "")
+    return {value.strip().rstrip("/") for value in raw.split(",") if value.strip()}
+
+
 def approved_url(provider: str, base_url: str) -> str:
+    """校验并规范化 Base URL。
+
+    规则（按顺序）：
+    1. 服务商预设地址直接通过；
+    2. 其余地址必须是合法的 **公网 HTTPS** 端点：不带账号密码、query、fragment，
+       不是内网/本机/云元数据地址，也不允许直接填 `/chat/completions`；
+    3. 只有显式打开 `JOBAGENT_CUSTOM_MODEL_BASE_URLS_STRICT=1` 时才要求命中白名单
+       （`JOBAGENT_CUSTOM_MODEL_BASE_URLS`）。
+
+    为什么默认不再要求白名单：用户填的是**自己的 Key 和自己的服务商**，cc-switch、OpenCode 这类
+    客户端都不限制地址；强制白名单会让"别处能用、这里 422"，而真正的风险（内网跳板）
+    用公网地址校验就能挡住。
+    """
     preset = PROVIDERS.get(provider)
     url = base_url.strip().rstrip("/") or preset
     deepseek = PROVIDERS["deepseek"]
     if url == f"{deepseek}/v1" and provider in {"deepseek", "custom"}:
         url = deepseek
-    if (preset and url == preset) or (provider == "custom" and url in PROVIDERS.values()):
+    if preset and url == preset:
         return url
-    approved = {value.strip().rstrip("/") for value in os.getenv("JOBAGENT_CUSTOM_MODEL_BASE_URLS", "").split(",")}
-    if provider != "custom" or not url or url not in approved:
-        raise HTTPException(422, "该 Base URL 未获准使用，请检查地址或联系管理员添加")
+    if provider == "custom" and url in PROVIDERS.values():
+        return url
+
+    if not url:
+        raise HTTPException(422, "请填写 Base URL，例如 https://api.example.com/v1")
     try:
         parsed = urlsplit(url)
-        valid = (parsed.scheme == "https" and parsed.hostname and not parsed.username
+        valid = (parsed.scheme == "https" and bool(parsed.hostname) and not parsed.username
                  and not parsed.password and not parsed.query and not parsed.fragment
                  and not url.endswith("/chat/completions")
                  and all(33 <= ord(char) <= 126 for char in url) and "\\" not in url)
     except ValueError:
         valid = False
     if not valid:
-        raise HTTPException(422, "请输入有效的 HTTPS Base URL")
+        raise HTTPException(422, "请输入有效的 HTTPS Base URL（不要带账号密码、查询参数，也不要直接填 /chat/completions）")
+
+    if _custom_urls_strict() and url not in custom_allowlist():
+        raise HTTPException(
+            422,
+            f"站点开启了 Base URL 白名单（严格模式）：{url} 不在名单里。"
+            "请联系管理员把它加入 JOBAGENT_CUSTOM_MODEL_BASE_URLS，或关闭严格模式。",
+        )
+    if not host_is_public(parsed.hostname or ""):
+        raise HTTPException(422, f"{parsed.hostname} 是内网或本机地址，不能用于模型端点")
     return url
 
 

@@ -214,7 +214,8 @@ npm.cmd --prefix frontend exec vitest run
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `MODEL` | 空 / 厂商地址 / 内置默认 | 平台默认端点，供脚本、测试与健康字段使用，不参与页面业务请求 |
 | `JOBAGENT_FALLBACKS` | 空 | 平台端点备用链（逗号分隔），仅在上面这层生效 |
 | `JOBAGENT_MODEL_ENCRYPTION_KEY` | 无 | 加密个人模型 API Key 的独立密钥，见下文；缺失时用户无法保存个人模型 |
-| `JOBAGENT_CUSTOM_MODEL_BASE_URLS` | 空 | 允许用户填写的自定义 HTTPS Base URL 白名单，逗号分隔 |
+| `JOBAGENT_CUSTOM_MODEL_BASE_URLS` | 空 | 自定义 Base URL 白名单，逗号分隔。**只在严格模式下才拦截**，平时只是备忘 |
+| `JOBAGENT_CUSTOM_MODEL_BASE_URLS_STRICT` | 空 | 设为 `1` 时只允许白名单里的端点（内网、自建网关等场景才需要） |
 | `JOBAGENT_ADMIN_USERNAMES` | 空 | 仅首次迁移用：把这些已注册用户名提升为管理员，之后以数据库 `user_roles` 为准 |
 | `JOBAGENT_PDF_FONT` | 自动查找常见中文字体 | 导出 PDF 用的中文 TrueType 字体绝对路径；找不到任何字体时导出返回 503 |
 | `JOBAGENT_LLM_DEADLINE` / `JOBAGENT_FLOW_DEADLINE` | 100 / 150 秒 | 单次模型调用 / 整条流程的时间预算 |
@@ -262,7 +263,7 @@ sudoedit /etc/jobagent/jobagent.env
 - `JOBAGENT_MODEL_ENCRYPTION_KEY`：加密保存用户个人模型 API Key 的独立密钥（见下文「个人模型加密配置」）。不填时注册用户无法保存自己的模型配置，页面一直提示去配置。
 - `JOBAGENT_PORT` / `JOBAGENT_HOST`：必须与 Nginx `proxy_pass` 一致，默认 `127.0.0.1:8000`。
 
-选填：`OPENAI_API_KEY`、`OPENAI_BASE_URL`、`MODEL` 是平台默认端点，只影响健康字段、脚本和测试（页面业务请求用各账户自己启用的模型）；`JOBAGENT_PDF_FONT` 为导出 PDF 的中文 TrueType 字体绝对路径；`JOBAGENT_CUSTOM_MODEL_BASE_URLS` 为允许用户填写的自定义 HTTPS 端点白名单。值包含特殊字符时用单引号包围；不要把配置当 Shell 脚本执行。服务账户需能读取配置和字体。
+选填：`OPENAI_API_KEY`、`OPENAI_BASE_URL`、`MODEL` 是平台默认端点，只影响健康字段、脚本和测试（页面业务请求用各账户自己启用的模型）；`JOBAGENT_PDF_FONT` 为导出 PDF 的中文 TrueType 字体绝对路径；`JOBAGENT_CUSTOM_MODEL_BASE_URLS` 是自定义端点白名单（配合 `JOBAGENT_CUSTOM_MODEL_BASE_URLS_STRICT=1` 才生效，见下文）。值包含特殊字符时用单引号包围；不要把配置当 Shell 脚本执行。服务账户需能读取配置和字体。
 
 检查 `deploy/jobagent.service` 的账户和绝对路径。端口由服务器配置中的 `JOBAGENT_PORT` 管理；修改时须同步 Nginx 的 `proxy_pass` 和下方健康检查地址。将服务文件安装为 `/etc/systemd/system/jobagent.service`；若目标已存在，先备份和核对差异再替换。执行：
 

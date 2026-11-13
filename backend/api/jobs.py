@@ -5,7 +5,7 @@
 - **导入不依赖模型**：解析失败或模型未配置时按原文入库，把原因放进 `warnings`；
   "模型挂了就存不进去"是不可接受的失败方式。
 - **只存结构化字段 + 正文 + 来源链接**，不存原始 HTML；链接抓取不在这里做
-  （见 docs/plan-jobs-knowledge-community.md 的合规约定）。
+  （合规约定见 AGENTS.md）。
 - **可见性由 `engine.documents.store` 统一裁决**，接口层不自己拼权限条件。
 """
 from __future__ import annotations

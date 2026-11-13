@@ -125,12 +125,33 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
   const { state, update } = persistence
   const { profile, jd_text: jdText, jd_keywords: jdKeywords, markdown, source_text: sourceText, source_name: sourceName } = state
   const [canManage, setCanManage] = useState(false)
+  // 站点还没有管理员时，给首个正式账号一个自助入口（公开部署忘了配名单也不至于死锁）
+  const [canClaimAdmin, setCanClaimAdmin] = useState(false)
+  const [claimingAdmin, setClaimingAdmin] = useState(false)
   useEffect(() => {
     if (user.guest) return
     let active = true
     api.userStats().then(result => { if (active) setCanManage(Boolean(result)) }).catch(() => {})
+    api.adminBootstrap().then(result => { if (active) setCanClaimAdmin(Boolean(result?.claimable)) })
+      .catch(() => { if (active) setCanClaimAdmin(false) })
     return () => { active = false }
-  }, [user.guest])
+  }, [user.guest, user.id])
+
+  async function claimAdmin() {
+    if (claimingAdmin || canManage) return
+    if (!window.confirm('这个站点还没有管理员。领取后你将拥有管理权限（统计、反馈、角色、错误趋势）。仅当站点无任何管理员时才能领取，领取后成为首个管理员。继续？')) return
+    setClaimingAdmin(true)
+    try {
+      await api.claimAdmin()
+      setCanClaimAdmin(false)
+      setCanManage(true)
+    } catch (reason) {
+      setCanClaimAdmin(false)
+      window.alert(apiErrorMessage(reason))
+    } finally {
+      setClaimingAdmin(false)
+    }
+  }
   const [pageOverride, setPageOverride] = useState<SettingsPage | null>(null)
   const [modelModule, setModelModule] = useState<'config' | 'usage'>('config')
   const [workbenchEntryStep, setWorkbenchEntryStep] = useState<3 | 4>(3)
@@ -231,6 +252,7 @@ function AccountWorkspace({ user, onUserUpdated, onLoggedOut }: { user: AccountU
       <button type="button" className={`nav-item ${page === 'community' ? 'active' : ''}`} aria-current={page === 'community' ? 'page' : undefined} disabled={busy || loggingOut || !persistence.loaded} onClick={() => setPage('community')}><UiIcon name="folder" /><span>面经与内推</span></button>
       <button type="button" className={`nav-item ${page === 'models' ? 'active' : ''}`} aria-current={page === 'models' ? 'page' : undefined} disabled={busy || loggingOut} onClick={() => setPage('models')}><UiIcon name="edit" /><span>模型中心</span></button>
       {canManage && <button type="button" className={`nav-item ${page === 'admin' ? 'active' : ''}`} aria-current={page === 'admin' ? 'page' : undefined} disabled={busy || loggingOut} onClick={() => setPage('admin')}><UiIcon name="shield" /><span>管理后台</span></button>}
+      {!canManage && canClaimAdmin && <button type="button" className="nav-item nav-claim-admin" disabled={busy || loggingOut || claimingAdmin} onClick={() => void claimAdmin()}><UiIcon name="shield" /><span>{claimingAdmin ? '领取中…' : '成为首个管理员'}</span></button>}
     </div><div className="sidebar-bottom"><div className="sidebar-tip"><UiIcon name="shield" /><strong>工作台内完成闭环</strong><p>岗位匹配和简历检查会围绕当前简历逐项修改。</p></div></div></aside>
     <main className={pageOverride ? 'workspace workspace-settings' : 'workspace'}><div className="page-heading"><div><span className="eyebrow">{page === 'jobs' ? 'JOB INBOX' : page === 'community' ? 'COMMUNITY' : page === 'resumes' ? 'RESUME LIBRARY' : page === 'admin' ? 'ADMIN DASHBOARD' : page === 'models' ? 'MODEL CENTER' : page === 'account' ? 'ACCOUNT SETTINGS' : 'YOUR NEXT CHAPTER'}</span><h1>{page === 'jobs' ? '岗位收件箱' : page === 'community' ? '面经与内推' : page === 'resumes' ? '简历库' : page === 'admin' ? '管理后台' : page === 'models' ? '模型中心' : page === 'account' ? '个人中心' : '把真实经历，变成岗位竞争力'}</h1><p>{page === 'jobs' ? '把 JD 收进来，后面的匹配、定制和面试都用它。' : page === 'community' ? '看别人真实的面经与内推，也把自己的复盘匿名分享出来。' : page === 'resumes' ? '预览和下载当前工作台简历。' : page === 'admin' ? '查看站点趋势、处理反馈与管理角色。' : page === 'models' ? (user.guest ? '为本次试用配置文本和图片解析模型。' : '配置你的模型，查看调用和 Token 用量。') : page === 'account' ? '管理头像与登录密码。' : '整理经历，确认事实，为每个心仪岗位做好准备。'}</p></div>{!pageOverride && <div className="brand-companion" aria-hidden="true"><span className="brand-orbit" /><img src={posterOwl} alt="" width="180" height="180" /><span className="companion-caption">你的 AI 求职伙伴</span></div>}</div>
       {logoutError && <p className="auth-error account-error" role="alert">退出未成功：{logoutError}</p>}

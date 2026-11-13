@@ -6,7 +6,7 @@ from time import time
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
-from core import accounts, event_log
+from core import accounts, event_log, events
 
 router = APIRouter(prefix="/api/user-stats")
 _presence: dict[str, float] = {}
@@ -143,6 +143,40 @@ def overview(response: Response, user: dict = Depends(accounts.require_user)):
     return {"online": online, "registered": registered, "new_this_week": new_this_week,
             "trend": [{"date": day, "registrations": registrations.get(day, 0), "tokens": tokens.get(day, 0)}
                       for day in dates]}
+
+
+@router.get("/bootstrap")
+def bootstrap(response: Response, user: dict = Depends(accounts.require_user)):
+    """站点还没有管理员时，允许首个正式账号自助领取管理员角色。
+
+    为什么要有这个入口：公开部署时如果忘了配 `JOBAGENT_ADMIN_USERNAMES`、也没人上服务器跑
+    CLI，站点就永远没有管理员，而「管理后台」只有管理员能进——死锁。
+    安全边界：
+    - 只能领取一次：库里一旦有管理员，`claimable` 永远是 false；
+    - 只接受正式账号（试用账号不行）；
+    - 领取动作写事件流，便于事后核对是谁第一个接手的。
+    """
+    response.headers["Cache-Control"] = "no-store"
+    if user.get("guest"):
+        return {"claimable": False, "reason": "试用账号不能领取管理员角色"}
+    with accounts.connection() as db:
+        exists = db.execute("SELECT 1 FROM user_roles WHERE role = 'admin' LIMIT 1").fetchone()
+    return {"claimable": exists is None, "reason": "" if exists is None else "站点已有管理员"}
+
+
+@router.post("/bootstrap")
+def claim_bootstrap(response: Response, user: dict = Depends(accounts.require_user)):
+    """领取首个管理员角色；已存在管理员时返回 409，不做任何变更。"""
+    response.headers["Cache-Control"] = "no-store"
+    if user.get("guest"):
+        raise HTTPException(403, "试用账号不能领取管理员角色")
+    with accounts.connection() as db:
+        # 事务内再查一次，避免两个人同时点「领取」都成功
+        if db.execute("SELECT 1 FROM user_roles WHERE role = 'admin' LIMIT 1").fetchone():
+            raise HTTPException(409, "站点已有管理员，这个入口已关闭；需要新增管理员请在「管理后台 → 管理员角色」操作")
+        db.execute("INSERT OR IGNORE INTO user_roles(user_id, role) VALUES(?, 'admin')", (user["id"],))
+    events.emit("admin_bootstrap_claimed", user_id=user["id"])
+    return {"ok": True, "username": user["username"]}
 
 
 @router.get("/errors")

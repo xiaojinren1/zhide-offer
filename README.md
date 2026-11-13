@@ -27,10 +27,12 @@ npm.cmd --prefix frontend run build
 - [账户和个人模型](ACCOUNT.md)
 - [简历工作台](frontend/src/pages/workbench/BEHAVIOR.md)
 - [个人经历库](LIBRARY.md)
-- [岗位收件箱与资料层](docs/plan-jobs-knowledge-community.md)
 - [社群与审核](docs/COMMUNITY.md)
 - [模拟面试](frontend/src/pages/interview/BEHAVIOR.md)
 - [自动保存与历史](PERSISTENCE.md)
 - [模型错误](MODEL_ERRORS.md)
-- [路线图（分期勾选与验证层次）](ROADMAP.md)
-- [待办清单](docs/BACKLOG.md)
+
+## 计划与状态
+
+- [计划与状态](docs/BACKLOG.md)：产品分期勾选、待办编号、设计决策、历史验收记录（唯一排期文档）
+- [交接说明](docs/HANDOFF.md)：新会话入口、代码地图、已知坑

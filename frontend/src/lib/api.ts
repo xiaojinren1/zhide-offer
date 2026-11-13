@@ -134,6 +134,10 @@ export const api = {
     online: number; registered: number; new_this_week: number
     trend: Array<{ date: string; registrations: number; tokens: number }>
   } | null>('/user-stats').then(r => r.data),
+  adminBootstrap: () =>
+    http.get('/user-stats/bootstrap').then(r => r.data) as Promise<{ claimable: boolean; reason: string }>,
+  claimAdmin: () =>
+    http.post('/user-stats/bootstrap').then(r => r.data) as Promise<{ ok: boolean; username: string }>,
   errorTrend: (params: { days?: number; limit?: number } = {}) =>
     http.get('/user-stats/errors', { params }).then(r => r.data) as Promise<{
       ok: boolean

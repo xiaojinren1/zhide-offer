@@ -33,3 +33,14 @@
 .library-confirm-actions{display:flex;flex-wrap:wrap;gap:12px;padding-top:14px;border-top:1px solid #ecd9b7}
 .library-page .library-confirm-actions>button{margin:0;font-size:18px;min-height:44px;padding:10px 18px}
 .library-page button:focus-visible,.library-review button:focus-visible{outline:3px solid #739fe8;outline-offset:3px}
+
+/* 经历库分类页签：默认只看一个分类，避免整页往下滚 */
+.library-kind-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 4px}
+.library-kind-tabs button{display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(0,0,0,.14);background:#fff;border-radius:999px;padding:6px 14px;font:inherit;font-size:14px;color:#58718f;cursor:pointer}
+.library-kind-tabs button span{font-size:12px;color:#8c99ab;font-variant-numeric:tabular-nums}
+.library-kind-tabs button:hover:not(:disabled){background:#f3f7fd;color:#2270e2}
+.library-kind-tabs button.active{background:#eaf2ff;border-color:rgba(34,112,226,.45);color:#1e70ed;font-weight:600}
+.library-kind-tabs button:disabled{opacity:.45;cursor:not-allowed}
+.library-kind-tabs button:focus-visible{outline:2px solid #2270e2;outline-offset:2px}
+.library-kind-empty{margin:10px 0}
+.library-kind-hint{margin:10px 0 0;font-size:13px;color:#7b8ca1}

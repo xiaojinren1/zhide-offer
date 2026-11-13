@@ -1,6 +1,6 @@
 """岗位、资料、投递与社群的统一数据层。
 
-设计边界（见 docs/plan-jobs-knowledge-community.md）：
+设计边界（与 AGENTS.md 一致）：
 
 - **一层存所有资料**：岗位 JD、用户上传的 JD、面试复盘、技术笔记同表，
   用 `kind` 与 `source` 区分，避免"岗位表 + 资料表"各写一遍检索。
